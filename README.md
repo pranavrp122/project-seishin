@@ -31,19 +31,31 @@ docker start seishin-ears
 ```
 
 ### 3. Run the Engine!
-You can execute the primary application script via our convenient bash alias wrapper (`nexus`), or manually via the mounted script directory:
+The system uses a fast two-part Client-Daemon architecture.
 
+**First, start the Ears Daemon (runs in background):**
+This loads the heavy Parakeet ASR model and Silero VAD into memory (~10 seconds boot time). Run this in one terminal:
 ```bash
-docker exec -it seishin-ears python3 /workspace/scripts/nexus_engine.py
+./run_shortcuts/run_ears.sh
+# Or use the shortcut:
+ears
+```
+
+**Second, start the Nexus Engine (the Brain Logic):**
+This is a lightweight logic controller that connects the ears to the LLM. It restarts instantly so you can rapidly iterate on your AI's persona without waiting for models to load. Run this in a second terminal:
+```bash
+./run_shortcuts/run.sh
+# Or use the shortcut:
+nexus
 ```
 *Note: Wait a minute for the Brain to boot up fully and compile its PyTorch execution graphs the first time you run it.*
 
 ## Engine Usage
-Once the script says `🚀 NEXUS ENGINE UPDATED. Speak into the mic.`:
-- Begin talking into your microphone.
-- You will see Parakeet transcribe your speech dynamically on stream.
-- The Engine captures UNBOUNDED audio; you do not have to race a timer!
-- Once you are ready to send your thought to the Brain, **Hit the `Enter` key**.
+Once the `nexus` script outputs `NEXUS ENGINE ONLINE — listening on port 5050`:
+- **Hands-Free Mode:** Just begin talking into your microphone!
+- The intelligent Silero VAD gatekeeper monitors your audio, ignoring PC fans and background hums.
+- The Engine captures UNBOUNDED audio while you are speaking.
+- The moment you pause speaking, the phrase is transcribed and sent to the Brain automatically (no Enter key needed!).
 
 ## Current Agent Workflows (GSD Framework)
 - Refer to `docs/TASKS.md` for our current objectives.

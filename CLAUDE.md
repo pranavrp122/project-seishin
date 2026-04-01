@@ -2,27 +2,35 @@
 
 ## System Architecture
 
-Nexus Engine is a zero-latency, voice-driven conversational AI split across two Docker containers communicating over the Docker bridge network.
+Nexus Engine is a zero-latency, voice-driven conversational AI using a client-daemon architecture for instant dev iteration. The system spans two Docker containers plus an internal HTTP bridge between the ears daemon and the nexus engine.
 
 ```
 [ Mic (host PulseAudio via WSLg) ]
         │
-[ seishin-ears ] ─── ASR (Parakeet TDT 1.1B via NeMo model.transcribe())
+[ ears_daemon.py ] ─── Silero VAD (CPU) + Parakeet TDT 1.1B (GPU)
+        │  HTTP POST to localhost:5050
+        │  /prefill (fire-and-forget during speech)
+        │  /flush   (blocking, after silence detected)
+        │
+[ nexus_engine.py ] ─── Lightweight HTTP server (port 5050, zero ML models)
         │  HTTP POST (streaming)
-[ seishin-brain ] ── LLM inference (vLLM serving Qwen/Qwen3.5-9B)
+[ seishin-brain ] ──── LLM inference (vLLM serving Qwen/Qwen3.5-9B)
         │
 [ stdout / TTS (future) ]
 ```
 
+Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemon loads heavy models once and stays running. The engine can be restarted in ~0.1s to iterate on prompts, history logic, or generation params without reloading models.
+
 ## Pipeline Flow
 
-1. `sounddevice.InputStream` captures mic audio at 16kHz, queuing chunks
-2. Chunks accumulate in a numpy buffer (unbounded — no buffer cap)
-3. `model.transcribe([buffer])` runs Parakeet TDT 1.1B on the buffer continuously
-4. Live transcription is shown in the terminal via `\r` overwrite
-5. User presses **Enter** to flush the buffer to the LLM (no silence threshold)
-6. `ask_brain()` sends a few-shot prompt to vLLM's `/v1/completions` endpoint
-7. vLLM streams the response back token-by-token, printed live to stdout
+1. `ears_daemon.py` captures mic audio at 16kHz via `sounddevice.InputStream`
+2. Silero VAD (CPU) classifies 512-sample chunks as speech/silence
+3. VAD state machine: IDLE → SPEAKING → TRAILING → FLUSH
+4. During SPEAKING/TRAILING, Parakeet runs live transcription shown via `\r` overwrite
+5. Every 4 new words, ears daemon sends `POST /prefill` to warm vLLM's KV cache
+6. On FLUSH (480ms silence), ears daemon sends `POST /flush` to nexus engine
+7. `nexus_engine.py` receives flush, calls `ask_brain()` which streams the Qwen response to stdout
+8. Nexus engine manages conversation history, response quality filtering, and TTFT counters
 
 ## Docker Containers
 
@@ -47,7 +55,9 @@ Nexus Engine is a zero-latency, voice-driven conversational AI split across two 
 
 | Path | Purpose |
 |---|---|
-| `scripts/nexus_engine.py` | Main pipeline: Mic → ASR → LLM (Enter-to-send) |
+| `scripts/ears_daemon.py` | Heavy daemon: Mic → Silero VAD → Parakeet ASR → HTTP to nexus engine |
+| `scripts/nexus_engine.py` | Lightweight engine: HTTP server (port 5050) → conversation history → vLLM |
+| `scripts/test_brain.py` | Interactive CLI brain tester with conversation memory |
 | `docs/FIXES.md` | Bug fix log with numbered entries |
 | `docs/TASKS.md` | Agent task roadmap |
 | `README.md` | Setup guide for collaborators |
@@ -59,9 +69,11 @@ Nexus Engine is a zero-latency, voice-driven conversational AI split across two 
 - URL: `http://172.17.0.1:8001/v1/completions`
 - Model: `Qwen/Qwen3.5-9B`
 - Streaming: enabled (`stream=True`)
-- Stop tokens: `["User:", "\n"]`
+- Stop tokens: `["User:", "\n\n"]`
+- Generation params: `temperature=0.7`, `repetition_penalty=1.15`, `max_tokens=300`
 - Timeout: 60s (accommodates initial vLLM CUDA graph compilation)
-- Few-shot prompt template enforces "Nexus Engine" persona
+- System prompt enforces "Nexus" persona with anti-repetition and brevity instructions
+- Response quality filter drops garbage replies (dodge phrases) to prevent history poisoning
 
 ## ASR Configuration
 
@@ -69,7 +81,16 @@ Nexus Engine is a zero-latency, voice-driven conversational AI split across two 
 - Inference: `model.transcribe([buffer], batch_size=1, verbose=False)`
 - tqdm progress bar suppressed via `contextlib.redirect_stderr(io.StringIO())`
 - Sample rate: 16000 Hz, blocksize: 800
-- No silence threshold — Enter key is the only send trigger
+- Silero VAD gatekeeper: 512-sample chunks, speech threshold 0.5, 480ms silence gate
+- VAD runs on CPU, Parakeet on GPU — zero contention
+
+## Client-Daemon Architecture
+
+- `ears_daemon.py` loads Parakeet + Silero once, stays running indefinitely
+- `nexus_engine.py` is a zero-model HTTP server that restarts in ~0.1s
+- Communication: `localhost:5050` — `/prefill` (fire-and-forget) and `/flush` (blocking)
+- Workflow: start ears daemon once, restart nexus engine freely to iterate on prompts/logic
+- Both scripts run inside `seishin-ears` container (scripts are live-mounted)
 
 ## Known Issues & Fixes
 
@@ -104,6 +125,8 @@ Nexus Engine is a zero-latency, voice-driven conversational AI split across two 
 
 1. Edit scripts on host under `~/nexus-engine/scripts/`
 2. Changes are live-mounted into `seishin-ears` — no rebuild needed
-3. Run `nexus` alias (or `python /workspace/scripts/nexus_engine.py` inside container) to start
-4. Run `docker logs seishin-brain -f` to monitor LLM container
-5. Git remote: `git@github.com:pranavrp122/projectseishin.git` (branch: `main`)
+3. Start ears daemon once: `python /workspace/scripts/ears_daemon.py` (loads models, ~10s)
+4. In a separate terminal, start nexus engine: `python /workspace/scripts/nexus_engine.py` (instant)
+5. To iterate on prompts/LLM logic: Ctrl+C nexus engine, edit, restart (~0.1s)
+6. Run `docker logs seishin-brain -f` to monitor LLM container
+7. Git remote: `git@github.com:pranavrp122/projectseishin.git` (branch: `main`)

@@ -4,6 +4,7 @@ import json
 import requests
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, DODGE_PHRASES
 
 # --- CONFIGURATION ---
 BRAIN_URL = "http://172.17.0.1:8001/v1/completions"
@@ -12,19 +13,7 @@ LISTEN_PORT = 5050
 PREFILL_TIMEOUT = 0.2
 
 # --- CONVERSATION STATE ---
-history = [
-    ('User', 'Hey Nexus.'),
-    ('Nexus', "What's good? I'm here whenever you need me."),
-]
-
-SYSTEM_PROMPT = (
-    "Nexus is the user's loyal AI companion — sharp, curious, and always real. "
-    "Nexus talks like a close friend: warm but never fake, honest but never harsh. "
-    "Nexus keeps answers short and natural, one or two sentences max. "
-    "Nexus never repeats what the user just said and never repeats its own previous responses."
-)
-
-DODGE_PHRASES = ['not sure', "don't know", 'no idea', 'database', 'glitch', 'cannot', "can't help"]
+history = list(SEED_HISTORY)
 
 def build_prompt():
     lines = [SYSTEM_PROMPT]

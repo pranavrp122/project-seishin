@@ -4,6 +4,7 @@ import sounddevice as sd
 import torch
 import sys
 import queue
+import threading
 import time
 import requests
 import json
@@ -21,6 +22,10 @@ VAD_SPEECH_THRESHOLD = 0.5    # Speech probability threshold
 VAD_SILENCE_FRAMES = 15       # 15 * 32ms = ~480ms of silence -> end of utterance
 VAD_MIN_SPEECH_FRAMES = 5     # Ignore bursts < 5 frames (~160ms); filters clicks
 VAD_MAX_BUFFER_SECONDS = 10   # Hard cap on ASR buffer
+
+# --- SPECULATIVE PREFILL ---
+PREFILL_WORD_THRESHOLD = 4    # Send prefill every 4 new words
+PREFILL_TIMEOUT = 0.2         # 200ms timeout — never hangs main loop
 
 RATE = 16000
 audio_queue = queue.Queue()
@@ -51,6 +56,24 @@ def build_prompt():
         lines.append(f'{role}: {text}')
     lines.append('Nexus:')
     return '\n'.join(lines)
+
+def prefill_brain(partial_text):
+    """Warm vLLM's KV prefix cache with partial transcript. Non-blocking."""
+    history_copy = list(history)
+    history_copy.append(('User', partial_text))
+    lines = ['The following is a conversation with Nexus, a witty AI.']
+    for role, text in history_copy:
+        lines.append(f'{role}: {text}')
+    lines.append('Nexus:')
+    prompt = '\n'.join(lines)
+    try:
+        requests.post(
+            BRAIN_URL,
+            json={"model": MODEL_NAME, "prompt": prompt, "max_tokens": 1, "temperature": 0},
+            timeout=PREFILL_TIMEOUT
+        )
+    except Exception:
+        pass
 
 def ask_brain(text):
     history.append(('User', text))
@@ -95,10 +118,14 @@ def ask_brain(text):
                         continue
         print("\n")
 
-        # Store reply in history so future turns have context
+        # Store reply in history — but filter out garbage to prevent history poisoning
         reply = ''.join(reply_parts).strip()
-        if reply:
+        DODGE_PHRASES = ['not sure', "don't know", 'no idea', 'database', 'glitch', 'cannot', "can't help"]
+        if reply and len(reply) >= 10 and not any(p in reply.lower() for p in DODGE_PHRASES):
             history.append(('Nexus', reply))
+        else:
+            # Bad response — drop the user turn too so history stays clean
+            history.pop()
 
     except Exception as e:
         print(f"\nBrain connection failed: {e}\n")
@@ -116,6 +143,7 @@ def run_live():
     speech_frame_count = 0
     silence_counter = 0
     last_text = ''
+    last_prefill_word_count = 0
 
     print('Listening...', end='', flush=True)
 
@@ -192,6 +220,11 @@ def run_live():
                     if text and text != last_text:
                         last_text = text
                         print(f'\r> {text}    ', end='', flush=True)
+                        # Speculative prefill: warm KV cache every 4 new words
+                        word_count = len(text.split())
+                        if word_count >= last_prefill_word_count + PREFILL_WORD_THRESHOLD:
+                            last_prefill_word_count = word_count
+                            threading.Thread(target=prefill_brain, args=(text,), daemon=True).start()
 
                 # Flush - final transcription + send to brain
                 if state == 'FLUSH':
@@ -220,6 +253,7 @@ def run_live():
                     speech_frame_count = 0
                     silence_counter = 0
                     last_text = ''
+                    last_prefill_word_count = 0
                     state = 'IDLE'
                     vad_model.reset_states()
                     while not audio_queue.empty():

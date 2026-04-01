@@ -50,8 +50,15 @@ history = [
     ('Nexus', 'Systems online. I am awake and ready.'),
 ]
 
+SYSTEM_PROMPT = (
+    "Nexus is a knowledgeable, witty AI assistant. "
+    "Nexus gives direct, informative answers. "
+    "Nexus never repeats or parrots the user's words back. "
+    "Nexus never repeats its own previous responses."
+)
+
 def build_prompt():
-    lines = ['The following is a conversation with Nexus, a witty AI.']
+    lines = [SYSTEM_PROMPT]
     for role, text in history:
         lines.append(f'{role}: {text}')
     lines.append('Nexus:')
@@ -61,7 +68,7 @@ def prefill_brain(partial_text):
     """Warm vLLM's KV prefix cache with partial transcript. Non-blocking."""
     history_copy = list(history)
     history_copy.append(('User', partial_text))
-    lines = ['The following is a conversation with Nexus, a witty AI.']
+    lines = [SYSTEM_PROMPT]
     for role, text in history_copy:
         lines.append(f'{role}: {text}')
     lines.append('Nexus:')
@@ -82,6 +89,9 @@ def ask_brain(text):
 
     print(f"\nSending to 5090...")
     try:
+        t0 = time.perf_counter()
+        first_token = True
+        ttft = None
         response = requests.post(
             BRAIN_URL,
             json={
@@ -89,7 +99,8 @@ def ask_brain(text):
                 "prompt": prompt,
                 "max_tokens": 300,
                 "temperature": 0.7,
-                "stop": ["User:", "\n"],
+                "repetition_penalty": 1.15,
+                "stop": ["User:", "\n\n"],
                 "stream": True
             },
             stream=True,
@@ -112,11 +123,15 @@ def ask_brain(text):
                         # FIXED: Explicitly grabs 'text' for base models
                         content = chunk['choices'][0].get('text', '')
                         if content:
+                            if first_token:
+                                ttft = (time.perf_counter() - t0) * 1000
+                                first_token = False
                             reply_parts.append(content)
                             print(content, end="", flush=True)
                     except json.JSONDecodeError:
                         continue
-        print("\n")
+        elapsed = (time.perf_counter() - t0) * 1000
+        print(f"\n\033[90m[LLM TTFT: {ttft:.0f}ms | total: {elapsed:.0f}ms]\033[0m\n" if ttft else "\n")
 
         # Store reply in history — but filter out garbage to prevent history poisoning
         reply = ''.join(reply_parts).strip()
@@ -144,6 +159,8 @@ def run_live():
     silence_counter = 0
     last_text = ''
     last_prefill_word_count = 0
+    speech_start_time = None
+    asr_ttft = None
 
     print('Listening...', end='', flush=True)
 
@@ -175,6 +192,8 @@ def run_live():
                             speech_frame_count += 1
                             if speech_frame_count >= VAD_MIN_SPEECH_FRAMES:
                                 state = 'SPEAKING'
+                                speech_start_time = time.perf_counter()
+                                asr_ttft = None
                                 asr_buffer = np.concatenate(list(pre_buffer))
                                 pre_buffer.clear()
                                 silence_counter = 0
@@ -218,6 +237,8 @@ def run_live():
                         text = ''
 
                     if text and text != last_text:
+                        if asr_ttft is None and speech_start_time:
+                            asr_ttft = (time.perf_counter() - speech_start_time) * 1000
                         last_text = text
                         print(f'\r> {text}    ', end='', flush=True)
                         # Speculative prefill: warm KV cache every 4 new words
@@ -243,7 +264,9 @@ def run_live():
                             text = ''
 
                         if text and len(text) > 2:
+                            speech_elapsed = (time.perf_counter() - speech_start_time) * 1000 if speech_start_time else 0
                             print(f'\r> {text}    ')
+                            print(f'\033[90m[ASR TTFT: {asr_ttft:.0f}ms | speech: {speech_elapsed:.0f}ms]\033[0m')
                             ask_brain(text)
 
                     # Reset all state
@@ -254,6 +277,8 @@ def run_live():
                     silence_counter = 0
                     last_text = ''
                     last_prefill_word_count = 0
+                    speech_start_time = None
+                    asr_ttft = None
                     state = 'IDLE'
                     vad_model.reset_states()
                     while not audio_queue.empty():

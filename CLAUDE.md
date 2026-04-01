@@ -62,7 +62,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 | `docs/TASKS.md` | Agent task roadmap |
 | `README.md` | Setup guide for collaborators |
 | `.env` | Environment config (gitignored) |
-| `.gitignore` | Excludes .env, configs/, logs/, __pycache__/ |
+| `.gitignore` | Excludes .env, __pycache__/ |
 
 ## LLM Endpoint
 
@@ -94,6 +94,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 
 ## Known Issues & Fixes
 
+- **Run Scripts Dependency**: When updating `run_shortcuts/run_ears.sh` or `run_shortcuts/run_brain.sh`, you MUST also update `run_shortcuts/run.sh` to ensure consistency.
 - **Live Transcription Routing**: Currently, `ears_daemon.py` prints the live transcription stream locally instead of sending it in real-time to `nexus_engine.py`. This means the `nexus` tab stays blank until the final response arrives. For a unified UI, all live text should be forwarded to and printed by the nexus engine.
 - **WSLg PulseAudio stale socket**: If `sounddevice` reports 0 devices, run `wsl --shutdown` from Windows PowerShell and restart
 - **Stale CUDA context**: Resolved by switching from low-level `model.forward()` + `rnnt_decoder_predictions_tensor()` to high-level `model.transcribe()`
@@ -119,7 +120,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 ## Security Rules (Scrubber)
 
 - Never log, print, or commit values matching: `hf_*`, `sk-*`, or the Docker bridge IP (`172.17.0.1`) to any external service
-- Configs with secrets go in `configs/` and must be `.gitignore`d
+- Configs with secrets must go in `.env` and be gitignored
 - Use environment variables for all credentials; load via `os.environ`
 
 ## Development Workflow

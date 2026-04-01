@@ -28,7 +28,16 @@
       "Bash(sudo apt-get:*)",
       "Bash(wsl.exe --system bash -c \"kill -HUP \\\\$\\(cat /mnt/wslg/runtime-dir/pulse/pid\\) 2>&1\")",
       "Bash(kill -HUP 19)",
-      "Bash(lsmod)"
+      "Bash(lsmod)",
+      "Bash(echo \"EXIT_CODE: $?\")",
+      "Bash(curl -s http://172.17.0.1:8001/v1/completions -H 'Content-Type: application/json' -d '{:*)",
+      "Bash(curl -s http://172.17.0.1:8001/v1/completions -H \"Content-Type: application/json\" -d '{\"model\":\"Qwen/Qwen3.5-9B\",\"prompt\":\"Nexus is a knowledgeable, witty AI assistant. Nexus gives direct, informative answers. Nexus never repeats or parrots the user'\\\\''s words back. Nexus never repeats its own previous responses.\\\\nUser: Hello!\\\\nNexus: Systems online. I am awake and ready.\\\\nUser: what'\\\\''s the most expensive car in the world\\\\nNexus:\",\"max_tokens\":300,\"temperature\":0.7,\"repetition_penalty\":1.15,\"stop\":[\"User:\"]}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST http://localhost:5050/prefill -H \"Content-Type: application/json\" -d '{\"text\": \"hello world\"}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST http://localhost:5050/flush -H \"Content-Type: application/json\" -d '{\"text\": \"hello\", \"asr_ttft\": 50.0, \"speech_elapsed\": 300.0}' --max-time 5)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST http://localhost:5050/unknown)",
+      "Bash(kill %1)",
+      "Bash(wait %1)",
+      "Bash(chmod +x:*)"
     ]
   }
 }

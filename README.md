@@ -18,7 +18,7 @@ Copy the newly created `.env` file to your environment, inserting any required c
 ```bash
 cp .env.example .env
 ```
-*(The repository natively expects `configs/` and `.env` files to be `.gitignore`'d for security. Never commit `.env` or API keys!)*
+*(The repository natively expects `.env` files to be `.gitignore`'d for security. Never commit `.env` or API keys!)*
 
 ### 2. Start the Docker Containers
 Ensure both containers are brought online:

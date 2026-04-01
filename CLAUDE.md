@@ -94,6 +94,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 
 ## Known Issues & Fixes
 
+- **Live Transcription Routing**: Currently, `ears_daemon.py` prints the live transcription stream locally instead of sending it in real-time to `nexus_engine.py`. This means the `nexus` tab stays blank until the final response arrives. For a unified UI, all live text should be forwarded to and printed by the nexus engine.
 - **WSLg PulseAudio stale socket**: If `sounddevice` reports 0 devices, run `wsl --shutdown` from Windows PowerShell and restart
 - **Stale CUDA context**: Resolved by switching from low-level `model.forward()` + `rnnt_decoder_predictions_tensor()` to high-level `model.transcribe()`
 - **vLLM cold start**: First inference after container start is slow (60s timeout handles this)

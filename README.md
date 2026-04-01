@@ -20,35 +20,32 @@ cp .env.example .env
 ```
 *(The repository natively expects `.env` files to be `.gitignore`'d for security. Never commit `.env` or API keys!)*
 
-### 2. Start the Docker Containers
-Ensure both containers are brought online:
-```bash
-# Start the vLLM server on port 8001
-docker start seishin-brain
+### 2. Run the Engine!
+The system uses a fast decoupled Client-Daemon architecture.
 
-# Start the NeMo Audio container
-docker start seishin-ears
+**First, start the Brain (vLLM server):**
+This brings up the Qwen3.5-9B server. Wait a minute for the Brain to boot up fully and compile its PyTorch execution graphs the first time.
+```bash
+./run_shortcuts/run_brain.sh
+# Or use the shortcut:
+brain
 ```
 
-### 3. Run the Engine!
-The system uses a fast two-part Client-Daemon architecture.
-
-**First, start the Ears Daemon (runs in background):**
-This loads the heavy Parakeet ASR model and Silero VAD into memory (~10 seconds boot time). Run this in one terminal:
+**Second, start the Ears Daemon (runs in background):**
+This loads the heavy Parakeet ASR model and Silero VAD into memory (~10 seconds boot time). Run this in another terminal:
 ```bash
 ./run_shortcuts/run_ears.sh
 # Or use the shortcut:
 ears
 ```
 
-**Second, start the Nexus Engine (the Brain Logic):**
-This is a lightweight logic controller that connects the ears to the LLM. It restarts instantly so you can rapidly iterate on your AI's persona without waiting for models to load. Run this in a second terminal:
+**Third, start the Nexus Engine (the Brain Logic):**
+This is a lightweight logic controller that connects the ears to the LLM. It restarts instantly so you can rapidly iterate on your AI's persona without waiting for models to load. Run this in a final terminal:
 ```bash
 ./run_shortcuts/run.sh
 # Or use the shortcut:
 nexus
 ```
-*Note: Wait a minute for the Brain to boot up fully and compile its PyTorch execution graphs the first time you run it.*
 
 ## Engine Usage
 Once the `nexus` script outputs `NEXUS ENGINE ONLINE — listening on port 5050`:

@@ -8,15 +8,15 @@ import threading
 import time
 import requests
 import json
+import contextlib
+import io
 
 # --- CONFIGURATION ---
-# 172.17.0.1 is the Docker bridge IP to reach the vLLM container
-BRAIN_URL = 'http://172.17.0.1:8001/v1/completions'
-MODEL_NAME = 'Qwen/Qwen3.5-9B'
-SILENCE_THRESHOLD = 1.3
+BRAIN_URL = "http://172.17.0.1:8001/v1/completions"  # FIXED: Removed /chat/
+MODEL_NAME = "Qwen/Qwen3.5-9B"
 
-print('👂 Initializing Parakeet TDT 1.1b...')
-model = nemo_asr.models.ASRModel.from_pretrained('nvidia/parakeet-tdt-1.1b')
+print("👂 Initializing Parakeet TDT 1.1b...")
+model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-1.1b")
 model.cuda().eval()
 
 RATE = 16000
@@ -27,57 +27,69 @@ def callback(indata, frames, time, status):
     audio_queue.put(indata.copy())
 
 def ask_brain(text):
-    # This Few-Shot pattern forces the Base model to behave and skip the essay
     prompt_template = (
-        f'The following is a conversation with the Nexus Engine, a witty AI.\n'
-        f'User: Hello!\n'
-        f'Nexus Engine: Systems online. I am awake and ready.\n'
-        f'User: {text}\n'
-        f'Nexus Engine:'
+        "Context: The Nexus Engine is a witty, localized AI companion.\n"
+        "User: Hi there.\n"
+        "Nexus Engine: Systems online. What's on your mind?\n"
+        "User: Are you awake?\n"
+        "Nexus Engine: Always. My processors are primed and ready for you.\n"
+        f"User: {text}\n"
+        "Nexus Engine:"
     )
 
+    print(f"\n🧠 Sending to 5090...")
     try:
         response = requests.post(
             BRAIN_URL,
             json={
-                'model': MODEL_NAME,
-                'prompt': prompt_template,
-                'max_tokens': 300,
-                'temperature': 0.7,
-                'stop': ['User:', '\n'],
-                'stream': True
+                "model": MODEL_NAME,
+                "prompt": prompt_template,
+                "max_tokens": 300,
+                "temperature": 0.8,
+                "stop": ["User:", "\n"],
+                "stream": True
             },
             stream=True,
-            timeout=10
+            timeout=60
         )
 
-        print('\r✨ Nexus Engine: ', end='', flush=True)
+        # FIXED: Added status check to prevent silent failures
+        if response.status_code != 200:
+            print(f"\n❌ Brain Error {response.status_code}: {response.text}")
+            return
+
+        print("✨ Nexus Engine: ", end="", flush=True)
         for line in response.iter_lines():
             if line:
                 line = line.decode('utf-8')
-                if line.startswith('data: '):
-                    if '[DONE]' in line: break
-                    chunk = json.loads(line[6:])
-                    content = chunk['choices'][0].get('text', '')
-                    print(content, end='', flush=True)
-        print('\n')
+                if line.startswith("data: ") and line != "data: [DONE]":
+                    try:
+                        chunk = json.loads(line[6:])
+                        # FIXED: Explicitly grabs 'text' for base models
+                        content = chunk['choices'][0].get('text', '')
+                        print(content, end="", flush=True)
+                    except json.JSONDecodeError:
+                        continue
+        print("\n")
 
     except Exception as e:
-        print(f'\n❌ Brain connection failed: {e}\n')
+        print(f"\n❌ Brain connection failed: {e}\n")
 
-print('\n🚀 NEXUS ENGINE UPDATED. Speak into the mic. Press ENTER to send to the brain. (Ctrl+C to stop)\n')
+# --- ENTER KEY TRIGGER ---
+print('\n🚀 NEXUS ENGINE ONLINE. Speak into the mic. Press ENTER to send. (Ctrl+C to stop)\n')
 
 send_trigger = threading.Event()
-def wait_for_enter():
+def _wait_for_enter():
     while True:
         sys.stdin.readline()
         send_trigger.set()
-
-threading.Thread(target=wait_for_enter, daemon=True).start()
+threading.Thread(target=_wait_for_enter, daemon=True).start()
 
 def run_live():
     buffer = np.zeros(0, dtype=np.float32)
     last_text = ''
+
+    print('👂 Listening...', end='', flush=True)
 
     try:
         with sd.InputStream(samplerate=RATE, channels=1, callback=callback, blocksize=800):
@@ -85,39 +97,37 @@ def run_live():
                 while not audio_queue.empty():
                     buffer = np.append(buffer, audio_queue.get().flatten())
 
-                if len(buffer) < 1600: continue
+                if len(buffer) < 1600:
+                    continue
 
-                audio_signal = torch.from_numpy(buffer).cuda().float()
-                with torch.no_grad():
-                    log_probs, log_probs_len = model.forward(
-                        input_signal=audio_signal.unsqueeze(0),
-                        input_signal_length=torch.tensor([audio_signal.shape[0]]).cuda()
-                    )
+                try:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        results = model.transcribe([buffer], batch_size=1, verbose=False)
+                    # transcribe() returns list of strings or Hypothesis objects
+                    if results:
+                        r = results[0]
+                        text = r.text if hasattr(r, 'text') else str(r)
+                        text = text.strip()
+                    else:
+                        text = ''
+                except Exception as asr_err:
+                    print(f'\r⚠ ASR error: {asr_err}   ', end='', flush=True)
+                    text = ''
 
-                    hypotheses = model.decoding.rnnt_decoder_predictions_tensor(log_probs, log_probs_len)
-                    if isinstance(hypotheses, tuple): hypotheses = hypotheses[0]
-                    tokens = hypotheses[0].y_sequence
+                if text and text != last_text:
+                    last_text = text
+                    print(f'\r🎤 {text}    ', end='', flush=True)
 
-                    if torch.is_tensor(tokens): tokens = tokens.cpu().numpy().tolist()
-                    elif isinstance(tokens, list) and len(tokens) > 0 and torch.is_tensor(tokens[0]):
-                        tokens = [t.item() for t in tokens]
-
-                    text = model.tokenizer.ids_to_text(tokens).strip()
-
-                if text:
-                    if text != last_text:
-                        last_text = text
-                        print(f'\r🎤 Hearing: {text}    ', end='', flush=True)
-
-                    if send_trigger.is_set():
-                        send_trigger.clear()
-                        if len(text) > 2:
-                            print('\n')
-                            ask_brain(text)
-                        buffer = np.zeros(0, dtype=np.float32)
-                        last_text = ''
-                        print('\n👂 Listening...', end='', flush=True)
-                        while not audio_queue.empty(): audio_queue.get()
+                # Only send on Enter, no silence threshold
+                if send_trigger.is_set():
+                    send_trigger.clear()
+                    if last_text and len(last_text) > 2:
+                        print('\n')
+                        ask_brain(last_text)
+                    buffer = np.zeros(0, dtype=np.float32)
+                    last_text = ''
+                    while not audio_queue.empty(): audio_queue.get()
+                    print('\n👂 Listening...', end='', flush=True)
 
     except KeyboardInterrupt:
         print('\n\n👋 Shutting down...')

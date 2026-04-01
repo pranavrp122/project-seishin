@@ -26,10 +26,10 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 1. `ears_daemon.py` captures mic audio at 16kHz via `sounddevice.InputStream`
 2. Silero VAD (CPU) classifies 512-sample chunks as speech/silence
 3. VAD state machine: IDLE → SPEAKING → TRAILING → FLUSH
-4. During SPEAKING/TRAILING, Parakeet runs live transcription shown via `\r` overwrite
+4. During SPEAKING/TRAILING, Parakeet runs live transcription and sends it via `POST /stream` to nexus engine
 5. Every 4 new words, ears daemon sends `POST /prefill` to warm vLLM's KV cache
 6. On FLUSH (480ms silence), ears daemon sends `POST /flush` to nexus engine
-7. `nexus_engine.py` receives flush, calls `ask_brain()` which streams the Qwen response to stdout
+7. `nexus_engine.py` displays live transcription via `/stream`, receives flush, calls `ask_brain()` which streams the Qwen response to stdout
 8. Nexus engine manages conversation history, response quality filtering, and TTFT counters
 
 ## Docker Containers
@@ -57,7 +57,6 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 |---|---|
 | `scripts/ears_daemon.py` | Heavy daemon: Mic → Silero VAD → Parakeet ASR → HTTP to nexus engine |
 | `scripts/nexus_engine.py` | Lightweight engine: HTTP server (port 5050) → conversation history → vLLM |
-| `scripts/test_brain.py` | Interactive CLI brain tester with conversation memory |
 | `docs/FIXES.md` | Bug fix log with numbered entries |
 | `docs/TASKS.md` | Agent task roadmap |
 | `README.md` | Setup guide for collaborators |
@@ -88,14 +87,14 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 
 - `ears_daemon.py` loads Parakeet + Silero once, stays running indefinitely
 - `nexus_engine.py` is a zero-model HTTP server that restarts in ~0.1s
-- Communication: `localhost:5050` — `/prefill` (fire-and-forget) and `/flush` (blocking)
+- Communication: `localhost:5050` — `/stream` (live text), `/prefill` (fire-and-forget), and `/flush` (blocking)
 - Workflow: start ears daemon once, restart nexus engine freely to iterate on prompts/logic
 - Both scripts run inside `seishin-ears` container (scripts are live-mounted)
 
 ## Known Issues & Fixes
 
 - **Run Scripts Dependency**: When updating `run_shortcuts/run_ears.sh` or `run_shortcuts/run_brain.sh`, you MUST also update `run_shortcuts/run.sh` to ensure consistency.
-- **Live Transcription Routing**: Currently, `ears_daemon.py` prints the live transcription stream locally instead of sending it in real-time to `nexus_engine.py`. This means the `nexus` tab stays blank until the final response arrives. For a unified UI, all live text should be forwarded to and printed by the nexus engine.
+- **Live Transcription Routing**: RESOLVED — `ears_daemon.py` now sends live transcriptions via `POST /stream` to `nexus_engine.py`, which handles all terminal UI output. Ears daemon runs silently with minimal status logging.
 - **WSLg PulseAudio stale socket**: If `sounddevice` reports 0 devices, run `wsl --shutdown` from Windows PowerShell and restart
 - **Stale CUDA context**: Resolved by switching from low-level `model.forward()` + `rnnt_decoder_predictions_tensor()` to high-level `model.transcribe()`
 - **vLLM cold start**: First inference after container start is slow (60s timeout handles this)

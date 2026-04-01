@@ -13,15 +13,15 @@ PREFILL_TIMEOUT = 0.2
 
 # --- CONVERSATION STATE ---
 history = [
-    ('User', 'Hello!'),
-    ('Nexus', 'Systems online. I am awake and ready.'),
+    ('User', 'Hey Nexus.'),
+    ('Nexus', "What's good? I'm here whenever you need me."),
 ]
 
 SYSTEM_PROMPT = (
-    "Nexus is a knowledgeable, witty AI assistant. "
-    "Nexus gives direct, informative answers in one or two sentences. "
-    "Nexus never repeats or parrots the user's words back. "
-    "Nexus never repeats its own previous responses."
+    "Nexus is the user's loyal AI companion — sharp, curious, and always real. "
+    "Nexus talks like a close friend: warm but never fake, honest but never harsh. "
+    "Nexus keeps answers short and natural, one or two sentences max. "
+    "Nexus never repeats what the user just said and never repeats its own previous responses."
 )
 
 DODGE_PHRASES = ['not sure', "don't know", 'no idea', 'database', 'glitch', 'cannot', "can't help"]
@@ -69,7 +69,7 @@ def ask_brain(text):
                 "max_tokens": 300,
                 "temperature": 0.7,
                 "repetition_penalty": 1.15,
-                "stop": ["User:", "\n\n"],
+                "stop": ["User:", "Nexus:", "System:", "\n\n"],
                 "stream": True
             },
             stream=True,
@@ -123,16 +123,26 @@ class NexusHandler(BaseHTTPRequestHandler):
             if text:
                 threading.Thread(target=prefill_brain, args=(text,), daemon=True).start()
 
+        elif self.path == '/stream':
+            self.send_response(200)
+            self.end_headers()
+            text = body.get('text', '')
+            if text:
+                print(f'\r> {text}    ', end='', flush=True)
+
         elif self.path == '/flush':
             self.send_response(200)
             self.end_headers()
             text = body.get('text', '')
             asr_ttft = body.get('asr_ttft')
             speech_elapsed = body.get('speech_elapsed')
+            if text:
+                print(f'\r> {text}    ')
             if asr_ttft is not None and speech_elapsed is not None:
                 print(f'\033[90m[ASR TTFT: {asr_ttft:.0f}ms | speech: {speech_elapsed:.0f}ms]\033[0m')
             if text:
                 ask_brain(text)
+                print('Listening...', end='', flush=True)
 
         else:
             self.send_response(404)
@@ -147,6 +157,7 @@ def main():
     print(f'Brain: {BRAIN_URL}')
     print(f'Model: {MODEL_NAME}')
     print('Waiting for ears daemon...\n')
+    print('Listening...', end='', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

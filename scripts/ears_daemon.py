@@ -28,18 +28,25 @@ RATE = 16000
 audio_queue = queue.Queue()
 
 # --- MODEL LOADING ---
-print("Initializing Parakeet TDT 1.1b...")
 model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-1.1b")
 model.cuda().eval()
+print('Parakeet live')
 
-print("Loading Silero VAD...")
 VAD_MODEL_PATH = '/root/.cache/torch/hub/snakers4_silero-vad_master/src/silero_vad/data/silero_vad.jit'
 vad_model = torch.jit.load(VAD_MODEL_PATH, map_location='cpu')
 vad_model.eval()
+print('Silero VAD live')
 
 def callback(indata, frames, time, status):
     if status: print(status, file=sys.stderr)
     audio_queue.put(indata.copy())
+
+def send_stream(text):
+    """Fire-and-forget live transcript to nexus engine."""
+    try:
+        requests.post(f"{NEXUS_URL}/stream", json={"text": text}, timeout=0.2)
+    except Exception:
+        pass
 
 def send_prefill(text):
     """Fire-and-forget prefill to nexus engine."""
@@ -56,11 +63,10 @@ def send_flush(text, asr_ttft, speech_elapsed):
             json={"text": text, "asr_ttft": asr_ttft, "speech_elapsed": speech_elapsed},
             timeout=120
         )
-    except Exception as e:
-        print(f"\nNexus engine unreachable: {e}")
+    except Exception:
+        pass
 
 # --- VAD STATE MACHINE ---
-print('\nEARS DAEMON ONLINE. Hands-free VAD mode. (Ctrl+C to stop)\n')
 
 def run_live():
     state = 'IDLE'
@@ -73,8 +79,6 @@ def run_live():
     last_prefill_word_count = 0
     speech_start_time = None
     asr_ttft = None
-
-    print('Listening...', end='', flush=True)
 
     try:
         with sd.InputStream(samplerate=RATE, channels=1, callback=callback, blocksize=800):
@@ -140,15 +144,15 @@ def run_live():
                             text = text.strip()
                         else:
                             text = ''
-                    except Exception as asr_err:
-                        print(f'\rASR error: {asr_err}   ', end='', flush=True)
+                    except Exception:
                         text = ''
 
                     if text and text != last_text:
                         if asr_ttft is None and speech_start_time:
                             asr_ttft = (time.perf_counter() - speech_start_time) * 1000
                         last_text = text
-                        print(f'\r> {text}    ', end='', flush=True)
+                        print(f'[stream] {text}')
+                        threading.Thread(target=send_stream, args=(text,), daemon=True).start()
                         word_count = len(text.split())
                         if word_count >= last_prefill_word_count + PREFILL_WORD_THRESHOLD:
                             last_prefill_word_count = word_count
@@ -166,14 +170,11 @@ def run_live():
                                 text = text.strip()
                             else:
                                 text = ''
-                        except Exception as asr_err:
-                            print(f'\rASR error: {asr_err}   ', end='', flush=True)
+                        except Exception:
                             text = ''
 
                         if text and len(text) > 2:
                             speech_elapsed = (time.perf_counter() - speech_start_time) * 1000 if speech_start_time else 0
-                            print(f'\r> {text}    ')
-                            print(f'\033[90m[ASR TTFT: {asr_ttft:.0f}ms | speech: {speech_elapsed:.0f}ms]\033[0m')
                             send_flush(text, asr_ttft, speech_elapsed)
 
                     # Reset all state
@@ -190,10 +191,9 @@ def run_live():
                     vad_model.reset_states()
                     while not audio_queue.empty():
                         audio_queue.get()
-                    print('\nListening...', end='', flush=True)
 
     except KeyboardInterrupt:
-        print('\n\nEars daemon shutting down...')
+        pass
 
 if __name__ == '__main__':
     run_live()

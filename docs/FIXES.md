@@ -115,3 +115,19 @@ Occasionally crashes with `sounddevice.PortAudioError: Error querying device -1`
 **Fix**:
 - Removed the max buffer constraint and the automated silence threshold (`1.3`s).
 - Implemented a background Python `threading.Event()` on `sys.stdin.readline()` so the user can speak endlessly, and the engine only flushes the buffer to the brain when the `Enter` key is pressed.
+
+---
+
+## [FIX-09] Live transcription only visible in ears daemon terminal
+
+**Symptom**: The `nexus` terminal stayed blank until the final flush. All live transcription feedback (`> what's the most expensive...`) was printed locally in `ears_daemon.py` instead of being routed to `nexus_engine.py`.
+
+**Root cause**: `ears_daemon.py` was printing live ASR text directly via `print(f'\r> {text}')` instead of forwarding it over HTTP to the nexus engine.
+
+**Fix**:
+- Stripped all UI `print()` calls from `ears_daemon.py` — it now runs as a silent daemon with minimal status logging (`Parakeet live`, `Silero VAD live`, `[stream] ...`)
+- Added `send_stream(text)` function that POSTs `{"text": text}` to `localhost:5050/stream` in a fire-and-forget daemon thread
+- Added `/stream` route in `nexus_engine.py` that prints `\r> {text}` with carriage return overwrite
+- `/flush` route now prints a newline before the brain response and `Listening...` after completion
+- `nexus_engine.py` prints initial `Listening...` on startup
+- All terminal UI now lives exclusively in the nexus engine tab

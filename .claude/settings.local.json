@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
+      "Bash(curl -s -X POST http://localhost:8001/v1/completions -H 'Content-Type: application/json' -d '{\"model\":\"Qwen/Qwen3.5-9B\",\"prompt\":\"Hello Nexus\\\\nNexus:\",\"max_tokens\":20,\"temperature\":0.7}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Brain response:', d['choices'][0]['text'].strip\\(\\)\\)\")",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(chmod +x /home/prana/nexus-engine/tasks/restart_ears.sh)",
+      "Bash(grep -v \"^$\")",
+      "Bash(chmod +x /home/prana/nexus-engine/run.sh)",
+      "Read(//home/prana/**)",
+      "Skill(update-config)",
+      "Bash(python3 -c \"import sounddevice as sd; print\\(sd.query_devices\\(\\)\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python3:*)",
+      "Bash(apt list:*)",
+      "Bash(dpkg -l)",
+      "Bash(PULSE_SERVER=unix:/mnt/wslg/PulseServer pactl info)",
+      "Bash(python:*)",
+      "Bash(pulseaudio --check)",
+      "Bash(echo \"check exit: $?\")",
+      "Bash(pulseaudio --kill)",
+      "Bash(echo \"kill exit: $?\")",
+      "Bash(pulseaudio --start --daemonize)",
+      "Bash(ls /mnt/wslg/runtime-dir/pipewire*)",
+      "Bash(sudo apt-get:*)",
+      "Bash(wsl.exe --system bash -c \"kill -HUP \\\\$\\(cat /mnt/wslg/runtime-dir/pulse/pid\\) 2>&1\")",
+      "Bash(kill -HUP 19)",
+      "Bash(lsmod)"
+    ]
+  }
+}

@@ -1,10 +1,10 @@
 import torch
-torch.cuda.set_per_process_memory_fraction(0.15, 0)  # Hard VRAM cap: ~4.8 GB
+torch.cuda.set_per_process_memory_fraction(0.18, 0)  # Hard VRAM cap: ~5.9 GB
 
 """Mouth Daemon — Hybrid Qwen3-TTS (CUDA Graph + Triton fusion) with PulseAudio playback.
 
 Uses qwen3-tts-triton TritonFasterRunner for ~4.7x speedup over baseline.
-Architecture: Main thread (HTTP server :5051) + TTS worker thread + audio callback.
+Architecture: Main thread (HTTP server :5051) + TTS worker thread + blocking audio writes.
 """
 
 import gc
@@ -25,7 +25,7 @@ from qwen3_tts_triton import TritonFasterRunner
 LISTEN_PORT = 5051
 PLAYBACK_SR = 48000
 BLOCKSIZE = 4800  # 100ms at 48kHz
-RUNNER_RELOAD_INTERVAL = 100  # Reload runner every N generations to reset CUDA graph state
+RUNNER_RELOAD_INTERVAL = 5  # Reload runner every N generations to reset CUDA graph state
 
 # --- PRE-COMPUTED RESAMPLER (24kHz → 48kHz) ---
 _RESAMPLE_UP = 2
@@ -67,40 +67,16 @@ def float32_to_int16(audio):
 
 # --- SHARED STATE ---
 text_queue = queue.Queue(maxsize=3)
-audio_queue = queue.Queue()
 stop_event = threading.Event()
 worker_idle = threading.Event()
 worker_idle.set()
-_leftover = bytearray()
-_leftover_lock = threading.Lock()
+stream = None  # Initialized in main(); used by tts_worker (write) and /stop (abort)
 _generation_count = 0
-
-
-# --- AUDIO CALLBACK ---
-def audio_callback(outdata, frames, time_info, status):
-    """Pull audio from audio_queue into the output buffer. Keeps leftover bytes between calls."""
-    global _leftover
-    bytes_needed = frames * 2  # int16 = 2 bytes per sample
-    with _leftover_lock:
-        buf = _leftover
-        while len(buf) < bytes_needed:
-            try:
-                chunk = audio_queue.get_nowait()
-                buf.extend(chunk)
-            except queue.Empty:
-                break
-        if len(buf) >= bytes_needed:
-            outdata[:] = bytes(buf[:bytes_needed])
-            _leftover = bytearray(buf[bytes_needed:])
-        else:
-            outdata[:len(buf)] = bytes(buf)
-            outdata[len(buf):] = b'\x00' * (bytes_needed - len(buf))
-            _leftover = bytearray()
 
 
 # --- TTS WORKER ---
 def tts_worker(runner, speaker):
-    """Consume text_queue, synthesize via Hybrid streaming, push audio to audio_queue."""
+    """Consume text_queue, synthesize via Hybrid streaming, write audio to output stream."""
     global _generation_count
     while True:
         worker_idle.set()
@@ -127,7 +103,10 @@ def tts_worker(runner, speaker):
                     break
                 audio_int16 = float32_to_int16(audio_chunk)
                 resampled = resample_to_48k(audio_int16, sr)
-                audio_queue.put(resampled.tobytes())
+                try:
+                    stream.write(resampled.tobytes())
+                except Exception:
+                    break  # Stream aborted by /stop
         except Exception as e:
             print(f"[mouth] TTS error: {e}")
         finally:
@@ -141,22 +120,20 @@ def tts_worker(runner, speaker):
             if _generation_count % RUNNER_RELOAD_INTERVAL == 0:
                 print(f"[mouth] Reloading runner to reset CUDA graph state...")
                 runner.unload_model()
+                gc.collect()
+                torch.cuda.empty_cache()
                 runner.load_model()
                 print(f"[mouth] Runner reloaded.")
 
 
 # --- DRAIN HELPER ---
-def drain_queues():
-    """Drain text queue, audio queue, and leftover buffer."""
-    global _leftover
-    for q in (text_queue, audio_queue):
-        while not q.empty():
-            try:
-                q.get_nowait()
-            except queue.Empty:
-                break
-    with _leftover_lock:
-        _leftover = bytearray()
+def drain_text_queue():
+    """Drain pending text from the queue."""
+    while not text_queue.empty():
+        try:
+            text_queue.get_nowait()
+        except queue.Empty:
+            break
 
 
 # --- HTTP SERVER ---
@@ -170,14 +147,19 @@ class MouthHandler(BaseHTTPRequestHandler):
             self.end_headers()
             text = body.get('text', '')
             if text:
-                text_queue.put(text)
+                try:
+                    text_queue.put_nowait(text)
+                except queue.Full:
+                    pass  # Drop — TTS is behind, sentence is stale
 
         elif self.path == '/stop':
             self.send_response(200)
             self.end_headers()
             stop_event.set()
+            stream.abort()
             worker_idle.wait(timeout=0.5)
-            drain_queues()
+            stream.start()
+            drain_text_queue()
 
         else:
             self.send_response(404)
@@ -189,6 +171,7 @@ class MouthHandler(BaseHTTPRequestHandler):
 
 # --- MAIN ---
 def main():
+    global stream
     print("Loading Hybrid Qwen3-TTS (CUDA Graph + Triton)...")
     runner = TritonFasterRunner(dtype="bf16")
     runner.load_model()
@@ -196,14 +179,13 @@ def main():
 
     speaker = os.environ.get("TTS_SPEAKER", "Aiden")
 
-    # Start audio output stream
+    # Start audio output stream (blocking write mode — no callback)
     stream = sd.RawOutputStream(
         samplerate=PLAYBACK_SR,
         channels=1,
         dtype='int16',
         blocksize=BLOCKSIZE,
         latency='high',
-        callback=audio_callback,
     )
     stream.start()
 

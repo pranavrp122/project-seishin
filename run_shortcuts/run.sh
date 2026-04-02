@@ -1,4 +1,5 @@
 #!/bin/bash
+# NOTE: start seishin-mouth in a separate terminal: bash run_shortcuts/run_mouth.sh
 docker exec -it \
   -e PULSE_SERVER=unix:/mnt/wslg/PulseServer \
   -e PYTHONWARNINGS=ignore \

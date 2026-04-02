@@ -5,6 +5,8 @@ import requests
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, DODGE_PHRASES
+import re
+MOUTH_URL = "http://172.17.0.1:5051"
 
 # --- CONFIGURATION ---
 BRAIN_URL = "http://172.17.0.1:8001/v1/completions"
@@ -14,6 +16,7 @@ PREFILL_TIMEOUT = 0.2
 
 # --- CONVERSATION STATE ---
 history = list(SEED_HISTORY)
+cancel_generation = threading.Event()
 
 def build_prompt():
     lines = [SYSTEM_PROMPT]
@@ -40,7 +43,17 @@ def prefill_brain(partial_text):
     except Exception:
         pass
 
+def send_to_mouth(text):
+    """Fire-and-forget POST to mouth daemon. Errors silently swallowed."""
+    def _post():
+        try:
+            requests.post(f"{MOUTH_URL}/speak", json={"text": text}, timeout=0.5)
+        except Exception:
+            pass
+    threading.Thread(target=_post, daemon=True).start()
+
 def ask_brain(text):
+    cancel_generation.clear()
     history.append(('User', text))
     prompt = build_prompt()
     reply_parts = []
@@ -70,8 +83,12 @@ def ask_brain(text):
             history.pop()
             return
 
+        sentence_buffer = ''
         print("Nexus Engine: ", end="", flush=True)
         for line in response.iter_lines():
+            if cancel_generation.is_set():
+                response.close()
+                break
             if line:
                 line = line.decode('utf-8')
                 if line.startswith("data: ") and line != "data: [DONE]":
@@ -84,13 +101,25 @@ def ask_brain(text):
                                 first_token = False
                             reply_parts.append(content)
                             print(content, end="", flush=True)
+                            sentence_buffer += content
+                            if re.search(r'[.!?]["\')\]]?\s', sentence_buffer):
+                                send_to_mouth(sentence_buffer.strip())
+                                sentence_buffer = ''
                     except json.JSONDecodeError:
                         continue
+        if sentence_buffer.strip():
+            send_to_mouth(sentence_buffer.strip())
         elapsed = (time.perf_counter() - t0) * 1000
         print(f"\n\033[90m[LLM TTFT: {ttft:.0f}ms | total: {elapsed:.0f}ms]\033[0m\n" if ttft else "\n")
 
         reply = ''.join(reply_parts).strip()
-        if reply and len(reply) >= 10 and not any(p in reply.lower() for p in DODGE_PHRASES):
+        if cancel_generation.is_set():
+            cancel_generation.clear()
+            if reply and len(reply) >= 10 and not any(p in reply.lower() for p in DODGE_PHRASES):
+                history.append(('Nexus', reply))
+            else:
+                history.pop()
+        elif reply and len(reply) >= 10 and not any(p in reply.lower() for p in DODGE_PHRASES):
             history.append(('Nexus', reply))
         else:
             history.pop()
@@ -132,6 +161,11 @@ class NexusHandler(BaseHTTPRequestHandler):
             if text:
                 ask_brain(text)
                 print('Listening...', end='', flush=True)
+
+        elif self.path == '/stop':
+            self.send_response(200)
+            self.end_headers()
+            cancel_generation.set()
 
         else:
             self.send_response(404)

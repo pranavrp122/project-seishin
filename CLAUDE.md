@@ -99,6 +99,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 - Response quality filter drops garbage replies (dodge phrases) to prevent history poisoning
 - Sentence buffer in `ask_brain()` forwards complete sentences to mouth daemon via fire-and-forget POST
 - `/stop` endpoint cancels streaming generation when user interrupts
+- Voice command "nexus clear memory" resets conversation history to seed state without calling brain
 
 ## ASR Configuration
 
@@ -114,8 +115,10 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 - Model: `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` loaded at BF16 on CUDA in `seishin-mouth`
 - Speaker: configurable via `TTS_SPEAKER` env var (default: Aiden)
 - Emotion: LLM emits `(emotion)` prefix → mouth parses and converts to `instruct="Speak in a {emotion} voice"`
-- Streaming: `model.generate_custom_voice(stream=True)` yields progressive audio chunks
-- Audio output: resampled to 48kHz via `scipy.signal.resample_poly` for Bluetooth Studio Quality
+- Inference: Hybrid mode via `qwen3-tts-triton` TritonFasterRunner (CUDA Graph + Triton fused kernels, ~4.7x speedup)
+- Streaming: `runner.generate_streaming(chunk_size=4)` yields `(audio_chunk, sample_rate, timing_dict)`
+- Audio output: resampled to 48kHz via pre-computed FIR filter (`firwin` + `upfirdn`) for Bluetooth Studio Quality
+- Stability: `gc.collect()` + `torch.cuda.empty_cache()` after every generation; periodic runner reload every 100 generations
 - Playback: `sounddevice.RawOutputStream` at 48kHz/mono/int16 → PulseAudio → Bluetooth headphones
 - Interrupt: ears IDLE→SPEAKING fires `/stop` to mouth (drains queues, stops playback) and nexus (cancels generation)
 - Graceful degradation: if mouth container is down, `send_to_mouth()` timeout fires silently — no impact on text output

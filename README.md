@@ -4,7 +4,8 @@ A zero-latency, voice-driven conversational AI framework splitting Auto Speech R
 
 ## Architecture
 - **🎙️ The Ears (`seishin-ears`)**: Runs NVIDIA's `Parakeet-tdt-1.1b` for fast ASR, listening to host microphone input.
-- **🧠 The Brain (`seishin-brain`)**: Runs `Qwen3.5-9B` served on a `vLLM` HTTP instance, responding to Parakeet's parsed transcripts.
+- **🧠 The Brain (`seishin-brain`)**: Runs `Qwen3.5-9B` FP8 served on a `vLLM` HTTP instance, responding to Parakeet's parsed transcripts.
+- **🗣️ The Mouth (`seishin-mouth`)**: Runs `Qwen3-TTS 1.7B` BF16 with Hybrid Triton mode for streaming text-to-speech via Bluetooth headphones.
 
 ## Prerequisites
 - NVIDIA Driver + WSL2 (with WSLg PulseAudio integration).
@@ -39,7 +40,15 @@ This loads the heavy Parakeet ASR model and Silero VAD into memory (~10 seconds 
 ears
 ```
 
-**Third, start the Nexus Engine (the Brain Logic):**
+**Third, start the Mouth Daemon (TTS):**
+This loads Qwen3-TTS with Hybrid Triton mode (~10 seconds boot, first run downloads ~4.54 GB). Run this in another terminal:
+```bash
+./run_shortcuts/run_mouth.sh
+# Or use the shortcut:
+mouth
+```
+
+**Fourth, start the Nexus Engine (the Brain Logic):**
 This is a lightweight logic controller that connects the ears to the LLM. It restarts instantly so you can rapidly iterate on your AI's persona without waiting for models to load. Run this in a final terminal:
 ```bash
 ./run_shortcuts/run.sh
@@ -53,6 +62,7 @@ Once the `nexus` script outputs `NEXUS ENGINE ONLINE — listening on port 5050`
 - The intelligent Silero VAD gatekeeper monitors your audio, ignoring PC fans and background hums.
 - The Engine captures UNBOUNDED audio while you are speaking.
 - The moment you pause speaking, the phrase is transcribed and sent to the Brain automatically (no Enter key needed!).
+- Say **"Nexus clear memory"** to reset conversation history without restarting.
 
 ## Current Agent Workflows (GSD Framework)
 - Refer to `docs/TASKS.md` for our current objectives.

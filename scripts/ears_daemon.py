@@ -1,7 +1,9 @@
+import torch
+torch.cuda.set_per_process_memory_fraction(0.12, 0)  # Hard VRAM cap: ~3.9 GB (Parakeet FP16 uses ~2 GB)
+
 import nemo.collections.asr as nemo_asr
 import numpy as np
 import sounddevice as sd
-import torch
 import sys
 import queue
 import threading
@@ -13,6 +15,7 @@ from collections import deque
 
 # --- CONFIGURATION ---
 NEXUS_URL = "http://localhost:5050"
+MOUTH_URL = "http://172.17.0.1:5051"
 
 # --- VAD PARAMETERS ---
 VAD_CHUNK_SAMPLES = 512       # Silero requires exactly 512 samples at 16kHz
@@ -28,8 +31,10 @@ RATE = 16000
 audio_queue = queue.Queue()
 
 # --- MODEL LOADING ---
-model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-1.1b")
-model.cuda().eval()
+# Load on CPU first, convert to FP16, then move to GPU (avoids 8GB FP32 peak on GPU)
+model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-1.1b", map_location='cpu')
+model = model.half().cuda()
+model.eval()
 print('Parakeet live')
 
 VAD_MODEL_PATH = '/root/.cache/torch/hub/snakers4_silero-vad_master/src/silero_vad/data/silero_vad.jit'
@@ -65,6 +70,16 @@ def send_flush(text, asr_ttft, speech_elapsed):
         )
     except Exception:
         pass
+
+def send_interrupt():
+    """Fire-and-forget: stop mouth playback + cancel nexus generation."""
+    def _stop(url):
+        try:
+            requests.post(f"{url}/stop", json={}, timeout=0.2)
+        except Exception:
+            pass
+    threading.Thread(target=lambda: _stop(MOUTH_URL), daemon=True).start()
+    threading.Thread(target=lambda: _stop(NEXUS_URL), daemon=True).start()
 
 # --- VAD STATE MACHINE ---
 
@@ -105,6 +120,7 @@ def run_live():
                             speech_frame_count += 1
                             if speech_frame_count >= VAD_MIN_SPEECH_FRAMES:
                                 state = 'SPEAKING'
+                                send_interrupt()
                                 speech_start_time = time.perf_counter()
                                 asr_ttft = None
                                 asr_buffer = np.concatenate(list(pre_buffer))

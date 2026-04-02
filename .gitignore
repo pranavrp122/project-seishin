@@ -2,6 +2,3 @@
 __pycache__/
 *.pyc
 .DS_Store
-
-files/
-# ^dk what this even is ...

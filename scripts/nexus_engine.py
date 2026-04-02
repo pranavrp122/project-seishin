@@ -158,7 +158,12 @@ class NexusHandler(BaseHTTPRequestHandler):
                 print(f'\r> {text}    ')
             if asr_ttft is not None and speech_elapsed is not None:
                 print(f'\033[90m[ASR TTFT: {asr_ttft:.0f}ms | speech: {speech_elapsed:.0f}ms]\033[0m')
-            if text:
+            if text and re.match(r'^nexus[,.]?\s*clear\s+memory[.!?]*$', text.lower().strip()):
+                history.clear()
+                history.extend(SEED_HISTORY)
+                print('\033[92m[Memory cleared — history reset]\033[0m')
+                print('Listening...', end='', flush=True)
+            elif text:
                 ask_brain(text)
                 print('Listening...', end='', flush=True)
 

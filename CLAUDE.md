@@ -65,8 +65,8 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 |---|---|---|---|---|
 | Qwen3.5-9B | seishin-brain | FP8 (`--quantization fp8`) | `--gpu-memory-utilization 0.55` | ~20.3 GB |
 | Parakeet TDT 1.1B | seishin-ears | FP16 (CPU→FP16→CUDA) | `torch.cuda.set_per_process_memory_fraction(0.12)` | ~3.9 GB cap (~2.1 GB actual) |
-| Qwen3-TTS 1.7B | seishin-mouth | BF16 | `torch.cuda.set_per_process_memory_fraction(0.15)` | ~4.8 GB cap (~4.3 GB actual) |
-| **Total** | | | | **~27.2 GB actual / 32 GB** |
+| Qwen3-TTS 1.7B | seishin-mouth | BF16 | `torch.cuda.set_per_process_memory_fraction(0.18)` | ~5.9 GB cap (~4.3 GB actual) |
+| **Total** | | | | **~27.7 GB actual / 32 GB** |
 
 - FP8 quantization halves Qwen3.5-9B model weights from ~18 GB to ~10.8 GB (natively supported on Blackwell)
 - `PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512` (mouth) / `256` (ears) prevents memory fragmentation
@@ -118,9 +118,9 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 - Inference: Hybrid mode via `qwen3-tts-triton` TritonFasterRunner (CUDA Graph + Triton fused kernels, ~4.7x speedup)
 - Streaming: `runner.generate_streaming(chunk_size=4)` yields `(audio_chunk, sample_rate, timing_dict)`
 - Audio output: resampled to 48kHz via pre-computed FIR filter (`firwin` + `upfirdn`) for Bluetooth Studio Quality
-- Stability: `gc.collect()` + `torch.cuda.empty_cache()` after every generation; periodic runner reload every 100 generations
-- Playback: `sounddevice.RawOutputStream` at 48kHz/mono/int16 → PulseAudio → Bluetooth headphones
-- Interrupt: ears IDLE→SPEAKING fires `/stop` to mouth (drains queues, stops playback) and nexus (cancels generation)
+- Stability: `gc.collect()` + `torch.cuda.empty_cache()` after every generation; periodic runner reload every 5 generations to reset CUDA graph cache
+- Playback: `sounddevice.RawOutputStream` blocking writes at 48kHz/mono/int16 → PulseAudio → Bluetooth headphones (no callback — TTS worker writes directly to stream)
+- Interrupt: ears IDLE→SPEAKING fires `/stop` to mouth (`stream.abort()` + restart) and nexus (cancels generation)
 - Graceful degradation: if mouth container is down, `send_to_mouth()` timeout fires silently — no impact on text output
 
 ## Client-Daemon Architecture

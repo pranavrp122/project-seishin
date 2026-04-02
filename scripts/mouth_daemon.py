@@ -7,6 +7,7 @@ Uses qwen3-tts-triton TritonFasterRunner for ~4.7x speedup over baseline.
 Architecture: Main thread (HTTP server :5051) + TTS worker thread + audio callback.
 """
 
+import gc
 import os
 import re
 import json
@@ -16,7 +17,7 @@ import numpy as np
 import sounddevice as sd
 from math import gcd
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from scipy.signal import resample_poly
+from scipy.signal import resample_poly, firwin, upfirdn
 
 from qwen3_tts_triton import TritonFasterRunner
 
@@ -24,6 +25,12 @@ from qwen3_tts_triton import TritonFasterRunner
 LISTEN_PORT = 5051
 PLAYBACK_SR = 48000
 BLOCKSIZE = 4800  # 100ms at 48kHz
+RUNNER_RELOAD_INTERVAL = 100  # Reload runner every N generations to reset CUDA graph state
+
+# --- PRE-COMPUTED RESAMPLER (24kHz → 48kHz) ---
+_RESAMPLE_UP = 2
+_RESAMPLE_DOWN = 1
+_RESAMPLE_TAPS = firwin(20 * _RESAMPLE_UP + 1, 1.0 / _RESAMPLE_UP, window=('kaiser', 5.0))
 
 # --- EMOTION PARSER ---
 DEFAULT_INSTRUCT = "Speak in a warm, friendly voice"
@@ -45,6 +52,8 @@ def resample_to_48k(pcm, src_rate):
     """Resample PCM audio from src_rate to 48000 Hz."""
     if src_rate == PLAYBACK_SR:
         return pcm
+    if src_rate == 24000:
+        return upfirdn(_RESAMPLE_TAPS, pcm, _RESAMPLE_UP, _RESAMPLE_DOWN).astype(pcm.dtype)
     g = gcd(PLAYBACK_SR, src_rate)
     up, down = PLAYBACK_SR // g, src_rate // g
     return resample_poly(pcm, up, down).astype(pcm.dtype)
@@ -57,10 +66,14 @@ def float32_to_int16(audio):
 
 
 # --- SHARED STATE ---
-text_queue = queue.Queue()
+text_queue = queue.Queue(maxsize=3)
 audio_queue = queue.Queue()
 stop_event = threading.Event()
+worker_idle = threading.Event()
+worker_idle.set()
 _leftover = bytearray()
+_leftover_lock = threading.Lock()
+_generation_count = 0
 
 
 # --- AUDIO CALLBACK ---
@@ -68,30 +81,34 @@ def audio_callback(outdata, frames, time_info, status):
     """Pull audio from audio_queue into the output buffer. Keeps leftover bytes between calls."""
     global _leftover
     bytes_needed = frames * 2  # int16 = 2 bytes per sample
-    buf = _leftover
-    while len(buf) < bytes_needed:
-        try:
-            chunk = audio_queue.get_nowait()
-            buf.extend(chunk)
-        except queue.Empty:
-            break
-    if len(buf) >= bytes_needed:
-        outdata[:] = bytes(buf[:bytes_needed])
-        _leftover = bytearray(buf[bytes_needed:])
-    else:
-        outdata[:len(buf)] = bytes(buf)
-        outdata[len(buf):] = b'\x00' * (bytes_needed - len(buf))
-        _leftover = bytearray()
+    with _leftover_lock:
+        buf = _leftover
+        while len(buf) < bytes_needed:
+            try:
+                chunk = audio_queue.get_nowait()
+                buf.extend(chunk)
+            except queue.Empty:
+                break
+        if len(buf) >= bytes_needed:
+            outdata[:] = bytes(buf[:bytes_needed])
+            _leftover = bytearray(buf[bytes_needed:])
+        else:
+            outdata[:len(buf)] = bytes(buf)
+            outdata[len(buf):] = b'\x00' * (bytes_needed - len(buf))
+            _leftover = bytearray()
 
 
 # --- TTS WORKER ---
 def tts_worker(runner, speaker):
     """Consume text_queue, synthesize via Hybrid streaming, push audio to audio_queue."""
+    global _generation_count
     while True:
+        worker_idle.set()
         text = text_queue.get()
         if text is None:
             break
 
+        worker_idle.clear()
         stop_event.clear()
 
         instruct, clean_text = parse_emotion(text)
@@ -113,6 +130,19 @@ def tts_worker(runner, speaker):
                 audio_queue.put(resampled.tobytes())
         except Exception as e:
             print(f"[mouth] TTS error: {e}")
+        finally:
+            _generation_count += 1
+            gc.collect()
+            torch.cuda.empty_cache()
+            alloc = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            print(f"[mouth] gen #{_generation_count} | VRAM: {alloc:.0f}MB alloc / {reserved:.0f}MB reserved")
+
+            if _generation_count % RUNNER_RELOAD_INTERVAL == 0:
+                print(f"[mouth] Reloading runner to reset CUDA graph state...")
+                runner.unload_model()
+                runner.load_model()
+                print(f"[mouth] Runner reloaded.")
 
 
 # --- DRAIN HELPER ---
@@ -125,7 +155,8 @@ def drain_queues():
                 q.get_nowait()
             except queue.Empty:
                 break
-    _leftover = bytearray()
+    with _leftover_lock:
+        _leftover = bytearray()
 
 
 # --- HTTP SERVER ---
@@ -145,6 +176,7 @@ class MouthHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.end_headers()
             stop_event.set()
+            worker_idle.wait(timeout=0.5)
             drain_queues()
 
         else:

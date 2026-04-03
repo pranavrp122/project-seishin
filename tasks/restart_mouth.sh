@@ -25,7 +25,7 @@ pcm.!default { type pulse }
 ctl.!default { type pulse }
 ASOUND"
 
-docker exec seishin-mouth pip install --quiet --break-system-packages torchaudio==2.11.0 qwen-tts sounddevice scipy requests
+docker exec seishin-mouth pip install --quiet --break-system-packages torchaudio==2.11.0 qwen-tts qwen3-tts-triton sounddevice scipy requests
 
 echo "seishin-mouth container ready."
 echo "First run will download Qwen3-TTS-12Hz-1.7B-CustomVoice (~4.54 GB)."

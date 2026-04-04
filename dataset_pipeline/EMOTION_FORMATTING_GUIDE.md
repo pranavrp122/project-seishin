@@ -105,18 +105,33 @@ Not every sentence "deserves" a `!`. The decision is emotion-specific and follow
 - `[sad]`, `[exhausted]`, `[whisper]`, `[calm]`, `[professional]`, `[analytical]`
 - `[sarcastic]` — the deadpan `.` is funnier than `!`
 
+#### Multiple Exclamation Marks (`!!` or `!!!`)
+
+Double and triple exclamation marks indicate **extreme emphasis** and heightened energy. Use with high-energy emotions:
+
+- **`!!`** (double): Used for [excited], [happy], [cheerful], [playful], [laughing], [chuckle] when already ending with `!`
+  - Adds emphasis without being over-the-top
+  - Applied to ~50% of high-energy sentences
+  - Example: `[excited][happy] Oh my gosh, you actually remembered!!`
+
+- **`!!!`** (triple): Reserved for [shouting] and extreme rage peaks only
+  - Rare — only ~5-10% of shouting lines
+  - Example: `[shouting] Get your hands off that right now!!!`
+
+- **Never use multiple marks with**: [sad], [exhausted], [whisper], [calm], [sarcastic]
+
 #### Current `!` Rates (Post-Pass)
-| Emotion | `!` Rate | Notes |
-|---|---|---|
-| [excited] | ~85% | Natural — excitement = energy |
-| [happy] | ~78% | High but not universal |
-| [cheerful] | ~80% | Slightly less than excited |
-| [shouting] | ~95% | Almost always |
-| [surprised] | ~69% | Mix of `!` and `?` |
-| [angry] | ~62% | Forceful peaks + rants, cold stays with `.` |
-| [playful] | ~47% | Teasing gets `!`, chill play stays with `.` |
-| [laughing] | ~70% | Laughter usually has energy |
-| [chuckle] | ~44% | Only energy-paired chuckles |
+| Emotion | `!` Rate | `!!` Rate | Notes |
+|---|---|---|---|
+| [excited] | ~85% | ~60% of `!` become `!!` | Excitement is peak energy |
+| [happy] | ~78% | ~45% of `!` become `!!` | High energy reinforcement |
+| [cheerful] | ~80% | ~50% of `!` become `!!` | Consistent with happy |
+| [shouting] | ~95% | ~8% become `!!!` | Almost always, highest emphasis rare |
+| [surprised] | ~69% | ~20% of `!` become `!!` | Selective emphasis for shock |
+| [angry] | ~62% | <5% become `!!` | Cold anger stays single, rants peak at `!` |
+| [playful] | ~47% | ~40% of `!` become `!!` | Playful energy amplified |
+| [laughing] | ~70% | ~55% of `!` become `!!` | Laughter intensity emphasis |
+| [chuckle] | ~44% | ~50% of `!` become `!!` | Energy-paired chuckles amplified |
 
 ---
 

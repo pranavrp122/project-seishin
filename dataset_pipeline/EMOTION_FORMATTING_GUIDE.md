@@ -53,7 +53,7 @@ lines with that emotion tag should contain the punctuation mark.
 | [happy] | 70-80% | <10% | 5-10% | 15-20% |
 | [cheerful] | 60-70% | <10% | 5-10% | 15-25% |
 | [surprised] | 70-80% | 10-15% | 20-30% | 30-40% |
-| [angry] | 30-40% | <5% | 25-35% | 15-25% |
+| [angry] | 55-65% | <5% | 25-35% | 15-25% |
 | [shouting] | 85-95% | <3% | 10-15% | 5-10% |
 | [sad] | <5% | 35-45% | 10-15% | 10-15% |
 | [exhausted] | <5% | 60-70% | 10-15% | 5-10% |
@@ -64,6 +64,59 @@ lines with that emotion tag should contain the punctuation mark.
 | [calm] | <5% | <8% | <5% | 5-15% |
 | [warm] | <10% | 10-20% | 5-10% | 10-15% |
 | [playful] | 30-45% | 10-20% | 15-25% | 20-30% |
+
+### Exclamation Mark (`!`) Placement Logic
+
+Not every sentence "deserves" a `!`. The decision is emotion-specific and follows these rules:
+
+#### Angry Sentences Ending with `.`
+
+1. **Check for forceful language** → change `.` to `!`
+   - Forceful words: *dare, how dare, stop, enough, never, don't, get out, shut, leave, warning, swear, sick of, had it, fed up, disgusting, unacceptable, unbelievable, ridiculous, last straw, crossed a line, ruined, destroyed, broke, betrayed, lied, disrespectful, right now, this instant, I mean it, do not, how many times, I told you, every single, can't believe, went behind, lost it, own up, walk out, gave you every, tested me, pushing me, what were you, the nerve, the audacity, excuse, one job, promised, confidential, blabbed, threw away, threw out, wasted, one more time*
+   - Accusatory questions phrased as statements: "are you serious", "are you kidding", "what is wrong"
+
+2. **Check for cold/staccato anger** → keep `.` (overrides forceful check)
+   - Cold words: *fine, done, over, leave, goodbye, that's it, we're done, I'm done, forget it, whatever, noted, understood, interesting*
+   - Cold anger is quiet and controlled — the period IS the weapon
+
+3. **Neither forceful nor cold** → 30% random chance of `!`
+   - Prevents monotony while keeping most neutral-angry lines with `.`
+
+4. **Angry rant sentences** — Some angry lines use "and" chains for building rage energy. These always end with `!`. Structure: accusation + "and" + escalation + "and" + final blow. Target: ~6-8 rant-style lines in the dataset.
+
+#### Shouting Sentences Ending with `.`
+- 85% of shouting lines get `.` → `!` (shouting almost always = exclamation)
+- The remaining 15% keep `.` for variety — forceful declarative shouts that land harder with a period
+
+#### Chuckle Sentences Ending with `.`
+- **Energy-paired** (chuckle + happy/excited/playful/cheerful/amused): 45% get `!`
+  - These are big laughs, delighted reactions, can't-contain-it energy
+- **Soft-paired** (chuckle + gentle/tender/sad/whisper): never get `!`
+  - These are quiet chuckles, fond smiles, soft humor
+- **Unpaired or warm-paired**: 15% get `!`
+  - Light amusement occasionally bubbles up
+
+#### Playful Sentences Ending with `.`
+- **Teasing/daring language** → always `!`
+  - Teasing words: *bet you, dare, watch me, try me, can't handle, you think, good luck, game on, bring it, I swear, mine now, no take backs, not even sorry, fight me, come at me, catch me*
+- **Other playful lines**: 20% random chance of `!`
+
+#### Emotions That Should NEVER Get `!`
+- `[sad]`, `[exhausted]`, `[whisper]`, `[calm]`, `[professional]`, `[analytical]`
+- `[sarcastic]` — the deadpan `.` is funnier than `!`
+
+#### Current `!` Rates (Post-Pass)
+| Emotion | `!` Rate | Notes |
+|---|---|---|
+| [excited] | ~85% | Natural — excitement = energy |
+| [happy] | ~78% | High but not universal |
+| [cheerful] | ~80% | Slightly less than excited |
+| [shouting] | ~95% | Almost always |
+| [surprised] | ~69% | Mix of `!` and `?` |
+| [angry] | ~62% | Forceful peaks + rants, cold stays with `.` |
+| [playful] | ~47% | Teasing gets `!`, chill play stays with `.` |
+| [laughing] | ~70% | Laughter usually has energy |
+| [chuckle] | ~44% | Only energy-paired chuckles |
 
 ---
 
@@ -134,13 +187,15 @@ Physical tags pair naturally with specific emotions:
 
 ### [angry]
 - **Sentence length**: Very short (3-8 words, target average ≤15 words). Staccato rhythm. Hard stops.
-- **Punctuation**: Hard `.` periods (declarative force). `!` only at rage peaks (30-40%). `-` for self-interruption ("I told you to - forget it."). Minimal `,` — anger doesn't pause to breathe. NO `...` — anger doesn't trail off, it cuts.
+- **Punctuation**: Hard `.` periods (declarative force, cold anger). `!` at forceful peaks (55-65%) — any sentence with accusatory/command language gets `!`, cold staccato anger keeps `.`. `-` for self-interruption ("I told you to - forget it."). Minimal `,` — anger doesn't pause to breathe. NO `...` — anger doesn't trail off, it cuts.
 - **Structure**: Imperatives ("Stop. Now."). Accusatory questions ("What were you thinking?"). Fragments and incomplete threats. Short declaratives stacked.
 - **Word patterns**: Repetition for hammering ("No. No, I said no."). No filler words — anger is direct. Monosyllabic preference. No hedging whatsoever.
 - **DO NOT**: Use `...` (anger cuts, doesn't trail). Use long flowing sentences (>15 words). Use hedging words. Use polite qualifiers.
 - **Shortening rule**: If an angry sentence exceeds 15 words, find the first natural sentence break (`.`, `!`, `?`, ` - `) after word 5 and truncate there. Angry speech is clipped.
+- **Rant variation**: A small number (~6-8) of angry lines use "and" chain structure for escalating rage. These are longer exceptions to the short-sentence rule: accusation + "and" + escalation + "and" + final blow. Always end with `!`. Example: `You went behind my back on this and lied about it and then had the nerve to act surprised when I found out!`
 - **Mid-sentence shift**: [sigh] for anger burning into exhaustion. [shouting] for escalation.
-- **Example**: `That's enough. I told you three times. Three. And you still didn't listen.`
+- **Example (staccato)**: `That's enough. I told you three times. Three. And you still didn't listen.`
+- **Example (rant)**: `I trusted you with every single thing I had and you threw it all away and you didn't even have the decency to tell me!`
 
 ### [shouting]
 - **Sentence length**: Short (3-10 words). Commands and accusations.

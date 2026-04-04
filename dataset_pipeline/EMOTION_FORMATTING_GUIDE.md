@@ -37,33 +37,39 @@ distinct acoustic effect. Matching punctuation to emotion is non-negotiable.
 |---|---|---|---|
 | `.` | Full stop, downward intonation, deliberate pause | Confidence, anger (staccato), calm, sadness (soft landing), sarcasm (deadpan) | — |
 | `!` | Energy spike, upward attack, emphasis | Happy, excited, surprised, angry (peaks), shouting, cheerful | Sad, exhausted, whisper, calm, sarcastic, warm |
-| `...` | Hesitation, trailing off, lingering pause | Nervous, sad, tired, whisper, sarcasm (timing), sigh, exhausted | Excited, confident, calm, professional, angry |
+| `...` | Hesitation, trailing off, lingering pause (upbeat/neutral energy) | Sarcasm (timing), playful trailing, mild surprise | Excited, confident, calm, professional, angry |
+| `.....` | Deep hesitation, drawn-out silence, emotional weight | Nervous, sad, tired, whisper, sigh, exhausted, calm, analytical, professional, thoughtful, concerned | Excited, happy, cheerful, angry, shouting |
 | `-` | Pause, breath break, self-interruption, thought redirect | Angry, nervous, surprised, exhausted, laughing/chuckle, self-correction | Calm, professional (unless structured aside) |
 | `,` | Brief breath pause, clause linking | Warm (soft flow), calm, nervous (piling up), sad (meandering) | Angry (too flowing), excited (too slow) |
 | `?` | Rising intonation, uncertainty or engagement | Surprised, nervous, playful (teasing), rhetorical | — |
+| `?!` | Shocked disbelief — simultaneous question + exclamation | Surprised (disbelief/shock subtype ~20-25% of surprised lines) | Calm, sad, analytical, professional, whisper |
 
 ### Punctuation Allocation by Emotion
 
 These are target rates validated against the dataset. The percentages indicate what share of
 lines with that emotion tag should contain the punctuation mark.
 
-| Emotion | `!` Rate | `...` Rate | `-` Rate | `?` Rate |
-|---|---|---|---|---|
-| [excited] | 80-90% | <5% | 10-15% | 15-25% |
-| [happy] | 70-80% | <10% | 5-10% | 15-20% |
-| [cheerful] | 60-70% | <10% | 5-10% | 15-25% |
-| [surprised] | 70-80% | 10-15% | 20-30% | 30-40% |
-| [angry] | 55-65% | <5% | 25-35% | 15-25% |
-| [shouting] | 85-95% | <3% | 10-15% | 5-10% |
-| [sad] | <5% | 35-45% | 10-15% | 10-15% |
-| [exhausted] | <5% | 60-70% | 10-15% | 5-10% |
-| [nervous] | <10% | 60-70% | 25-35% | 20-30% |
-| [sarcastic] | <10% | 15-25% | 5-10% | 15-25% |
-| [whisper] | <5% | 15-25% | 5-10% | 10-15% |
-| [confident] | 5-10% | <5% | <5% | 5-10% |
-| [calm] | <5% | <8% | <5% | 5-15% |
-| [warm] | <10% | 10-20% | 5-10% | 10-15% |
-| [playful] | 30-45% | 10-20% | 15-25% | 20-30% |
+| Emotion | `!` Rate | `...` Rate | `.....` Rate | `-` Rate | `?` Rate |
+|---|---|---|---|---|---|
+| [excited] | 80-90% | <5% | 0% | 10-15% | 15-25% |
+| [happy] | 70-80% | <10% | 0% | 5-10% | 15-20% |
+| [cheerful] | 60-70% | <10% | 0% | 5-10% | 15-25% |
+| [surprised] | 50-60% | 10-15% | 0% | 20-30% | 20-30% (some `?` → `?!`, ~20-25% of lines) |
+| [angry] | 55-65% | <5% | 0% | 25-35% | 15-25% |
+| [shouting] | 85-95% | <3% | 0% | 10-15% | 5-10% |
+| [sad] | <5% | <5% | 35-45% | 10-15% | 10-15% |
+| [exhausted] | <5% | <5% | 60-70% | 10-15% | 5-10% |
+| [nervous] | <10% | <5% | 60-70% | 25-35% | 20-30% |
+| [tired] | <5% | <5% | 50-60% | 10-15% | 5-10% |
+| [sarcastic] | <10% | 15-25% | 0% | 5-10% | 15-25% |
+| [whisper] | <5% | <5% | 15-25% | 5-10% | 10-15% |
+| [sigh] | <5% | <5% | 30-45% | 10-15% | 5-10% |
+| [confident] | 5-10% | <5% | 0% | <5% | 5-10% |
+| [calm] | <5% | 0% | 15-25% | <5% | 5-15% |
+| [analytical] | <5% | 0% | 20-30% | <5% | 5-10% |
+| [professional] | <5% | 0% | 15-25% | <5% | 5-10% |
+| [warm] | <10% | 10-20% | 0% | 5-10% | 10-15% |
+| [playful] | 30-45% | 10-20% | 0% | 15-25% | 20-30% |
 
 ### Exclamation Mark (`!`) Placement Logic
 

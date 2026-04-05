@@ -697,3 +697,15 @@ Run this checklist against any generated dataset before synthesis:
 - [ ] Long (36-50w): ~20%
 - [ ] No lines exceed 50 words
 - [ ] Average: 15-20 words
+
+Prompts that should be regenerated with proper pronunciation later:
+Rather
+Guess
+Never
+for [analytical] tags, it kindve pauses / makes a noise at the start and mispronounces the first word or two. also can include capitalizations for even more emphasis. Also for when it has to say each individual letter maybe need to test different formatting like having a space W A L vs WAL so it pronounces it correctly.
+edge (beingpronounces as age)
+record (record a video vs play that record)
+
+the clear tag messes them up - dont generate
+
+also dont be afraid to not generate any tags, it works pretty well for monotone lines, things like professional and analytical

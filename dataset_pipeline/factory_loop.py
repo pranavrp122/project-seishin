@@ -24,8 +24,7 @@ from fish_speech.utils.schema import ServeReferenceAudio, ServeTTSRequest
 # Tag translation matrix — only these tags get expanded; all others pass through
 # ---------------------------------------------------------------------------
 TAG_TRANSLATIONS: dict[str, str] = {
-    "[sarcastic]": "[deadpan][sarcastic][low pitch]",
-    "[analytical]": "[articulate][slow]",
+    "[sarcastic]": "[sarcastic]",
 }
 
 TAG_RE = re.compile(r"\[[^\]]+\]")

@@ -66,7 +66,6 @@ lines with that emotion tag should contain the punctuation mark.
 | [sigh] | <5% | <5% | 30-45% | 10-15% | 5-10% |
 | [confident] | 5-10% | <5% | 0% | <5% | 5-10% |
 | [calm] | <5% | 0% | 15-25% | <5% | 5-15% |
-| [analytical] | <5% | 0% | 20-30% | <5% | 5-10% |
 | [professional] | <5% | 0% | 15-25% | <5% | 5-10% |
 | [warm] | <10% | 10-20% | 0% | 5-10% | 10-15% |
 | [playful] | 30-45% | 10-20% | 0% | 15-25% | 20-30% |
@@ -108,8 +107,8 @@ Not every sentence "deserves" a `!`. The decision is emotion-specific and follow
 - **Other playful lines**: 20% random chance of `!`
 
 #### Emotions That Should NEVER Get `!`
-- `[sad]`, `[exhausted]`, `[whisper]`, `[calm]`, `[professional]`, `[analytical]`
-- `[sarcastic]` — the deadpan `.` is funnier than `!`
+- `[sad]`, `[exhausted]`, `[whisper]`, `[calm]`, `[professional]`
+- `[sarcastic]` — the period `.` is funnier than `!`
 
 #### Multiple Exclamation Marks (`!!` or `!!!`)
 
@@ -382,14 +381,6 @@ Physical tags pair naturally with specific emotions:
 - **Mid-sentence shift**: [chuckle] for breaking into laughter. [whisper] for conspiratorial asides.
 - **Example**: `Okay wait - you're not going to believe this. Guess who just showed up? I'll give you a hint... it's not who you think.`
 
-### [analytical]
-- **Sentence length**: Medium to long. Methodical and structured.
-- **Punctuation**: Standard `.` and `,`. Rare `?` for hypothesis framing. No `!`, no `...`.
-- **Structure**: Logical flow — premise, evidence, conclusion. "Based on X, Y suggests Z."
-- **Word patterns**: Technical but accessible. Data references. Conditional language ("if... then...").
-- **Note**: Translated to `[articulate][slow]` for Fish S2 Pro synthesis (removed [clear] due to generation instability).
-- **Example**: `Based on the data, we should prioritize the memory allocation issue first. The latency correlation is too strong to ignore.`
-
 ### [emphasis]
 - **Usage**: Used as a mid-sentence modifier to mark a key word or phrase for stress.
 - **Placement**: Before the word(s) that need vocal emphasis.
@@ -430,7 +421,6 @@ emotion transitions within a single utterance.
 | [gentle] | [whisper], [chuckle], [warm] | "...", "and", sentence break |
 | [tender] | [whisper], [sigh], [warm] | "...", "and", "because" |
 | [cheerful] | [chuckle], [excited], [happy] | "and", "wait", sentence break |
-| [analytical] | [emphasis], [pause], [surprised] | "but", "however", sentence break |
 | [professional] | [emphasis], [pause] | "however", "importantly", sentence break |
 | [surprised] | [happy], [excited], [gasp] | "and", "wait", sentence break |
 
@@ -600,7 +590,7 @@ Personal, emotional, relational. Conversations between close people — friends,
 ### Category B: Technical & Reporting (30% of dataset)
 Professional, analytical, informational. Work contexts, reporting, technical communication.
 
-**Primary tags**: [analytical], [confident], [pause], [short pause], [emphasis], [calm], [professional]
+**Primary tags**: [confident], [pause], [short pause], [emphasis], [calm], [professional]
 
 **Characteristics**:
 - Third person or impersonal ("the data shows", "results indicate")
@@ -649,9 +639,7 @@ store the ORIGINAL tag (for LoRA training), but the synthesizer receives the tra
 
 | Training Tag | Fish S2 Pro Translation | Why |
 |---|---|---|
-| `[sarcastic]` | `[deadpan][sarcastic][low pitch]` | S2 Pro needs multiple descriptors for sarcasm |
-| `[analytical]` | `[articulate][slow]` | S2 Pro renders analysis better with explicit pacing (removed [clear] due to instability) |
-| All other tags | Pass through unchanged | S2 Pro supports them natively |
+| All tags | Pass through unchanged | S2 Pro supports them natively |
 
 **Important**: The LoRA model will learn the ORIGINAL simple tags. The translation only
 happens at synthesis time in `factory_loop.py`. This keeps the training vocabulary clean.

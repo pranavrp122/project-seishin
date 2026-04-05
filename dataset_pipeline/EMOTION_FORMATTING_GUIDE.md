@@ -512,6 +512,37 @@ feel more natural and emotionally committed. Use sparingly — oversaturation du
 - Target: ~5% of total lines get an emphasis word insertion
 - Existing natural emphasis words should not be modified
 
+### Full Word Capitalization for [emphasis] Tag
+
+When a sentence is tagged with `[emphasis]`, capitalization of a key word can amplify the emotional intensity. The rule is selective and must match the semantic content of the sentence.
+
+**Capitalization Rules**:
+1. **Only capitalize these words**: NO, NEVER, NOTHING, NONE, ZERO, NOT, EVERY, ALL
+2. **NEVER capitalize the first word** of a sentence (maintains natural readability)
+3. **NEVER capitalize**: absolutely, fundamental, critical, essential, crucial, completely, entirely, or other intensifiers already present in the sentence
+4. **Must skip first word in sentence**: The first word after tags always starts normally capitalized (e.g., "The", "There", etc.)
+5. **One word per line**: Only capitalize a single key word per sentence for maximum impact
+6. **Position**: The capitalized word should appear in the second half of the sentence, after a natural clause break
+
+**Word Selection Logic**:
+- **NO**: Use when negating something ("There's NO way..."). Emphasizes impossibility.
+- **NEVER**: Use for strong negation of past/future ("We should NEVER..."). Emphasizes firm resolve.
+- **ZERO**: Use for numeric/measurement negation ("We have ZERO redundancy"). Emphasizes shocking absence.
+- **NOTHING**: Use for complete negation ("There's NOTHING..."). Emphasizes total lack.
+- **NOT**: Use for quick, sharp negation (less common than NO). ("This is NOT acceptable.")
+- **EVERY**: Use when emphasizing universal scope ("EVERY test passed"). Emphasizes completeness.
+- **ALL**: Use for totality ("We've tried ALL approaches"). Emphasizes exhaustiveness.
+- **NONE**: Use for totality negation ("We have NONE of that working"). Emphasizes complete failure.
+
+**Examples**:
+- `[emphasis] There's absolutely NO reason a simple key-value lookup should take 400 milliseconds.`
+- `[emphasis] The service has ZERO redundancy.....if that single instance goes down, every downstream consumer will experience a complete outage.`
+- `[emphasis] There are NO tests for this entire module.`
+- `[emphasis] I've personally verified EVERY edge case.`
+- `[emphasis] We have three services in production right now that were deployed by engineers who have since left the company, with NO documentation whatsoever.`
+
+**Saturation Target**: Apply to ~1-2% of total [emphasis] entries (roughly 40-50 sentences in a 7,500-sample dataset).
+
 ---
 
 ## Sentence Length & Duration Variation
@@ -702,7 +733,7 @@ Prompts that should be regenerated with proper pronunciation later:
 Rather
 Guess
 Never
-for [analytical] tags, it kindve pauses / makes a noise at the start and mispronounces the first word or two. also can include capitalizations for even more emphasis. Also for when it has to say each individual letter maybe need to test different formatting like having a space W A L vs WAL so it pronounces it correctly.
+
 edge (beingpronounces as age)
 record (record a video vs play that record)
 

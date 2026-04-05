@@ -1,0 +1,1 @@
+[analytical] Examining the system call trace reveals that the application is making 50, [confident] 000 futex system calls per second. [emphasis] This indicates excessive lock contention in the threading model and explains why adding more CPU cores doesn't improve throughput.

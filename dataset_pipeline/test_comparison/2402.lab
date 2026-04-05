@@ -1,0 +1,1 @@
+[emphasis] Every request that hits the search endpoint triggers a full table scan on a 500-million-row table. The query optimizer can't use the existing index due to a type mismatch between the filter column and the indexed column.

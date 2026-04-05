@@ -112,7 +112,14 @@
       "Bash(pkill -f test_generate_extreme.py)",
       "mcp__plugin_serena_serena__read_file",
       "Bash(rm -f factory_loop.log test_batch.json test_batch_excited.json test_generate.py testaudio3.mp4)",
-      "Bash(rmdir tasks:*)"
+      "Bash(rmdir tasks:*)",
+      "Bash(read id:*)",
+      "Bash(xargs -I {} basename {} .wav)",
+      "Bash(rsync -av /tmp/claude-code-backup/skills/ ~/.claude/skills/ --exclude \"*.local*\")",
+      "Bash(rsync -av /tmp/claude-code-backup/commands/ ~/.claude/commands/)",
+      "Bash(rsync -av /tmp/claude-code-backup/agents/ ~/.claude/agents/)",
+      "Bash(rsync -av /tmp/claude-code-backup/hooks/ ~/.claude/hooks/)",
+      "Bash(rsync -av /tmp/claude-code-backup/get-shit-done/ ~/.claude/get-shit-done/)"
     ]
   }
 }

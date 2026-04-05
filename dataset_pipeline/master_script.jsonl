@@ -1039,7 +1039,7 @@
 {"id": 1039, "category": "A", "tag": "[tender][whisper]", "text": "[tender][whisper] Don't move..... this moment is perfect, let's just freeze time right here if we could."}
 {"id": 1040, "category": "A", "tag": "[cheerful][playful]", "text": "[cheerful][playful] Spontaneous ice cream run, who's driving? I call shotgun!!"}
 {"id": 1041, "category": "A", "tag": "[gentle]", "text": "[gentle] I made the bed with the sheets you like because I know the soft ones help you sleep better, especially on nights when your mind won't settle down."}
-{"id": 1042, "category": "A", "tag": "[professional]", "text": "[analytical] You're home early! Oh this is the best surprise, get over here!"}
+{"id": 1042, "category": "A", "tag": "", "text": "[analytical] You're home early! Oh this is the best surprise, get over here!"}
 {"id": 1043, "category": "A", "tag": "[playful]", "text": "[playful] Your phone password is so obvious, you might as well not even have one."}
 {"id": 1044, "category": "A", "tag": "[warm]", "text": "[warm] I'm so grateful for you, not just today but every day."}
 {"id": 1045, "category": "A", "tag": "[sad][whisper][warm]", "text": "[sad][whisper] Sometimes I worry I'm not enough for you..... [warm] please tell me that's not true."}
@@ -1047,7 +1047,7 @@
 {"id": 1047, "category": "A", "tag": "[tender][happy]", "text": "[tender][happy] I keep finding little reasons to fall in love with you all over again and it truly catches me off guard every time."}
 {"id": 1048, "category": "A", "tag": "[chuckle][playful]", "text": "[chuckle][playful] Did you seriously just wink at me across the room? In front of everyone? Oh my god!!"}
 {"id": 1049, "category": "A", "tag": "[warm]", "text": "[warm] I peeled your orange for you because I know you hate doing it."}
-{"id": 1050, "category": "A", "tag": "[professional]", "text": "[analytical] The world won't end if you take a day off, I promise."}
+{"id": 1050, "category": "A", "tag": "", "text": "[analytical] The world won't end if you take a day off, I promise."}
 {"id": 1051, "category": "A", "tag": "[excited]", "text": "[excited] I cannot contain myself right now, this is the happiest I've been in months!!"}
 {"id": 1052, "category": "A", "tag": "[playful]", "text": "[playful] You literally cannot keep a secret for more than thirty seconds, it's adorable and also deeply concerning!!"}
 {"id": 1053, "category": "A", "tag": "[warm][cheerful]", "text": "[warm][cheerful] Making breakfast together on weekends is my favorite tradition we've got going!!"}
@@ -1135,7 +1135,7 @@
 {"id": 1135, "category": "A", "tag": "[excited][playful]", "text": "[excited][playful] Karaoke night! Dibs on the first song, and yes it's gonna be dramatic!!"}
 {"id": 1136, "category": "A", "tag": "[happy][warm]", "text": "[happy] You always make room for me, literally and figuratively, and [warm] I notice every single time!!"}
 {"id": 1137, "category": "A", "tag": "[warm]", "text": "[warm] I scheduled a reminder to tell you I love you at random times because you deserve to hear it when you least expect it. Most need it."}
-{"id": 1138, "category": "A", "tag": "[confident]", "text": "[analytical] Breathe, love..... in through your nose, out through your mouth, you've got this."}
+{"id": 1138, "category": "A", "tag": "", "text": "[analytical] Breathe, love..... in through your nose, out through your mouth, you've got this."}
 {"id": 1139, "category": "A", "tag": "[playful]", "text": "[playful] You stole my fry when you said you didn't want any... classic."}
 {"id": 1140, "category": "A", "tag": "[whisper][warm]", "text": "[whisper][warm] I still get nervous around you sometimes..... in the best possible way though."}
 {"id": 1141, "category": "A", "tag": "[sad]", "text": "[sad] I wish I'd said something sooner..... I just didn't know how to find the right words and now the moment feels like it's slipping away."}
@@ -1439,250 +1439,250 @@
 {"id": 1439, "category": "A", "tag": "[warm][whisper]", "text": "[warm] My afternoon routine changed after I started working from home. [whisper] Now I actually have time to enjoy breakfast."}
 {"id": 1440, "category": "A", "tag": "[excited]", "text": "[excited] I was thinking about what happened last weekend and it just hit me... it's the little things that matter most!!"}
 {"id": 1441, "category": "A", "tag": "[tender][whisper]", "text": "[tender] My morning routine changed after the renovation finished. [whisper] Everything just flows better now."}
-{"id": 1442, "category": "B", "tag": "[professional]", "text": "[analytical] The p99 latency spiked to 340 milliseconds overnight."}
+{"id": 1442, "category": "B", "tag": "", "text": "[analytical] The p99 latency spiked to 340 milliseconds overnight."}
 {"id": 1443, "category": "B", "tag": "[confident]", "text": "[confident] We can ship this patch before end of day."}
-{"id": 1444, "category": "B", "tag": "[professional]", "text": "Redis cache hit ratio dropped below seventy percent."}
+{"id": 1444, "category": "B", "tag": "", "text": "Redis cache hit ratio dropped below seventy percent."}
 {"id": 1445, "category": "B", "tag": "[calm]", "text": "[calm] The deployment rolled back automatically, no data loss."}
 {"id": 1446, "category": "B", "tag": "[professional]", "text": "[professional] I'll walk through the incident timeline briefly."}
 {"id": 1447, "category": "B", "tag": "[emphasis]", "text": "[emphasis] That query is scanning the entire users table."}
-{"id": 1448, "category": "B", "tag": "[professional]", "text": "[analytical] Memory usage on pod three is climbing steadily."}
+{"id": 1448, "category": "B", "tag": "", "text": "[analytical] Memory usage on pod three is climbing steadily."}
 {"id": 1449, "category": "B", "tag": "[confident]", "text": "[confident] The fix is a one-liner in the middleware."}
-{"id": 1450, "category": "B", "tag": "[professional]", "text": "Our SLA target is 99.95 percent uptime."}
+{"id": 1450, "category": "B", "tag": "", "text": "Our SLA target is 99.95 percent uptime."}
 {"id": 1451, "category": "B", "tag": "[pause]", "text": "[pause] Let me pull up the Grafana dashboard."}
 {"id": 1452, "category": "B", "tag": "[short pause]", "text": "[short pause] The error rate..... it's actually trending down now."}
 {"id": 1453, "category": "B", "tag": "[professional]", "text": "[professional] Moving on to the database migration status."}
-{"id": 1454, "category": "B", "tag": "[professional]", "text": "[analytical] Connection pool exhaustion caused the cascading failure."}
+{"id": 1454, "category": "B", "tag": "", "text": "[analytical] Connection pool exhaustion caused the cascading failure."}
 {"id": 1455, "category": "B", "tag": "[confident]", "text": "[confident] I've already tested this against staging."}
 {"id": 1456, "category": "B", "tag": "[calm]", "text": "[calm] Nothing critical in the overnight alerts."}
 {"id": 1457, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We absolutely need to index that column."}
-{"id": 1458, "category": "B", "tag": "[professional]", "text": "Three PRs are pending review right now."}
-{"id": 1459, "category": "B", "tag": "[professional]", "text": "[analytical] CPU utilization peaked at 87 percent around noon."}
+{"id": 1458, "category": "B", "tag": "", "text": "Three PRs are pending review right now."}
+{"id": 1459, "category": "B", "tag": "", "text": "[analytical] CPU utilization peaked at 87 percent around noon."}
 {"id": 1460, "category": "B", "tag": "[confident]", "text": "[confident] The rollback script works, I verified it twice."}
 {"id": 1461, "category": "B", "tag": "[professional]", "text": "[professional] Let's review the sprint velocity numbers."}
 {"id": 1462, "category": "B", "tag": "[calm]", "text": "[calm] The hotfix landed cleanly in production."}
 {"id": 1463, "category": "B", "tag": "[short pause]", "text": "[short pause] Looks like..... the webhook retry logic is failing."}
 {"id": 1464, "category": "B", "tag": "[exhausted][sigh]", "text": "[exhausted][sigh] This endpoint has..... zero test coverage."}
-{"id": 1465, "category": "B", "tag": "[professional]", "text": "The CI pipeline takes about fourteen minutes currently."}
-{"id": 1466, "category": "B", "tag": "[professional]", "text": "[analytical] Disk I/O on the primary replica is saturated."}
+{"id": 1465, "category": "B", "tag": "", "text": "The CI pipeline takes about fourteen minutes currently."}
+{"id": 1466, "category": "B", "tag": "", "text": "[analytical] Disk I/O on the primary replica is saturated."}
 {"id": 1467, "category": "B", "tag": "[confident]", "text": "[confident] We don't need to touch the schema for this."}
 {"id": 1468, "category": "B", "tag": "[pause]", "text": "[pause] Give me a second to check the logs."}
 {"id": 1469, "category": "B", "tag": "[professional]", "text": "[professional] Here's the summary from yesterday's postmortem."}
 {"id": 1470, "category": "B", "tag": "[calm]", "text": "[calm] All services recovered within the SLO window."}
-{"id": 1471, "category": "B", "tag": "[professional]", "text": "The API gateway is rate-limiting at 500 requests per second."}
-{"id": 1472, "category": "B", "tag": "[confident]", "text": "[analytical] Thread contention is the bottleneck here."}
+{"id": 1471, "category": "B", "tag": "", "text": "The API gateway is rate-limiting at 500 requests per second."}
+{"id": 1472, "category": "B", "tag": "", "text": "[analytical] Thread contention is the bottleneck here."}
 {"id": 1473, "category": "B", "tag": "[confident]", "text": "[confident] I can have the migration script ready by tomorrow."}
 {"id": 1474, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The null pointer exception is in the auth service."}
 {"id": 1475, "category": "B", "tag": "[short pause]", "text": "[short pause] So the..... primary database failover took twelve seconds."}
 {"id": 1476, "category": "B", "tag": "[professional]", "text": "[professional] Let me share my screen with the metrics."}
 {"id": 1477, "category": "B", "tag": "[calm]", "text": "[calm] We've seen this pattern before in staging."}
-{"id": 1478, "category": "B", "tag": "[professional]", "text": "Two feature flags need cleanup this sprint."}
-{"id": 1479, "category": "B", "tag": "[professional]", "text": "[analytical] The garbage collector is running every 300 milliseconds."}
+{"id": 1478, "category": "B", "tag": "", "text": "Two feature flags need cleanup this sprint."}
+{"id": 1479, "category": "B", "tag": "", "text": "[analytical] The garbage collector is running every 300 milliseconds."}
 {"id": 1480, "category": "B", "tag": "[confident]", "text": "[confident] This PR addresses all three review comments."}
 {"id": 1481, "category": "B", "tag": "[pause]", "text": "[pause] Alright..... pulling up the error traces now."}
 {"id": 1482, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The response payload is way too large."}
 {"id": 1483, "category": "B", "tag": "[professional]", "text": "[professional] I'll document the root cause analysis after this."}
 {"id": 1484, "category": "B", "tag": "[calm]", "text": "[calm] It's a minor configuration drift, easily fixed."}
-{"id": 1485, "category": "B", "tag": "[professional]", "text": "The health check endpoint returns 200, but no body."}
-{"id": 1486, "category": "B", "tag": "[professional]", "text": "[analytical] Network partitioning caused split-brain in the cluster."}
+{"id": 1485, "category": "B", "tag": "", "text": "The health check endpoint returns 200, but no body."}
+{"id": 1486, "category": "B", "tag": "", "text": "[analytical] Network partitioning caused split-brain in the cluster."}
 {"id": 1487, "category": "B", "tag": "[confident]", "text": "[confident] We've load tested this to 10x current traffic."}
 {"id": 1488, "category": "B", "tag": "[short pause]", "text": "[short pause] The..... container restart count is concerning."}
 {"id": 1489, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We're leaking database connections on every request."}
 {"id": 1490, "category": "B", "tag": "[professional]", "text": "[professional] Next item on the agenda is tech debt."}
 {"id": 1491, "category": "B", "tag": "[calm]", "text": "[calm] The canary deployment looks healthy so far."}
-{"id": 1492, "category": "B", "tag": "[professional]", "text": "[analytical] Average query time jumped from 5 to 45 milliseconds."}
+{"id": 1492, "category": "B", "tag": "", "text": "[analytical] Average query time jumped from 5 to 45 milliseconds."}
 {"id": 1493, "category": "B", "tag": "[confident]", "text": "[confident] The caching layer will handle that edge case."}
-{"id": 1494, "category": "B", "tag": "[professional]", "text": "Kubernetes is scheduling pods on three nodes currently."}
+{"id": 1494, "category": "B", "tag": "", "text": "Kubernetes is scheduling pods on three nodes currently."}
 {"id": 1495, "category": "B", "tag": "[pause]", "text": "[pause] Let me check if the build passed."}
 {"id": 1496, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The logging volume tripled after that deploy."}
 {"id": 1497, "category": "B", "tag": "[professional]", "text": "[professional] I'll loop in the platform team on this."}
 {"id": 1498, "category": "B", "tag": "[calm]", "text": "[calm] No regressions detected in the smoke tests."}
 {"id": 1499, "category": "B", "tag": "[short pause]", "text": "[short pause] The load balancer..... it's distributing unevenly."}
-{"id": 1500, "category": "B", "tag": "[professional]", "text": "[analytical] Message queue depth exceeded 50,000 during the incident."}
+{"id": 1500, "category": "B", "tag": "", "text": "[analytical] Message queue depth exceeded 50,000 during the incident."}
 {"id": 1501, "category": "B", "tag": "[confident]", "text": "[confident] This optimization cuts response time by 40 percent."}
-{"id": 1502, "category": "B", "tag": "[professional]", "text": "The staging environment mirrors production exactly."}
-{"id": 1503, "category": "B", "tag": "[professional]", "text": "[analytical] Heap allocation is the main performance concern."}
+{"id": 1502, "category": "B", "tag": "", "text": "The staging environment mirrors production exactly."}
+{"id": 1503, "category": "B", "tag": "", "text": "[analytical] Heap allocation is the main performance concern."}
 {"id": 1504, "category": "B", "tag": "[confident]", "text": "[confident] Our monitoring caught this before users noticed."}
 {"id": 1505, "category": "B", "tag": "[emphasis]", "text": "[emphasis] That's a breaking change to the public API."}
 {"id": 1506, "category": "B", "tag": "[calm]", "text": "[calm] DNS propagation completed about an hour ago."}
 {"id": 1507, "category": "B", "tag": "[professional]", "text": "[professional] Let's prioritize the security patches first."}
-{"id": 1508, "category": "B", "tag": "[professional]", "text": "The OAuth token refresh is failing intermittently."}
+{"id": 1508, "category": "B", "tag": "", "text": "The OAuth token refresh is failing intermittently."}
 {"id": 1509, "category": "B", "tag": "[short pause]", "text": "[short pause] So..... the circuit breaker tripped at 3 AM."}
 {"id": 1510, "category": "B", "tag": "[pause]", "text": "[pause] One moment while I find that commit hash."}
-{"id": 1511, "category": "B", "tag": "[professional]", "text": "[analytical] The flame graph shows most time in serialization."}
+{"id": 1511, "category": "B", "tag": "", "text": "[analytical] The flame graph shows most time in serialization."}
 {"id": 1512, "category": "B", "tag": "[confident]", "text": "[confident] We've already mitigated the vulnerability."}
 {"id": 1513, "category": "B", "tag": "[emphasis]", "text": "[emphasis] Every single integration test is failing."}
 {"id": 1514, "category": "B", "tag": "[calm]", "text": "[calm] The autoscaler handled the traffic spike gracefully."}
 {"id": 1515, "category": "B", "tag": "[professional]", "text": "[professional] I've prepared a brief status update."}
-{"id": 1516, "category": "B", "tag": "[professional]", "text": "The CDN cache invalidation takes roughly two minutes."}
+{"id": 1516, "category": "B", "tag": "", "text": "The CDN cache invalidation takes roughly two minutes."}
 {"id": 1517, "category": "B", "tag": "[sigh][surprised]", "text": "[sigh][surprised] Write amplification on the SSD is 3.2x!"}
 {"id": 1518, "category": "B", "tag": "[happy][chuckle]", "text": "[happy][chuckle] Reverting that commit will resolve the issue immediately!!"}
 {"id": 1519, "category": "B", "tag": "[short pause]", "text": "[short pause] The metrics..... they don't match the user reports."}
 {"id": 1520, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We cannot deploy without fixing this race condition."}
 {"id": 1521, "category": "B", "tag": "[professional]", "text": "[professional] That concludes the infrastructure review section."}
 {"id": 1522, "category": "B", "tag": "[calm]", "text": "[calm] The backup verification passed all integrity checks."}
-{"id": 1523, "category": "B", "tag": "[professional]", "text": "Six microservices depend on that shared library."}
-{"id": 1524, "category": "B", "tag": "[professional]", "text": "[analytical] Tail latency is 10x worse than the median."}
+{"id": 1523, "category": "B", "tag": "", "text": "Six microservices depend on that shared library."}
+{"id": 1524, "category": "B", "tag": "", "text": "[analytical] Tail latency is 10x worse than the median."}
 {"id": 1525, "category": "B", "tag": "[confident]", "text": "[confident] The database can handle double the current write load."}
 {"id": 1526, "category": "B", "tag": "[pause]", "text": "[pause] Hmm..... let me trace this request through the system."}
 {"id": 1527, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The retry storm is amplifying the failure."}
 {"id": 1528, "category": "B", "tag": "[professional]", "text": "[professional] I'll create a JIRA ticket for tracking."}
 {"id": 1529, "category": "B", "tag": "[calm]", "text": "[calm] The certificate renewal happened automatically last night."}
-{"id": 1530, "category": "B", "tag": "[professional]", "text": "Port 8443 is blocked by the firewall rules."}
+{"id": 1530, "category": "B", "tag": "", "text": "Port 8443 is blocked by the firewall rules."}
 {"id": 1531, "category": "B", "tag": "[short pause]", "text": "[short pause] We're seeing..... roughly 200 errors per minute."}
-{"id": 1532, "category": "B", "tag": "[confident]", "text": "[analytical] The index scan is four orders of magnitude faster."}
+{"id": 1532, "category": "B", "tag": "", "text": "[analytical] The index scan is four orders of magnitude faster."}
 {"id": 1533, "category": "B", "tag": "[confident]", "text": "[confident] This change is backward compatible."}
 {"id": 1534, "category": "B", "tag": "[emphasis]", "text": "[emphasis] Production logs show a clear memory leak pattern."}
 {"id": 1535, "category": "B", "tag": "[calm]", "text": "[calm] Traffic patterns are normal for a Tuesday morning."}
 {"id": 1536, "category": "B", "tag": "[professional]", "text": "[professional] Let me walk you through the architecture diagram."}
-{"id": 1537, "category": "B", "tag": "[professional]", "text": "The websocket connection drops after exactly 60 seconds."}
-{"id": 1538, "category": "B", "tag": "[professional]", "text": "[analytical] Request queuing time accounts for 70 percent of latency."}
+{"id": 1537, "category": "B", "tag": "", "text": "The websocket connection drops after exactly 60 seconds."}
+{"id": 1538, "category": "B", "tag": "", "text": "[analytical] Request queuing time accounts for 70 percent of latency."}
 {"id": 1539, "category": "B", "tag": "[confident]", "text": "[confident] I've run the chaos engineering suite against it."}
 {"id": 1540, "category": "B", "tag": "[short pause]", "text": "[short pause] The..... the test suite is green now actually."}
 {"id": 1541, "category": "B", "tag": "[pause]", "text": "[pause] Checking the deploy pipeline status....."}
 {"id": 1542, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We need to rotate those credentials immediately."}
 {"id": 1543, "category": "B", "tag": "[professional]", "text": "[professional] Here's what I found during the code review."}
 {"id": 1544, "category": "B", "tag": "[calm]", "text": "[calm] The alert was a false positive from the new threshold."}
-{"id": 1545, "category": "B", "tag": "[professional]", "text": "Master branch has 47 commits ahead of staging."}
-{"id": 1546, "category": "B", "tag": "[confident]", "text": "[analytical] Object storage egress costs doubled last month."}
+{"id": 1545, "category": "B", "tag": "", "text": "Master branch has 47 commits ahead of staging."}
+{"id": 1546, "category": "B", "tag": "", "text": "[analytical] Object storage egress costs doubled last month."}
 {"id": 1547, "category": "B", "tag": "[calm]", "text": "[calm] The feature toggle lets us disable it instantly."}
 {"id": 1548, "category": "B", "tag": "[emphasis]", "text": "[emphasis] That endpoint is completely unauthenticated."}
 {"id": 1549, "category": "B", "tag": "[calm]", "text": "[calm] Replication lag is within acceptable parameters."}
 {"id": 1550, "category": "B", "tag": "[professional]", "text": "[professional] Let's timebox the debugging to thirty minutes."}
-{"id": 1551, "category": "B", "tag": "[professional]", "text": "The gRPC service mesh handles service discovery."}
+{"id": 1551, "category": "B", "tag": "", "text": "The gRPC service mesh handles service discovery."}
 {"id": 1552, "category": "B", "tag": "[short pause]", "text": "[short pause] Looks like..... the cron job didn't fire overnight."}
-{"id": 1553, "category": "B", "tag": "[confident]", "text": "[analytical] Bloom filter false positive rate is at 2 percent."}
+{"id": 1553, "category": "B", "tag": "", "text": "[analytical] Bloom filter false positive rate is at 2 percent."}
 {"id": 1554, "category": "B", "tag": "[confident]", "text": "[confident] We've got enough headroom for Black Friday traffic."}
 {"id": 1555, "category": "B", "tag": "[gentle]", "text": "[gentle] Let me verify that against the production config."}
 {"id": 1556, "category": "B", "tag": "[analytical][emphasis]", "text": "[analytical][emphasis] The dependency has a known critical vulnerability."}
 {"id": 1557, "category": "B", "tag": "[professional]", "text": "[professional] Moving to the next topic, deployment cadence."}
 {"id": 1558, "category": "B", "tag": "[calm]", "text": "[calm] All smoke tests passed on the release candidate."}
-{"id": 1559, "category": "B", "tag": "[professional]", "text": "The message broker is running on three replicas."}
-{"id": 1560, "category": "B", "tag": "[professional]", "text": "[analytical] Lock contention on that table is causing timeouts."}
+{"id": 1559, "category": "B", "tag": "", "text": "The message broker is running on three replicas."}
+{"id": 1560, "category": "B", "tag": "", "text": "[analytical] Lock contention on that table is causing timeouts."}
 {"id": 1561, "category": "B", "tag": "[confident]", "text": "[confident] The new caching strategy eliminates that problem."}
 {"id": 1562, "category": "B", "tag": "[short pause]", "text": "[short pause] Error budget..... we've consumed about 40 percent."}
 {"id": 1563, "category": "B", "tag": "[emphasis]", "text": "[emphasis] Nobody reviewed this PR before it was merged."}
 {"id": 1564, "category": "B", "tag": "[professional]", "text": "[professional] I've prepared a runbook for this scenario."}
 {"id": 1565, "category": "B", "tag": "[calm]", "text": "[calm] The infrastructure migration is 80 percent complete."}
-{"id": 1566, "category": "B", "tag": "[professional]", "text": "All environment variables are loaded from Vault."}
-{"id": 1567, "category": "B", "tag": "[professional]", "text": "[analytical] Compaction is running behind on the time-series database."}
+{"id": 1566, "category": "B", "tag": "", "text": "All environment variables are loaded from Vault."}
+{"id": 1567, "category": "B", "tag": "", "text": "[analytical] Compaction is running behind on the time-series database."}
 {"id": 1568, "category": "B", "tag": "[confident]", "text": "[confident] We can scale horizontally without code changes."}
 {"id": 1569, "category": "B", "tag": "[pause]", "text": "[pause] Just a moment..... checking the Terraform state."}
 {"id": 1570, "category": "B", "tag": "[emphasis]", "text": "[emphasis] That function has cyclomatic complexity of 47."}
 {"id": 1571, "category": "B", "tag": "[professional]", "text": "[professional] Let me summarize the key findings."}
 {"id": 1572, "category": "B", "tag": "[calm]", "text": "[calm] The rollback plan is tested and ready."}
-{"id": 1573, "category": "B", "tag": "[professional]", "text": "Prometheus scrape interval is set to 15 seconds."}
+{"id": 1573, "category": "B", "tag": "", "text": "Prometheus scrape interval is set to 15 seconds."}
 {"id": 1574, "category": "B", "tag": "[short pause]", "text": "[short pause] The latency..... it correlates with garbage collection pauses."}
-{"id": 1575, "category": "B", "tag": "[confident]", "text": "[analytical] Raft consensus is adding 8 milliseconds per write."}
+{"id": 1575, "category": "B", "tag": "", "text": "[analytical] Raft consensus is adding 8 milliseconds per write."}
 {"id": 1576, "category": "B", "tag": "[confident]", "text": "[confident] The new index reduced query time by 95 percent."}
 {"id": 1577, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We're running an unsupported version of PostgreSQL."}
 {"id": 1578, "category": "B", "tag": "[calm]", "text": "[calm] No customer-facing impact from the incident."}
 {"id": 1579, "category": "B", "tag": "[professional]", "text": "[professional] I'll update the status page accordingly."}
-{"id": 1580, "category": "B", "tag": "[professional]", "text": "The API versioning follows semver conventions."}
-{"id": 1581, "category": "B", "tag": "[confident]", "text": "[analytical] TCP retransmissions spike during peak hours."}
+{"id": 1580, "category": "B", "tag": "", "text": "The API versioning follows semver conventions."}
+{"id": 1581, "category": "B", "tag": "", "text": "[analytical] TCP retransmissions spike during peak hours."}
 {"id": 1582, "category": "B", "tag": "[confident]", "text": "[confident] This refactor simplifies the entire module significantly."}
 {"id": 1583, "category": "B", "tag": "[short pause]", "text": "[short pause] So the..... memory limit was set too low."}
 {"id": 1584, "category": "B", "tag": "[pause]", "text": "[pause] Let me cross-reference with the CloudWatch alarms."}
 {"id": 1585, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The batch job has been running for 19 hours."}
 {"id": 1586, "category": "B", "tag": "[professional]", "text": "[professional] Here's what changed since last standup."}
 {"id": 1587, "category": "B", "tag": "[calm]", "text": "[calm] Graceful shutdown is working as designed."}
-{"id": 1588, "category": "B", "tag": "[professional]", "text": "Seven endpoints need pagination implemented."}
-{"id": 1589, "category": "B", "tag": "[confident]", "text": "[analytical] B-tree rebalancing is happening too frequently."}
+{"id": 1588, "category": "B", "tag": "", "text": "Seven endpoints need pagination implemented."}
+{"id": 1589, "category": "B", "tag": "", "text": "[analytical] B-tree rebalancing is happening too frequently."}
 {"id": 1590, "category": "B", "tag": "[calm]", "text": "[calm] I've validated this with the security team."}
 {"id": 1591, "category": "B", "tag": "[emphasis]", "text": "[emphasis] There's no circuit breaker on that external call."}
 {"id": 1592, "category": "B", "tag": "[calm]", "text": "[calm] The DNS TTL expired, records updated successfully."}
 {"id": 1593, "category": "B", "tag": "[professional]", "text": "[professional] Let's review the on-call handoff notes."}
-{"id": 1594, "category": "B", "tag": "[professional]", "text": "The dead letter queue has 3,000 messages."}
+{"id": 1594, "category": "B", "tag": "", "text": "The dead letter queue has 3,000 messages."}
 {"id": 1595, "category": "B", "tag": "[short pause]", "text": "[short pause] Container image..... it's about 1.2 gigabytes right now."}
-{"id": 1596, "category": "B", "tag": "[professional]", "text": "[analytical] Read replicas are lagging by 4 seconds on average."}
+{"id": 1596, "category": "B", "tag": "", "text": "[analytical] Read replicas are lagging by 4 seconds on average."}
 {"id": 1597, "category": "B", "tag": "[confident]", "text": "[confident] This passes all mutation testing checks."}
 {"id": 1598, "category": "B", "tag": "[pause]", "text": "[pause] Let me grep for that error code....."}
 {"id": 1599, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We've been ignoring this warning for three sprints."}
 {"id": 1600, "category": "B", "tag": "[professional]", "text": "[professional] I recommend we escalate this to the SRE team."}
 {"id": 1601, "category": "B", "tag": "[calm]", "text": "[calm] Autoscaling brought up two additional pods."}
-{"id": 1602, "category": "B", "tag": "[professional]", "text": "The Terraform plan shows 12 resources changing."}
-{"id": 1603, "category": "B", "tag": "[professional]", "text": "[analytical] WAL archiving is consuming 40 gigabytes daily."}
+{"id": 1602, "category": "B", "tag": "", "text": "The Terraform plan shows 12 resources changing."}
+{"id": 1603, "category": "B", "tag": "", "text": "[analytical] WAL archiving is consuming 40 gigabytes daily."}
 {"id": 1604, "category": "B", "tag": "[confident]", "text": "[confident] The canary metrics look better than the control."}
 {"id": 1605, "category": "B", "tag": "[short pause]", "text": "[short pause] The dashboard..... it's showing stale data unfortunately."}
 {"id": 1606, "category": "B", "tag": "[emphasis]", "text": "[emphasis] That regex is catastrophically backtracking."}
 {"id": 1607, "category": "B", "tag": "[professional]", "text": "[professional] Let's go through the dependency audit results."}
 {"id": 1608, "category": "B", "tag": "[calm]", "text": "[calm] Everything is green across all three regions."}
-{"id": 1609, "category": "B", "tag": "[professional]", "text": "Docker Compose spins up the local dev stack."}
-{"id": 1610, "category": "B", "tag": "[confident]", "text": "[analytical] Connection reuse is only happening 30 percent of the time."}
+{"id": 1609, "category": "B", "tag": "", "text": "Docker Compose spins up the local dev stack."}
+{"id": 1610, "category": "B", "tag": "", "text": "[analytical] Connection reuse is only happening 30 percent of the time."}
 {"id": 1611, "category": "B", "tag": "[confident]", "text": "[confident] Our observability stack will catch any regressions."}
 {"id": 1612, "category": "B", "tag": "[pause]", "text": "[pause] Alright..... let me find the relevant span trace."}
 {"id": 1613, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The API contract changed without versioning."}
 {"id": 1614, "category": "B", "tag": "[professional]", "text": "[professional] I'll prepare a detailed write-up after this meeting."}
 {"id": 1615, "category": "B", "tag": "[calm]", "text": "[calm] The incident was contained within five minutes."}
-{"id": 1616, "category": "B", "tag": "[professional]", "text": "[analytical] Page faults increased after the kernel upgrade."}
+{"id": 1616, "category": "B", "tag": "", "text": "[analytical] Page faults increased after the kernel upgrade."}
 {"id": 1617, "category": "B", "tag": "[surprised]", "text": "[surprised] This approach handles all the edge cases we've seen."}
 {"id": 1618, "category": "B", "tag": "[analytical][calm]", "text": "[analytical][calm] The timeout was set to 30 seconds, which is too long."}
 {"id": 1619, "category": "B", "tag": "[emphasis]", "text": "[emphasis] There's no retry budget on that service call."}
 {"id": 1620, "category": "B", "tag": "[warm]", "text": "[warm] Next up is the capacity planning review."}
 {"id": 1621, "category": "B", "tag": "[calm]", "text": "[calm] The feature is behind a gradual rollout flag."}
-{"id": 1622, "category": "B", "tag": "[professional]", "text": "The S3 bucket policy needs updating for cross-account access."}
-{"id": 1623, "category": "B", "tag": "[professional]", "text": "[analytical] Checkpoint frequency impacts both recovery time and throughput."}
+{"id": 1622, "category": "B", "tag": "", "text": "The S3 bucket policy needs updating for cross-account access."}
+{"id": 1623, "category": "B", "tag": "", "text": "[analytical] Checkpoint frequency impacts both recovery time and throughput."}
 {"id": 1624, "category": "B", "tag": "[confident]", "text": "[confident] The benchmarks confirm a 3x throughput improvement."}
 {"id": 1625, "category": "B", "tag": "[pause]", "text": "[pause] Hang on..... I need to check the config map."}
 {"id": 1626, "category": "B", "tag": "[emphasis]", "text": "[emphasis] Half the team doesn't have staging access."}
 {"id": 1627, "category": "B", "tag": "[professional]", "text": "[professional] Let me outline the remediation steps."}
 {"id": 1628, "category": "B", "tag": "[calm]", "text": "[calm] Failover to the secondary region was seamless."}
-{"id": 1629, "category": "B", "tag": "[professional]", "text": "The webhook payload includes a signature header."}
+{"id": 1629, "category": "B", "tag": "", "text": "The webhook payload includes a signature header."}
 {"id": 1630, "category": "B", "tag": "[nervous]", "text": "[nervous] Log volume..... we're ingesting about 50 gigs daily."}
-{"id": 1631, "category": "B", "tag": "[confident]", "text": "[analytical] Vacuum operations on that table are taking hours."}
+{"id": 1631, "category": "B", "tag": "", "text": "[analytical] Vacuum operations on that table are taking hours."}
 {"id": 1632, "category": "B", "tag": "[confident]", "text": "[confident] The migration is idempotent, so we can rerun safely."}
 {"id": 1633, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The secret was committed to the repository."}
 {"id": 1634, "category": "B", "tag": "[professional]", "text": "[professional] I'll coordinate with the DBA on the schema change."}
 {"id": 1635, "category": "B", "tag": "[calm]", "text": "[calm] SSL certificates are valid for another 60 days."}
-{"id": 1636, "category": "B", "tag": "[professional]", "text": "The feature branch has 23 commits to squash."}
-{"id": 1637, "category": "B", "tag": "[professional]", "text": "[analytical] Goroutine leaks are consuming excessive memory."}
+{"id": 1636, "category": "B", "tag": "", "text": "The feature branch has 23 commits to squash."}
+{"id": 1637, "category": "B", "tag": "", "text": "[analytical] Goroutine leaks are consuming excessive memory."}
 {"id": 1638, "category": "B", "tag": "[confident]", "text": "[confident] I've already opened the PR with the fix."}
 {"id": 1639, "category": "B", "tag": "[pause]", "text": "[pause] One sec..... the Kibana query is still loading."}
 {"id": 1640, "category": "B", "tag": "[emphasis]", "text": "[emphasis] The test is flaky and fails one in ten runs."}
 {"id": 1641, "category": "B", "tag": "[professional]", "text": "[professional] Here are the action items from the retrospective."}
 {"id": 1642, "category": "B", "tag": "[calm]", "text": "[calm] The blue-green deployment swap went smoothly."}
-{"id": 1643, "category": "B", "tag": "[professional]", "text": "All secrets are rotated on a 90-day cycle."}
+{"id": 1643, "category": "B", "tag": "", "text": "All secrets are rotated on a 90-day cycle."}
 {"id": 1644, "category": "B", "tag": "[short pause]", "text": "[short pause] The..... endpoint is returning 503 for about 2 percent of requests."}
-{"id": 1645, "category": "B", "tag": "[confident]", "text": "[analytical] Cache eviction rate correlates with the latency spike."}
+{"id": 1645, "category": "B", "tag": "", "text": "[analytical] Cache eviction rate correlates with the latency spike."}
 {"id": 1646, "category": "B", "tag": "[confident]", "text": "[confident] We have full observability into that code path."}
 {"id": 1647, "category": "B", "tag": "[emphasis]", "text": "[emphasis] This function allocates memory inside a tight loop."}
 {"id": 1648, "category": "B", "tag": "[calm]", "text": "[calm] The queue backlog cleared within twenty minutes."}
 {"id": 1649, "category": "B", "tag": "[professional]", "text": "[professional] Let me pull up the SLO dashboard."}
-{"id": 1650, "category": "B", "tag": "[professional]", "text": "The pod has a liveness probe on port 8080."}
-{"id": 1651, "category": "B", "tag": "[confident]", "text": "[analytical] Serialization overhead dominates at high throughput."}
+{"id": 1650, "category": "B", "tag": "", "text": "The pod has a liveness probe on port 8080."}
+{"id": 1651, "category": "B", "tag": "", "text": "[analytical] Serialization overhead dominates at high throughput."}
 {"id": 1652, "category": "B", "tag": "[confident]", "text": "[confident] Rolling back won't cause any data inconsistency."}
 {"id": 1653, "category": "B", "tag": "[short pause]", "text": "[short pause] Number of..... open connections just hit the pool limit."}
 {"id": 1654, "category": "B", "tag": "[pause]", "text": "[pause] Let me double check the release notes....."}
 {"id": 1655, "category": "B", "tag": "[emphasis]", "text": "[emphasis] Nobody tested this path with concurrent users."}
 {"id": 1656, "category": "B", "tag": "[professional]", "text": "[professional] That wraps up the morning status check."}
 {"id": 1657, "category": "B", "tag": "[calm]", "text": "[calm] The data pipeline recovered after the source came back."}
-{"id": 1658, "category": "B", "tag": "[professional]", "text": "Helm chart version 2.4.1 is what's deployed."}
-{"id": 1659, "category": "B", "tag": "[confident]", "text": "[analytical] Slow query log shows table scans on the orders table."}
+{"id": 1658, "category": "B", "tag": "", "text": "Helm chart version 2.4.1 is what's deployed."}
+{"id": 1659, "category": "B", "tag": "", "text": "[analytical] Slow query log shows table scans on the orders table."}
 {"id": 1660, "category": "B", "tag": "[confident]", "text": "[confident] The new retry policy handles transient failures correctly."}
 {"id": 1661, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We have zero monitoring on that background worker."}
 {"id": 1662, "category": "B", "tag": "[calm]", "text": "[calm] Cross-region replication is functioning normally."}
 {"id": 1663, "category": "B", "tag": "[professional]", "text": "[professional] I'll file the post-incident review by Friday."}
-{"id": 1664, "category": "B", "tag": "[professional]", "text": "The ingress controller terminates TLS at the edge."}
-{"id": 1665, "category": "B", "tag": "[professional]", "text": "[analytical] Event loop blocking is degrading websocket performance."}
+{"id": 1664, "category": "B", "tag": "", "text": "The ingress controller terminates TLS at the edge."}
+{"id": 1665, "category": "B", "tag": "", "text": "[analytical] Event loop blocking is degrading websocket performance."}
 {"id": 1666, "category": "B", "tag": "[confident]", "text": "[confident] I've confirmed the fix works in all environments."}
 {"id": 1667, "category": "B", "tag": "[short pause]", "text": "[short pause] The..... the error message is completely misleading."}
 {"id": 1668, "category": "B", "tag": "[emphasis]", "text": "[emphasis] That library hasn't been updated in two years."}
 {"id": 1669, "category": "B", "tag": "[professional]", "text": "[professional] Let's review the architecture decision record."}
 {"id": 1670, "category": "B", "tag": "[calm]", "text": "[calm] The scheduled maintenance window is this Saturday."}
-{"id": 1671, "category": "B", "tag": "[professional]", "text": "Our CI runs unit tests, integration tests, and linting."}
+{"id": 1671, "category": "B", "tag": "", "text": "Our CI runs unit tests, integration tests, and linting."}
 {"id": 1672, "category": "B", "tag": "[pause]", "text": "[pause] Checking the artifact registry for the latest tag....."}
-{"id": 1673, "category": "B", "tag": "[confident]", "text": "[analytical] DNS resolution is adding 15 milliseconds per request."}
+{"id": 1673, "category": "B", "tag": "", "text": "[analytical] DNS resolution is adding 15 milliseconds per request."}
 {"id": 1674, "category": "B", "tag": "[confident]", "text": "[confident] This change requires no database migration."}
 {"id": 1675, "category": "B", "tag": "[emphasis]", "text": "[emphasis] We deployed to production without running integration tests."}
 {"id": 1676, "category": "B", "tag": "[calm]", "text": "[calm] The load test showed linear scaling up to 50 nodes."}
 {"id": 1677, "category": "B", "tag": "[professional]", "text": "[professional] I'll update the team in Slack after this."}
-{"id": 1678, "category": "B", "tag": "[professional]", "text": "The GraphQL schema has 47 types, and 12 mutations."}
-{"id": 1679, "category": "B", "tag": "[professional]", "text": "[analytical] Fragmentation on the heap is causing GC pauses."}
+{"id": 1678, "category": "B", "tag": "", "text": "The GraphQL schema has 47 types, and 12 mutations."}
+{"id": 1679, "category": "B", "tag": "", "text": "[analytical] Fragmentation on the heap is causing GC pauses."}
 {"id": 1680, "category": "B", "tag": "[confident]", "text": "[confident] I've stress-tested this under worst-case conditions."}
 {"id": 1681, "category": "B", "tag": "[analytical][short pause]", "text": "[analytical][short pause] The..... replay buffer is filling up too quickly."}
 {"id": 1682, "category": "B", "tag": "[emphasis]", "text": "[emphasis] Our error handling swallows the original exception."}
 {"id": 1683, "category": "B", "tag": "[professional]", "text": "[professional] That's the end of the technical review."}
 {"id": 1684, "category": "B", "tag": "[confident][surprised]", "text": "[confident][surprised] The gradual rollout reached 25 percent of users!"}
-{"id": 1685, "category": "B", "tag": "[professional]", "text": "The service mesh handles mutual TLS between pods."}
+{"id": 1685, "category": "B", "tag": "", "text": "The service mesh handles mutual TLS between pods."}
 {"id": 1686, "category": "B", "tag": "[analytical][clear]", "text": "[analytical] P95 latency is 120 milliseconds..... within our SLO."}
 {"id": 1687, "category": "B", "tag": "[confident][professional]", "text": "[confident][professional] The hotfix is deployed, and verified in production."}
 {"id": 1688, "category": "B", "tag": "[calm][analytical]", "text": "[calm][analytical] Replica lag is negligible at this point."}

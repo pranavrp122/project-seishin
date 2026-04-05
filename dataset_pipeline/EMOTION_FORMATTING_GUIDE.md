@@ -387,14 +387,8 @@ Physical tags pair naturally with specific emotions:
 - **Punctuation**: Standard `.` and `,`. Rare `?` for hypothesis framing. No `!`, no `...`.
 - **Structure**: Logical flow — premise, evidence, conclusion. "Based on X, Y suggests Z."
 - **Word patterns**: Technical but accessible. Data references. Conditional language ("if... then...").
-- **Note**: Translated to `[clear][articulate][slow]` for Fish S2 Pro synthesis.
+- **Note**: Translated to `[articulate][slow]` for Fish S2 Pro synthesis (removed [clear] due to generation instability).
 - **Example**: `Based on the data, we should prioritize the memory allocation issue first. The latency correlation is too strong to ignore.`
-
-### [clear]
-- **Sentence length**: Medium. Precise and unambiguous.
-- **Punctuation**: Clean `.` endings. `,` for structured clauses. No fluff punctuation.
-- **Structure**: Direct statements. No ambiguity. Technical precision.
-- **Example**: `The latency metrics show a twelve percent improvement after the cache optimization.`
 
 ### [emphasis]
 - **Usage**: Used as a mid-sentence modifier to mark a key word or phrase for stress.
@@ -437,7 +431,6 @@ emotion transitions within a single utterance.
 | [tender] | [whisper], [sigh], [warm] | "...", "and", "because" |
 | [cheerful] | [chuckle], [excited], [happy] | "and", "wait", sentence break |
 | [analytical] | [emphasis], [pause], [surprised] | "but", "however", sentence break |
-| [clear] | [emphasis], [pause] | "specifically", "note that", sentence break |
 | [professional] | [emphasis], [pause] | "however", "importantly", sentence break |
 | [surprised] | [happy], [excited], [gasp] | "and", "wait", sentence break |
 
@@ -607,7 +600,7 @@ Personal, emotional, relational. Conversations between close people — friends,
 ### Category B: Technical & Reporting (30% of dataset)
 Professional, analytical, informational. Work contexts, reporting, technical communication.
 
-**Primary tags**: [analytical], [confident], [pause], [short pause], [emphasis], [clear], [calm], [professional]
+**Primary tags**: [analytical], [confident], [pause], [short pause], [emphasis], [calm], [professional]
 
 **Characteristics**:
 - Third person or impersonal ("the data shows", "results indicate")
@@ -657,7 +650,7 @@ store the ORIGINAL tag (for LoRA training), but the synthesizer receives the tra
 | Training Tag | Fish S2 Pro Translation | Why |
 |---|---|---|
 | `[sarcastic]` | `[deadpan][sarcastic][low pitch]` | S2 Pro needs multiple descriptors for sarcasm |
-| `[analytical]` | `[clear][articulate][slow]` | S2 Pro renders analysis better with explicit pacing |
+| `[analytical]` | `[articulate][slow]` | S2 Pro renders analysis better with explicit pacing (removed [clear] due to instability) |
 | All other tags | Pass through unchanged | S2 Pro supports them natively |
 
 **Important**: The LoRA model will learn the ORIGINAL simple tags. The translation only

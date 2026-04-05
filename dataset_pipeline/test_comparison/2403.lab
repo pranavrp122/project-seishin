@@ -1,1 +1,0 @@
-The root cause turned out to be..... a race condition between the health check probe. The application startup sequence, where the readiness probe passed before the database connection pool was fully initialized.

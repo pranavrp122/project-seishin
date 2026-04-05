@@ -1,1 +1,0 @@
-The deployment process has four gates: automated tests must pass, security scan must show no critical findings, [emphasis] the change must be approved by at least two reviewers, and [confident] the deployment window must fall within the scheduled maintenance period.

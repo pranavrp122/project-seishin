@@ -25,7 +25,7 @@ from fish_speech.utils.schema import ServeReferenceAudio, ServeTTSRequest
 # ---------------------------------------------------------------------------
 TAG_TRANSLATIONS: dict[str, str] = {
     "[sarcastic]": "[deadpan][sarcastic][low pitch]",
-    "[analytical]": "[clear][articulate][slow]",
+    "[analytical]": "[articulate][slow]",
 }
 
 TAG_RE = re.compile(r"\[[^\]]+\]")

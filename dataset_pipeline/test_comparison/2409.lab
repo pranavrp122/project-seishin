@@ -1,1 +1,0 @@
-[emphasis] The auto-scaling configuration has a critical flaw... the scale-down cooldown is only 60 seconds, which means during oscillating load patterns the system repeatedly adds and removes capacity, causing constant pod churn that triggers connection resets and dropped requests during each scale-down event.

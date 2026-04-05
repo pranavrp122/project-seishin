@@ -1,1 +1,0 @@
-[gentle][calm] The cross-account backup replication is working as designed..... backups from all three production accounts are being copied to the dedicated backup account in the dr region with encryption intact.

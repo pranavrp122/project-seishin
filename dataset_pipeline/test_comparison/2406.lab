@@ -1,1 +1,0 @@
-The secret management flow works as follows: developers define secret references in the Helm values, the Kubernetes external secrets operator fetches the actual values from AWS Secrets Manager, [emphasis] injects them as environment variables into the pod, and rotates them automatically when the source secret changes.

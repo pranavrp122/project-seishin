@@ -119,7 +119,12 @@
       "Bash(rsync -av /tmp/claude-code-backup/commands/ ~/.claude/commands/)",
       "Bash(rsync -av /tmp/claude-code-backup/agents/ ~/.claude/agents/)",
       "Bash(rsync -av /tmp/claude-code-backup/hooks/ ~/.claude/hooks/)",
-      "Bash(rsync -av /tmp/claude-code-backup/get-shit-done/ ~/.claude/get-shit-done/)"
+      "Bash(rsync -av /tmp/claude-code-backup/get-shit-done/ ~/.claude/get-shit-done/)",
+      "Bash(pkill -f api_server.py)",
+      "Bash(fish_env/bin/python tools/api_server.py --api --listen 0.0.0.0:8080 --llama-checkpoint-path \"checkpoints/s2-pro\" --decoder-checkpoint-path \"checkpoints/s2-pro/codec.pth\" --decoder-config-name modded_dac_vq)",
+      "Bash(fish_env/bin/python tools/api_server.py --help)",
+      "Bash(fish_env/bin/python tools/api_server.py --listen 0.0.0.0:8080 --llama-checkpoint-path checkpoints/s2-pro --decoder-checkpoint-path checkpoints/s2-pro/codec.pth --decoder-config-name modded_dac_vq)",
+      "Bash(pkill -f \"tools/api_server.py\")"
     ]
   }
 }

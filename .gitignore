@@ -2,5 +2,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+*.log
+.serena/
 
 files_vibe_coded/files_vibe_coded_venv/

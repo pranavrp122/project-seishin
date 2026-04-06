@@ -15,6 +15,7 @@ docker run -d \
   -v ~/.cache/torch:/root/.cache/torch \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
   -e PULSE_SERVER=unix:/mnt/wslg/PulseServer \
+  -e PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256 \
   -e XDG_RUNTIME_DIR=/run/user/1000 \
   nvcr.io/nvidia/nemo:26.02 \
   sleep infinity

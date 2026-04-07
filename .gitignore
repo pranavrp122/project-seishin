@@ -6,3 +6,6 @@ __pycache__/
 .serena/
 
 files_vibe_coded/files_vibe_coded_venv/
+
+# Generated report spoken-output folders (per job_id)
+scripts/report_generation/spoken_report_outputs/

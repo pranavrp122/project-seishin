@@ -6,6 +6,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, DODGE_PHRASES
 from report_generation import is_report_request, run_report_pipeline
+from report_generation.write_spoken_report import write_spoken_report_output
 import re
 MOUTH_URL = "http://172.17.0.1:5051"
 
@@ -52,21 +53,6 @@ def send_to_mouth(text):
         except Exception:
             pass
     threading.Thread(target=_post, daemon=True).start()
-
-_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
-
-def speak_nexus_reply(text):
-    """Send a complete reply to TTS in sentence-sized chunks (non-streaming LLM output)."""
-    t = (text or "").strip()
-    if not t:
-        return
-    parts = _SENTENCE_SPLIT.split(t)
-    if len(parts) == 1:
-        send_to_mouth(parts[0])
-        return
-    for p in parts:
-        if p.strip():
-            send_to_mouth(p.strip())
 
 def ask_brain(text):
     cancel_generation.clear()
@@ -195,7 +181,15 @@ class NexusHandler(BaseHTTPRequestHandler):
                     if summary:
                         print(f"Nexus (report): {summary}\n")
                         history.append(('Nexus', summary))
-                        speak_nexus_reply(summary)
+                        out_path = write_spoken_report_output(
+                            jid,
+                            summary,
+                            tableau_link=link or "",
+                            ok=bool(ok),
+                            row_count=int(result.get('row_count') or 0),
+                            error=result.get('error'),
+                        )
+                        print(f"\033[92m[Report summary written to {out_path} — not sent to mouth]\033[0m\n")
                     else:
                         history.pop()
                 else:

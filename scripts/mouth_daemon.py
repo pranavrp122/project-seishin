@@ -5,6 +5,9 @@ torch.cuda.set_per_process_memory_fraction(0.18, 0)  # Hard VRAM cap: ~5.9 GB
 
 Uses qwen3-tts-triton TritonFasterRunner for ~4.7x speedup over baseline.
 Architecture: Main thread (HTTP server :5051) + TTS worker thread + blocking audio writes.
+
+Report pipeline: the report-generation summary is written under
+``report_generation/spoken_report_outputs/<job_id>/`` by ``nexus_engine`` and is not POSTed here.
 """
 
 import gc

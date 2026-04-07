@@ -9,6 +9,12 @@ _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("REPORT_GEN_DATA_DIR", os.path.join(_PACKAGE_DIR, "data"))
 WAREHOUSE_DB_PATH = os.path.join(DATA_DIR, "warehouse.db")
 
+# Report pipeline: text that would have been spoken is written here (not sent to mouth_daemon).
+SPOKEN_REPORT_OUTPUT_ROOT = os.environ.get(
+    "SPOKEN_REPORT_OUTPUT_ROOT",
+    os.path.join(_PACKAGE_DIR, "spoken_report_outputs"),
+)
+
 MAX_SQL_ROWS = int(os.environ.get("REPORT_MAX_SQL_ROWS", "500"))
 SQL_LLM_MAX_TOKENS = int(os.environ.get("REPORT_SQL_MAX_TOKENS", "512"))
 UNDERSTAND_MAX_TOKENS = int(os.environ.get("REPORT_UNDERSTAND_MAX_TOKENS", "400"))

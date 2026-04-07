@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────────
 
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGS="$ROOT/logs"
 mkdir -p "$LOGS"
 
@@ -14,12 +14,18 @@ log() { echo -e "${CYAN}[seishin]${NC} $*"; }
 ok()  { echo -e "${GREEN}[  ok  ]${NC} $*"; }
 err() { echo -e "${RED}[ fail ]${NC} $*"; }
 
-# ── Load env ─────────────────────────────────
+# ── Load env (this folder or repo root) ──────
+ENV_FILE=""
 if [ -f "$ROOT/.env" ]; then
-  set -a; source "$ROOT/.env"; set +a
-  ok "Loaded .env"
+  ENV_FILE="$ROOT/.env"
+elif [ -f "$ROOT/../.env" ]; then
+  ENV_FILE="$ROOT/../.env"
+fi
+if [ -n "$ENV_FILE" ]; then
+  set -a; source "$ENV_FILE"; set +a
+  ok "Loaded .env ($ENV_FILE)"
 else
-  err ".env not found — copy .env.example and fill in your keys"
+  err ".env not found — copy files_vibe_coded/.env.example to .env here or repo root"
   exit 1
 fi
 
@@ -39,26 +45,26 @@ wait_for_port() {
 
 # ── 1. vLLM ──────────────────────────────────
 log "Starting vLLM (Qwen 3.5)..."
-bash "$ROOT/scripts/start_vllm.sh" > "$LOGS/vllm.log" 2>&1 &
+bash "$ROOT/start_vllm.sh" > "$LOGS/vllm.log" 2>&1 &
 VLLM_PID=$!
 wait_for_port "vLLM" 8000 120
 
 # ── 2. Fish Audio TTS ─────────────────────────
 log "Starting Fish Audio TTS..."
-bash "$ROOT/scripts/start_fish.sh" > "$LOGS/fish.log" 2>&1 &
+bash "$ROOT/start_fish.sh" > "$LOGS/fish.log" 2>&1 &
 FISH_PID=$!
 wait_for_port "Fish Audio" 8080 60
 
-# ── 3. Open WebUI dashboard ───────────────────
-log "Starting Open WebUI dashboard..."
-cd "$ROOT/open-webui"
+# ── 3. Dashboard (static UI) ──────────────────
+log "Starting dashboard (HTTP)..."
+cd "$ROOT"
 python -m http.server 3000 > "$LOGS/dashboard.log" 2>&1 &
 DASH_PID=$!
 ok "Dashboard available at http://localhost:3000"
 
 # ── 4. Pipeline ───────────────────────────────
 log "Starting Seishin pipeline..."
-cd "$ROOT/pipeline"
+cd "$ROOT"
 python pipeline.py > "$LOGS/pipeline.log" 2>&1 &
 PIPE_PID=$!
 

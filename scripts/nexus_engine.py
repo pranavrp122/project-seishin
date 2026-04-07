@@ -5,6 +5,7 @@ import requests
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, DODGE_PHRASES
+from report_generation import is_report_request, run_report_pipeline
 import re
 MOUTH_URL = "http://172.17.0.1:5051"
 
@@ -51,6 +52,21 @@ def send_to_mouth(text):
         except Exception:
             pass
     threading.Thread(target=_post, daemon=True).start()
+
+_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+')
+
+def speak_nexus_reply(text):
+    """Send a complete reply to TTS in sentence-sized chunks (non-streaming LLM output)."""
+    t = (text or "").strip()
+    if not t:
+        return
+    parts = _SENTENCE_SPLIT.split(t)
+    if len(parts) == 1:
+        send_to_mouth(parts[0])
+        return
+    for p in parts:
+        if p.strip():
+            send_to_mouth(p.strip())
 
 def ask_brain(text):
     cancel_generation.clear()
@@ -164,7 +180,26 @@ class NexusHandler(BaseHTTPRequestHandler):
                 print('\033[92m[Memory cleared — history reset]\033[0m')
                 print('Listening...', end='', flush=True)
             elif text:
-                ask_brain(text)
+                if is_report_request(text):
+                    history.append(('User', text))
+                    print('\n\033[96m[Report pipeline]\033[0m')
+                    result = run_report_pipeline(text)
+                    jid = result.get('job_id', '')
+                    link = result.get('tableau_link', '')
+                    ok = result.get('ok')
+                    print(
+                        f"\033[96mjob_id={jid} tableau_link={link} "
+                        f"rows={result.get('row_count')} ok={ok}\033[0m"
+                    )
+                    summary = (result.get('summary') or '').strip()
+                    if summary:
+                        print(f"Nexus (report): {summary}\n")
+                        history.append(('Nexus', summary))
+                        speak_nexus_reply(summary)
+                    else:
+                        history.pop()
+                else:
+                    ask_brain(text)
                 print('Listening...', end='', flush=True)
 
         elif self.path == '/stop':

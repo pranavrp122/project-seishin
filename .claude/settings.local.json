@@ -124,7 +124,10 @@
       "Bash(fish_env/bin/python tools/api_server.py --api --listen 0.0.0.0:8080 --llama-checkpoint-path \"checkpoints/s2-pro\" --decoder-checkpoint-path \"checkpoints/s2-pro/codec.pth\" --decoder-config-name modded_dac_vq)",
       "Bash(fish_env/bin/python tools/api_server.py --help)",
       "Bash(fish_env/bin/python tools/api_server.py --listen 0.0.0.0:8080 --llama-checkpoint-path checkpoints/s2-pro --decoder-checkpoint-path checkpoints/s2-pro/codec.pth --decoder-config-name modded_dac_vq)",
-      "Bash(pkill -f \"tools/api_server.py\")"
+      "Bash(pkill -f \"tools/api_server.py\")",
+      "Bash(echo \"API server PID $!\")",
+      "Bash(echo \"Factory loop PID $!\")",
+      "Bash(kill 4247)"
     ]
   }
 }

@@ -4,3 +4,10 @@ __pycache__/
 .DS_Store
 *.log
 .serena/
+
+# Large audio dataset files — never commit
+dataset_pipeline/audio/
+dataset_pipeline/audio_shuffled/
+dataset_pipeline/audio_wavs.tar.gz
+dataset_pipeline/*.wav
+.claude/

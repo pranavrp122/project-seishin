@@ -398,15 +398,19 @@ def generate_stream(
     audio_masks: torch.Tensor,
     audio_parts: torch.Tensor,
     decode_one_token=decode_one_token_ar,
-    subchunk_size: int = 15,
+    subchunk_size: int = 10,
+    first_subchunk_size: int = 35,
     prefix_len: int = 0,
     prefix_hash: str = "",
     **sampling_kwargs,
 ):
     """
-    Generator version of generate(): yields (vq_codes, is_final) sub-chunks every
-    subchunk_size tokens so the decoder can start emitting audio before generation ends.
-    vq_codes shape: (num_codebooks, N) — excludes semantic row 0 and IM_END token.
+    Generator version of generate(): yields (vq_codes, is_final) sub-chunks.
+
+    first_subchunk_size (default 35 tokens ≈ 750ms audio): larger first chunk so the
+    player has a buffer before the second chunk arrives — prevents gap between chunks.
+    subchunk_size (default 10 tokens ≈ 215ms audio): subsequent chunks stay small to
+    keep continuous playback smooth once the buffer is established.
 
     NOTE: @torch.inference_mode() decorator does not persist across generator yields,
     so we use a with-block that spans the entire function body including all yields.
@@ -509,6 +513,7 @@ def generate_stream(
         buffer = [first_token]
         cur_token = first_token.view(1, codebook_dim, -1)
         input_pos = torch.tensor([T], device=device, dtype=torch.int)
+        chunks_yielded = 0  # track how many chunks sent so far
 
         for _ in tqdm(range(max_new_tokens - 1)):
             with sdpa_kernel(SDPBackend.MATH):
@@ -535,10 +540,14 @@ def generate_stream(
             if not is_end:
                 buffer.append(next_token)
 
-            if buffer and (len(buffer) >= subchunk_size or is_end):
+            # First chunk uses first_subchunk_size for a bigger audio buffer;
+            # subsequent chunks use subchunk_size for low-latency continuous playback.
+            current_threshold = first_subchunk_size if chunks_yielded == 0 else subchunk_size
+            if buffer and (len(buffer) >= current_threshold or is_end):
                 vq_codes = torch.cat(buffer, dim=1)[1:, :]  # strip semantic row
                 yield vq_codes, is_end
                 buffer = []
+                chunks_yielded += 1
 
             if is_end:
                 break
@@ -765,6 +774,7 @@ def generate_long(
     prompt_text: Optional[Union[str, list[str]]] = None,
     prompt_tokens: Optional[Union[torch.Tensor, list[torch.Tensor]]] = None,
     subchunk_size: int = 0,
+    first_subchunk_size: int = 35,
 ):
     assert 0 < top_p <= 1, "top_p must be in (0, 1]"
     assert 0 < temperature < 2, "temperature must be in (0, 2)"
@@ -931,6 +941,7 @@ def generate_long(
                     audio_parts=audio_parts,
                     decode_one_token=decode_one_token,
                     subchunk_size=subchunk_size,
+                    first_subchunk_size=first_subchunk_size,
                     temperature=temperature,
                     top_p=top_p,
                     top_k=top_k,

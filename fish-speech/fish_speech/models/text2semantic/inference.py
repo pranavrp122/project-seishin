@@ -249,6 +249,8 @@ def generate(
     audio_parts: torch.Tensor,
     decode_one_token=decode_one_token_ar,
     num_samples: int = 1,
+    prefix_len: int = 0,
+    prefix_hash: str = "",
     **sampling_kwargs,
 ):
     """
@@ -321,18 +323,47 @@ def generate(
 
     prefill_decode = decode_one_token_ar
 
+    # Prefix KV cache: skip re-processing the fixed reference audio tokens
+    use_prefix_cache = (
+        prefix_len > 0
+        and prefix_hash
+        and hasattr(model, "_prefix_kv_store")
+        and prefix_hash in model._prefix_kv_store
+    )
+
+    if use_prefix_cache:
+        _restore_prefix_kv(model, model._prefix_kv_store[prefix_hash], prefix_len)
+        prefill_pos = torch.arange(prefix_len, T, device=device, dtype=torch.long)
+        prefill_x = prompt.view(1, codebook_dim, -1)[:, :, prefix_len:]
+        prefill_audio_masks = (
+            audio_masks[:, prefix_len:] if audio_masks is not None and audio_masks.dim() >= 2
+            else audio_masks
+        )
+        logger.debug(f"Prefix cache hit: skipping {prefix_len} tokens")
+    else:
+        prefill_pos = input_pos
+        prefill_x = prompt.view(1, codebook_dim, -1)
+        prefill_audio_masks = audio_masks
+
     first_token = prefill_decode(
         model,
-        prompt.view(1, codebook_dim, -1),
-        input_pos,
+        prefill_x,
+        prefill_pos,
         temperature,
         top_p,
         top_k_val,
         semantic_logit_bias,
-        audio_masks,
+        prefill_audio_masks,
         audio_parts,
     )
     seq[:, T : T + 1] = first_token
+
+    # Save prefix KV after first full prefill with this reference
+    if not use_prefix_cache and prefix_len > 0 and prefix_hash:
+        if not hasattr(model, "_prefix_kv_store"):
+            model._prefix_kv_store = {}
+        model._prefix_kv_store[prefix_hash] = _save_prefix_kv(model, prefix_len)
+        logger.info(f"Prefix KV cached: {prefix_len} tokens, hash={prefix_hash[:8]}")
 
     # Recreate input_pos
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
@@ -357,6 +388,24 @@ def generate(
     del first_token, x, prompt, empty, input_pos
 
     return seq
+
+
+def _save_prefix_kv(model, prefix_len: int) -> list:
+    """Save KV cache for positions [0, prefix_len) from all slow AR layers (~28 MB for 200 tokens)."""
+    return [
+        (
+            layer.attention.kv_cache.k_cache[:, :, :prefix_len, :].clone(),
+            layer.attention.kv_cache.v_cache[:, :, :prefix_len, :].clone(),
+        )
+        for layer in model.layers
+    ]
+
+
+def _restore_prefix_kv(model, saved_kv: list, prefix_len: int) -> None:
+    """Restore saved KV cache into slow AR layers at positions [0, prefix_len)."""
+    for layer, (k, v) in zip(model.layers, saved_kv):
+        layer.attention.kv_cache.k_cache[:, :, :prefix_len, :] = k
+        layer.attention.kv_cache.v_cache[:, :, :prefix_len, :] = v
 
 
 def _quantize_model_int8(model):
@@ -615,6 +664,19 @@ def generate_long(
         )
     )
 
+    # Compute prefix length and hash for KV cache (system message is fixed per reference)
+    sys_prefix_len = 0
+    prefix_hash = ""
+    if use_prompt:
+        from hashlib import sha256
+        _base_enc, _, _ = base_conversation.encode_for_inference(
+            tokenizer, num_codebooks=model.config.num_codebooks
+        )
+        sys_prefix_len = _base_enc.size(1)
+        _hash_bytes = b"".join(t.numpy().tobytes() for t in prompt_tokens)
+        prefix_hash = sha256(_hash_bytes).hexdigest()
+        del _base_enc, _hash_bytes
+
     # Split text by speaker and group into batches
     turns = split_text_by_speaker(text)
     if turns:
@@ -703,6 +765,8 @@ def generate_long(
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
+                prefix_len=sys_prefix_len if batch_idx == 0 else 0,
+                prefix_hash=prefix_hash if batch_idx == 0 else "",
             )
 
             if sample_idx == 0 and batch_idx == 0 and compile:

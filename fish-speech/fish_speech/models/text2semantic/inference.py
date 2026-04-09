@@ -390,6 +390,166 @@ def generate(
     return seq
 
 
+def generate_stream(
+    *,
+    model: DualARTransformer,
+    prompt: torch.Tensor,
+    max_new_tokens: int,
+    audio_masks: torch.Tensor,
+    audio_parts: torch.Tensor,
+    decode_one_token=decode_one_token_ar,
+    subchunk_size: int = 15,
+    prefix_len: int = 0,
+    prefix_hash: str = "",
+    **sampling_kwargs,
+):
+    """
+    Generator version of generate(): yields (vq_codes, is_final) sub-chunks every
+    subchunk_size tokens so the decoder can start emitting audio before generation ends.
+    vq_codes shape: (num_codebooks, N) — excludes semantic row 0 and IM_END token.
+
+    NOTE: @torch.inference_mode() decorator does not persist across generator yields,
+    so we use a with-block that spans the entire function body including all yields.
+    """
+    with torch.inference_mode():
+        T = prompt.size(1)
+        prompt = prompt[None].repeat(1, 1, 1)
+
+        if T >= model.config.max_seq_len:
+            raise ValueError(
+                f"Input sequence length {T} exceeds max_seq_len {model.config.max_seq_len}"
+            )
+
+        max_new_tokens = min(
+            max_new_tokens or model.config.max_seq_len - T,
+            model.config.max_seq_len - T,
+        )
+
+        device = prompt.device
+        dtype = next(model.parameters()).dtype
+
+        if not hasattr(model, "_cache_setup_done") or not model._cache_setup_done:
+            with torch.device(device):
+                model.setup_caches(
+                    max_batch_size=1,
+                    max_seq_len=model.config.max_seq_len,
+                    dtype=dtype,
+                )
+            model._cache_setup_done = True
+
+        codebook_dim = 1 + model.config.num_codebooks
+        input_pos = torch.arange(0, T, device=device, dtype=torch.long)
+
+        temp_val = sampling_kwargs.get("temperature", 1.0)
+        top_p_val = sampling_kwargs.get("top_p", 0.9)
+        top_k_val = sampling_kwargs.get("top_k", 30)
+        temperature = torch.tensor(temp_val, device=device, dtype=dtype)
+        top_p = torch.tensor(top_p_val, device=device, dtype=dtype)
+
+        vocab_size = model.config.vocab_size
+        semantic_logit_bias = torch.full(
+            (1, 1, vocab_size), float("-inf"), device=device, dtype=dtype
+        )
+        semantic_logit_bias[
+            0, 0, model.config.semantic_begin_id : model.config.semantic_end_id + 1
+        ] = 0.0
+        semantic_logit_bias[0, 0, model.tokenizer.get_token_id(IM_END_TOKEN)] = 0.0
+
+        # Prefix KV cache
+        use_prefix_cache = (
+            prefix_len > 0
+            and prefix_hash
+            and hasattr(model, "_prefix_kv_store")
+            and prefix_hash in model._prefix_kv_store
+        )
+        if use_prefix_cache:
+            _restore_prefix_kv(model, model._prefix_kv_store[prefix_hash], prefix_len)
+            prefill_pos = torch.arange(prefix_len, T, device=device, dtype=torch.long)
+            prefill_x = prompt.view(1, codebook_dim, -1)[:, :, prefix_len:]
+            prefill_audio_masks = (
+                audio_masks[:, prefix_len:]
+                if audio_masks is not None and audio_masks.dim() >= 2
+                else audio_masks
+            )
+            logger.debug(f"Stream: prefix cache hit ({prefix_len} tokens skipped)")
+        else:
+            prefill_pos = input_pos
+            prefill_x = prompt.view(1, codebook_dim, -1)
+            prefill_audio_masks = audio_masks
+
+        first_token = decode_one_token_ar(
+            model,
+            prefill_x,
+            prefill_pos,
+            temperature,
+            top_p,
+            top_k_val,
+            semantic_logit_bias,
+            prefill_audio_masks,
+            audio_parts,
+        )
+
+        if not use_prefix_cache and prefix_len > 0 and prefix_hash:
+            if not hasattr(model, "_prefix_kv_store"):
+                model._prefix_kv_store = {}
+            model._prefix_kv_store[prefix_hash] = _save_prefix_kv(model, prefix_len)
+            logger.info(
+                f"Stream: prefix KV cached ({prefix_len} tokens, hash={prefix_hash[:8]})"
+            )
+
+        im_end_id = model.tokenizer.get_token_id(IM_END_TOKEN)
+
+        # Early exit if prefill itself produced IM_END
+        if first_token[0, 0] == im_end_id:
+            return
+
+        previous_tokens = torch.zeros(
+            (codebook_dim, RAS_WIN_SIZE), dtype=torch.int, device=device
+        )
+        buffer = [first_token]
+        cur_token = first_token.view(1, codebook_dim, -1)
+        input_pos = torch.tensor([T], device=device, dtype=torch.int)
+
+        for _ in tqdm(range(max_new_tokens - 1)):
+            with sdpa_kernel(SDPBackend.MATH):
+                next_token = decode_one_token(
+                    model=model,
+                    x=cur_token,
+                    input_pos=input_pos,
+                    previous_tokens=previous_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k_val,
+                    semantic_logit_bias=semantic_logit_bias,
+                    audio_masks=audio_masks,
+                    audio_parts=audio_parts,
+                ).clone()
+
+            input_pos += 1
+            cur_token = next_token.view(1, codebook_dim, -1)
+            previous_tokens = previous_tokens.roll(-1, dims=1)
+            previous_tokens[:, -1] = next_token.view(codebook_dim, -1)[:, 0]
+
+            is_end = cur_token[0, 0, -1] == im_end_id
+
+            if not is_end:
+                buffer.append(next_token)
+
+            if buffer and (len(buffer) >= subchunk_size or is_end):
+                vq_codes = torch.cat(buffer, dim=1)[1:, :]  # strip semantic row
+                yield vq_codes, is_end
+                buffer = []
+
+            if is_end:
+                break
+
+        # Flush any remaining tokens (e.g. if generation hit max_new_tokens)
+        if buffer:
+            vq_codes = torch.cat(buffer, dim=1)[1:, :]
+            yield vq_codes, True
+
+
+
 def _save_prefix_kv(model, prefix_len: int) -> list:
     """Save KV cache for positions [0, prefix_len) from all slow AR layers (~28 MB for 200 tokens)."""
     return [
@@ -604,6 +764,7 @@ def generate_long(
     chunk_length: int = 512,
     prompt_text: Optional[Union[str, list[str]]] = None,
     prompt_tokens: Optional[Union[torch.Tensor, list[torch.Tensor]]] = None,
+    subchunk_size: int = 0,
 ):
     assert 0 < top_p <= 1, "top_p must be in (0, 1]"
     assert 0 < temperature < 2, "temperature must be in (0, 2)"
@@ -755,28 +916,72 @@ def generate_long(
             encoded = encoded.to(device=device)
             prompt_length = encoded.size(1)
 
-            y = generate(
-                model=model,
-                prompt=encoded,
-                max_new_tokens=max_new_tokens,
-                audio_masks=audio_masks,
-                audio_parts=audio_parts,
-                decode_one_token=decode_one_token,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                prefix_len=sys_prefix_len if batch_idx == 0 else 0,
-                prefix_hash=prefix_hash if batch_idx == 0 else "",
-            )
+            use_stream = subchunk_size > 0
+            _pl = sys_prefix_len if batch_idx == 0 else 0
+            _ph = prefix_hash if batch_idx == 0 else ""
 
-            if sample_idx == 0 and batch_idx == 0 and compile:
-                logger.info(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
+            if use_stream:
+                # Streaming path: yield sub-chunks as tokens are generated
+                all_codes = []
+                for vq_codes, is_final in generate_stream(
+                    model=model,
+                    prompt=encoded,
+                    max_new_tokens=max_new_tokens,
+                    audio_masks=audio_masks,
+                    audio_parts=audio_parts,
+                    decode_one_token=decode_one_token,
+                    subchunk_size=subchunk_size,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    prefix_len=_pl,
+                    prefix_hash=_ph,
+                ):
+                    assert (vq_codes >= 0).all(), f"Negative code found"
+                    all_codes.append(vq_codes)
+                    yield GenerateResponse(action="sample", codes=vq_codes, text=batch_text)
+
+                codes = torch.cat(all_codes, dim=1) if all_codes else torch.zeros(
+                    (model.config.num_codebooks, 0), dtype=torch.long, device=device
+                )
+
+                if sample_idx == 0 and batch_idx == 0 and compile:
+                    logger.info(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
+
+                tokens_generated = codes.size(1)
+            else:
+                # Non-streaming path: generate all tokens then yield
+                y = generate(
+                    model=model,
+                    prompt=encoded,
+                    max_new_tokens=max_new_tokens,
+                    audio_masks=audio_masks,
+                    audio_parts=audio_parts,
+                    decode_one_token=decode_one_token,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    prefix_len=_pl,
+                    prefix_hash=_ph,
+                )
+
+                if sample_idx == 0 and batch_idx == 0 and compile:
+                    logger.info(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
+
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+
+                codes = y[1:, prompt_length:-1].clone()
+                assert (codes >= 0).all(), f"Negative code found: {codes}"
+                tokens_generated = y.size(1) - prompt_length
+
+                yield GenerateResponse(action="sample", codes=codes, text=batch_text)
+                del y
 
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
 
             t_batch = time.perf_counter() - t0
-            tokens_generated = y.size(1) - prompt_length
             tokens_sec = tokens_generated / t_batch if t_batch > 0 else 0
             logger.info(
                 f"Batch {batch_idx}: Generated {tokens_generated} tokens in "
@@ -785,10 +990,6 @@ def generate_long(
             logger.info(
                 f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s"
             )
-
-            # Extract generated codes
-            codes = y[1:, prompt_length:-1].clone()
-            assert (codes >= 0).all(), f"Negative code found: {codes}"
 
             # Add assistant message with generated codes back to conversation
             conversation.append(
@@ -802,10 +1003,8 @@ def generate_long(
                 )
             )
 
-            yield GenerateResponse(action="sample", codes=codes, text=batch_text)
-
             # Cleanup
-            del y, encoded
+            del encoded
 
         if torch.cuda.is_available():
             logger.info(

@@ -161,6 +161,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             chunk_length=req.chunk_length,
             prompt_tokens=prompt_tokens,
             prompt_text=prompt_texts,
+            subchunk_size=15 if req.streaming else 0,
         )
 
         # Create a queue to get the response

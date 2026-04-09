@@ -81,7 +81,13 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 error=None,
             )
 
+        # Overlap-add constants: prepend last N tokens from prior chunk as DAC context,
+        # then trim the corresponding audio to eliminate codec boundary artifacts.
+        OVERLAP_TOKENS = 6
+        SAMPLES_PER_TOKEN = 2048  # 44100 Hz / ~21.5 tokens/sec, empirically 2048 samples/token
+
         segments = []
+        overlap_codes = None  # (n_codebooks, OVERLAP_TOKENS) carried across sub-chunks
 
         while True:
             # Get the response from the LLAMA model
@@ -106,7 +112,31 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
             result: GenerateResponse = wrapped_result.response
             if result.action != "next":
-                segment = self.get_audio_segment(result)
+                codes = result.codes  # (n_codebooks, T)
+
+                # In streaming mode, use overlap context to avoid boundary clicks
+                if req.streaming and overlap_codes is not None:
+                    decode_codes = torch.cat([overlap_codes, codes], dim=1)
+                    trim_samples = overlap_codes.shape[1] * SAMPLES_PER_TOKEN
+                else:
+                    decode_codes = codes
+                    trim_samples = 0
+
+                # Save tail of current chunk as overlap for next sub-chunk
+                if req.streaming:
+                    n_overlap = min(OVERLAP_TOKENS, codes.shape[1])
+                    overlap_codes = codes[:, -n_overlap:]
+
+                # Decode VQ tokens to audio
+                with autocast_exclude_mps(
+                    device_type=self.decoder_model.device.type, dtype=self.precision
+                ):
+                    audio_tensor = self.decode_vq_tokens(codes=decode_codes)
+                segment = audio_tensor.float().cpu().numpy()
+
+                # Trim overlap prefix from audio output
+                if trim_samples > 0 and len(segment) > trim_samples:
+                    segment = segment[trim_samples:]
 
                 if req.streaming:  # Used only by the API server
                     yield InferenceResult(
@@ -161,7 +191,8 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             chunk_length=req.chunk_length,
             prompt_tokens=prompt_tokens,
             prompt_text=prompt_texts,
-            subchunk_size=15 if req.streaming else 0,
+            subchunk_size=10 if req.streaming else 0,
+            first_subchunk_size=35,
         )
 
         # Create a queue to get the response

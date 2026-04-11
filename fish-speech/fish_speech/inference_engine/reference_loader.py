@@ -4,8 +4,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Callable, Literal, Tuple
 
+import soundfile as sf
 import torch
-import torchaudio
 from loguru import logger
 
 from fish_speech.models.dac.modded_dac import DAC
@@ -33,23 +33,6 @@ class ReferenceLoader:
         self.decoder_model: DAC
         self.encode_reference: Callable
 
-        # Define the torchaudio backend
-        # list_audio_backends() was removed in torchaudio 2.9
-        try:
-            backends = torchaudio.list_audio_backends()
-            if "ffmpeg" in backends:
-                self.backend = "ffmpeg"
-            else:
-                self.backend = "soundfile"
-        except AttributeError:
-            # torchaudio 2.9+ removed list_audio_backends()
-            # Try ffmpeg first, fallback to soundfile
-            try:
-                __import__("torchaudio.io._load_audio_fileobj")
-
-                self.backend = "ffmpeg"
-            except (ImportError, ModuleNotFoundError):
-                self.backend = "soundfile"
 
     @staticmethod
     def _validate_id(id: str) -> None:
@@ -133,30 +116,23 @@ class ReferenceLoader:
     def load_audio(self, reference_audio: bytes | str, sr: int):
         """
         Load the audio data from a file or bytes.
+        Uses soundfile instead of torchaudio to avoid torchcodec dependency.
         """
-        import soundfile as _sf
-        import numpy as _np
+        if isinstance(reference_audio, bytes):
+            reference_audio = io.BytesIO(reference_audio)
 
-        if isinstance(reference_audio, (bytes, bytearray)) or (
-            isinstance(reference_audio, str) and (len(reference_audio) > 255 or not Path(reference_audio).exists())
-        ):
-            audio_data = reference_audio if isinstance(reference_audio, (bytes, bytearray)) else reference_audio
-            reference_audio = io.BytesIO(audio_data)
+        waveform, original_sr = sf.read(reference_audio, dtype="float32")
 
-        audio_np, original_sr = _sf.read(reference_audio, always_2d=False)
-        audio_np = audio_np.astype(_np.float32)
-        if audio_np.ndim > 1:
-            audio_np = audio_np.mean(axis=1)
+        # Convert to mono if multi-channel
+        if waveform.ndim > 1:
+            waveform = waveform.mean(axis=1)
 
+        # Resample if needed
         if original_sr != sr:
-            resampler = torchaudio.transforms.Resample(
-                orig_freq=original_sr, new_freq=sr
-            )
-            waveform = torch.from_numpy(audio_np).unsqueeze(0)
-            waveform = resampler(waveform)
-            audio_np = waveform.squeeze().numpy()
+            import resampy
+            waveform = resampy.resample(waveform, original_sr, sr)
 
-        return audio_np
+        return waveform
 
     def list_reference_ids(self) -> list[str]:
         """

@@ -9,7 +9,6 @@ from random import Random
 
 import click
 import numpy as np
-import soundfile as sf
 import torch
 import torchaudio
 from hydra import compose, initialize
@@ -33,6 +32,7 @@ try:
         backend = "soundfile"
 except AttributeError:
     # torchaudio 2.9+ removed list_audio_backends()
+    # Try ffmpeg first, fallback to soundfile
     try:
         import torchaudio.io._load_audio_fileobj  # Check if ffmpeg backend is available
 
@@ -95,12 +95,9 @@ def process_batch(files: list[Path], model) -> float:
 
     for file in files:
         try:
-            data, sr = sf.read(str(file), always_2d=False)
-            wav = torch.from_numpy(data.astype(np.float32))
-            if wav.ndim == 1:
-                wav = wav.unsqueeze(0)
-            else:
-                wav = wav.T  # (channels, samples)
+            wav, sr = torchaudio.load(
+                str(file), backend=backend
+            )  # Need to install libsox-dev
         except Exception as e:
             logger.error(f"Error reading {file}: {e}")
             continue

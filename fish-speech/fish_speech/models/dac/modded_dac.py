@@ -113,7 +113,7 @@ class Transformer(nn.Module):
         else:
             self.register_buffer("freqs_cis", None)
 
-        causal_mask = torch.tril(torch.ones(2048, 2048, dtype=torch.bool))
+        causal_mask = torch.tril(torch.ones(4096, 4096, dtype=torch.bool))
         self.register_buffer("causal_mask", causal_mask, persistent=False)
 
         self.max_batch_size = -1

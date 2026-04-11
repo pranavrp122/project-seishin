@@ -5,6 +5,14 @@ from typing import Generator
 import numpy as np
 import torch
 from loguru import logger
+from pedalboard import (
+    Pedalboard,
+    HighpassFilter,
+    HighShelfFilter,
+    NoiseGate,
+    Compressor,
+    Limiter,
+)
 
 from fish_speech.inference_engine.reference_loader import ReferenceLoader
 from fish_speech.inference_engine.utils import InferenceResult, wav_chunk_header
@@ -20,6 +28,15 @@ from fish_speech.utils.schema import ServeTTSRequest
 
 
 class TTSInferenceEngine(ReferenceLoader, VQManager):
+
+    # Light post-processing chain for clarity — runs on CPU, <10ms per clip
+    _post_fx = Pedalboard([
+        HighpassFilter(cutoff_frequency_hz=80),       # remove low rumble
+        NoiseGate(threshold_db=-30, ratio=10),         # cut codec noise in silences
+        Compressor(threshold_db=-12, ratio=2.5),       # even dynamics, add presence
+        HighShelfFilter(cutoff_frequency_hz=5000, gain_db=3),  # add crispness/air
+        Limiter(threshold_db=-0.1),                    # prevent clipping
+    ])
 
     def __init__(
         self,
@@ -81,13 +98,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 error=None,
             )
 
-        # Overlap-add constants: prepend last N tokens from prior chunk as DAC context,
-        # then trim the corresponding audio to eliminate codec boundary artifacts.
-        OVERLAP_TOKENS = 6
-        SAMPLES_PER_TOKEN = 2048  # 44100 Hz / ~21.5 tokens/sec, empirically 2048 samples/token
-
         segments = []
-        overlap_codes = None  # (n_codebooks, OVERLAP_TOKENS) carried across sub-chunks
 
         while True:
             # Get the response from the LLAMA model
@@ -112,31 +123,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
             result: GenerateResponse = wrapped_result.response
             if result.action != "next":
-                codes = result.codes  # (n_codebooks, T)
-
-                # In streaming mode, use overlap context to avoid boundary clicks
-                if req.streaming and overlap_codes is not None:
-                    decode_codes = torch.cat([overlap_codes, codes], dim=1)
-                    trim_samples = overlap_codes.shape[1] * SAMPLES_PER_TOKEN
-                else:
-                    decode_codes = codes
-                    trim_samples = 0
-
-                # Save tail of current chunk as overlap for next sub-chunk
-                if req.streaming:
-                    n_overlap = min(OVERLAP_TOKENS, codes.shape[1])
-                    overlap_codes = codes[:, -n_overlap:]
-
-                # Decode VQ tokens to audio
-                with autocast_exclude_mps(
-                    device_type=self.decoder_model.device.type, dtype=self.precision
-                ):
-                    audio_tensor = self.decode_vq_tokens(codes=decode_codes)
-                segment = audio_tensor.float().cpu().numpy()
-
-                # Trim overlap prefix from audio output
-                if trim_samples > 0 and len(segment) > trim_samples:
-                    segment = segment[trim_samples:]
+                segment = self.get_audio_segment(result)
 
                 if req.streaming:  # Used only by the API server
                     yield InferenceResult(
@@ -148,10 +135,9 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             else:
                 break
 
-        # Clean up the memory
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            gc.collect()
+        # Skip per-request memory cleanup — on a dedicated TTS server with stable
+        # VRAM, empty_cache + gc.collect adds ~200-400ms overhead per request by
+        # forcing CUDA to re-allocate memory pools.
 
         # Edge case: no audio generated
         if len(segments) == 0:
@@ -191,8 +177,6 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             chunk_length=req.chunk_length,
             prompt_tokens=prompt_tokens,
             prompt_text=prompt_texts,
-            subchunk_size=10 if req.streaming else 0,
-            first_subchunk_size=35,
         )
 
         # Create a queue to get the response
@@ -221,4 +205,13 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             segment = self.decode_vq_tokens(codes=result.codes)
 
         # Convert the audio to numpy
-        return segment.float().cpu().numpy()
+        audio = segment.float().cpu().numpy()
+
+        # Apply post-processing for clarity
+        if hasattr(self.decoder_model, "spec_transform"):
+            sr = self.decoder_model.spec_transform.sample_rate
+        else:
+            sr = self.decoder_model.sample_rate
+        audio = self._post_fx(audio, sr)
+
+        return audio

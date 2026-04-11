@@ -90,13 +90,4 @@ class ModelManager:
             format="wav",
         )
         list(inference(request, tts_inference_engine))
-        # Release allocator cache so idle VRAM reflects actual tensor footprint
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            logger.info(
-                f"Models warmed up. Idle VRAM: "
-                f"{torch.cuda.memory_allocated() / 1e9:.2f} GB allocated, "
-                f"{torch.cuda.memory_reserved() / 1e9:.2f} GB reserved"
-            )
-        else:
-            logger.info("Models warmed up.")
+        logger.info("Models warmed up.")

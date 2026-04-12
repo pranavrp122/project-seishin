@@ -1,88 +1,101 @@
-# Requirements: Fish Speech S2-Pro Optimization
+# Requirements: Streaming Chunked Audio
 
-**Defined:** 2026-04-10
-**Core Value:** Identical voice quality to upstream with minimal VRAM and fastest possible RTF
+**Defined:** 2026-04-12
+**Core Value:** Users hear first audio within 500ms with no perceivable quality loss or choppiness
 
 ## v1 Requirements
 
-### Environment Setup
+### Text Splitting
 
-- [x] **ENV-01**: Python venv created with all Fish Speech dependencies installed
-- [x] **ENV-02**: Server launches successfully on clean upstream code
+- [ ] **SPLIT-01**: System splits single-speaker text at clause/sentence boundaries (`.!?,;:--`)
+- [ ] **SPLIT-02**: First chunk targets 30-80 bytes for fast TTFA
+- [ ] **SPLIT-03**: Subsequent chunks target 100-200 bytes for quality
+- [ ] **SPLIT-04**: Minimum chunk size of 50 bytes enforced (below this, prosody degrades)
+- [ ] **SPLIT-05**: Force-split at max byte limit when no natural boundary exists
 
-### Soundfile Fix
+### Emotion Consistency
 
-- [x] **SFX-01**: reference_loader.py uses soundfile instead of torchaudio.load
-- [x] **SFX-02**: Server generates clips without torchcodec crash
+- [ ] **EMOT-01**: Leading emotion tag (e.g., `[angry]`) extracted from input text
+- [ ] **EMOT-02**: Active emotion tag prepended to every chunk before generation
+- [ ] **EMOT-03**: Mid-text emotion transitions tracked and applied to correct chunks
 
-### INT8 Quantization + Compile
+### Audio Quality
 
-- [x] **OPT-01**: INT8 W8A16 quantization applied via Int8WeightOnlyConfig in inference.py
-- [x] **OPT-02**: torch.compile with mode="reduce-overhead", fullgraph=False enabled in inference.py
-- [x] **OPT-03**: DAC causal mask reduced from 32768x32768 to 4096x4096 in modded_dac.py
-- [x] **OPT-04**: Server starts with --compile flag
+- [ ] **QUAL-01**: Equal-power crossfade at chunk boundaries eliminates clicks/pops/discontinuities
+- [ ] **QUAL-02**: Crossfade duration tuned to ~10-20ms (441-882 samples at 44.1kHz)
+- [ ] **QUAL-03**: Audio quality subjectively matches non-streaming output across all emotions
+- [ ] **QUAL-04**: PeakFilter post-FX applied consistently (per-chunk for streaming, full audio for non-streaming)
 
-### TF32 Precision
+### Streaming Pipeline
 
-- [x] **TF32-01**: torch.set_float32_matmul_precision("high") added before quantization in init_model()
+- [ ] **STRM-01**: TTFA < 500ms for typical dialogue lines (50-200 chars)
+- [ ] **STRM-02**: Audio segments yielded to client as each chunk completes
+- [ ] **STRM-03**: StreamingCrossfader buffers tail of previous chunk and blends with head of next
+- [ ] **STRM-04**: WAV header uses 0xFFFFFFFF sizes for streaming unknown length
+- [ ] **STRM-05**: Streaming encoding consistent (int16 PCM throughout, no float32 mismatch)
 
-### Verification
+### Robustness
 
-- [x] **VER-01**: Benchmark produces 6 clips with variable lengths (3-11s)
-- [x] **VER-02**: All clips have RTF < 0.3x (exceeded original 0.5x target)
-- [x] **VER-03**: VRAM usage 8.88-9.2GB (exceeded original 9.74GB target)
-- [x] **VER-04**: Voice quality matches reference with presence EQ for crispness
-
-### Experimental Optimizations
-
-- [ ] **EXP-01**: Research at least 3 cutting-edge optimization techniques with real-world evidence
-- [ ] **EXP-02**: Test each technique in isolation against stable baseline (tag stable-v1.0)
-- [ ] **EXP-03**: Any technique improving VRAM or RTF without quality loss is committed
-- [ ] **EXP-04**: Rejected techniques documented with evidence in CHANGES.md
+- [ ] **RBST-01**: Context window managed — old conversation turns truncated for long texts
+- [ ] **RBST-02**: VRAM does not exceed current 10.7GB peak
+- [ ] **RBST-03**: Non-streaming path continues to work unchanged (backward compatible)
+- [ ] **RBST-04**: Compatible with existing INT8 W8A16 + torch.compile reduce-overhead
 
 ## v2 Requirements
 
-None — this is a single-milestone optimization task.
+### Advanced Quality
+
+- **ADVQ-01**: Acoustic tail prompting — feed previous chunk's last ~25 codec frames to DAC decoder
+- **ADVQ-02**: Overlapped DAC decoding with extra context tokens at boundaries
+- **ADVQ-03**: Adaptive chunk sizing based on emotion (shorter for high-energy, longer for low-energy)
+
+### Performance
+
+- **PERF-01**: CUDA graph recompilation mitigation (prompt length padding or caching)
+- **PERF-02**: KV cache accumulation between chunks (avoid re-prefill)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| FP8 quantization | Rejected, 2-3x slower than BF16 (Step 2) |
-| NVFP4 W4A16 | Rejected, more VRAM and slower than INT8 (Step 4) |
-| NVFP4 W4A4 + MSLK | Rejected, 2x slower than INT8 (Step 5) |
-| INT4 W4A16 | CUTLASS crash on SM120/RTX 5090 (Step 6) |
-| SGLang-Omni | 1.4-2x RTF, worse than native for single-stream (Step 8) |
-| Full pedalboard chain | Over-processed output, flattened dynamics (Step 10) |
-| Multi-voice support | Not in scope for optimization task |
+| Speculative decoding | Audio codebook tokens have low acceptance rates; 2-3 weeks for 1.3-1.7x |
+| SGLang serving | Fundamentally different architecture, requires infrastructure change |
+| WebSocket streaming | Chunked HTTP sufficient when full text submitted upfront |
+| NLP-based splitting (spaCy) | Adds 50-100ms latency per split, regex sufficient for pre-split text |
+| Multi-speaker streaming | Single voice only for this project |
+| Model retraining | Working within existing S2-Pro weights |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENV-01 | Phase 1 | Complete |
-| ENV-02 | Phase 1 | Complete |
-| SFX-01 | Phase 1 | Complete |
-| SFX-02 | Phase 1 | Complete |
-| OPT-01 | Phase 2 | Complete |
-| OPT-02 | Phase 2 | Complete |
-| OPT-03 | Phase 2 | Complete |
-| OPT-04 | Phase 2 | Complete |
-| TF32-01 | Phase 3 | Complete |
-| VER-01 | Phase 3 | Complete |
-| VER-02 | Phase 3 | Complete |
-| VER-03 | Phase 3 | Complete |
-| VER-04 | Phase 3 | Complete |
-| EXP-01 | Phase 4 | Pending |
-| EXP-02 | Phase 4 | Pending |
-| EXP-03 | Phase 4 | Pending |
-| EXP-04 | Phase 4 | Pending |
+| SPLIT-01 | TBD | Pending |
+| SPLIT-02 | TBD | Pending |
+| SPLIT-03 | TBD | Pending |
+| SPLIT-04 | TBD | Pending |
+| SPLIT-05 | TBD | Pending |
+| EMOT-01 | TBD | Pending |
+| EMOT-02 | TBD | Pending |
+| EMOT-03 | TBD | Pending |
+| QUAL-01 | TBD | Pending |
+| QUAL-02 | TBD | Pending |
+| QUAL-03 | TBD | Pending |
+| QUAL-04 | TBD | Pending |
+| STRM-01 | TBD | Pending |
+| STRM-02 | TBD | Pending |
+| STRM-03 | TBD | Pending |
+| STRM-04 | TBD | Pending |
+| STRM-05 | TBD | Pending |
+| RBST-01 | TBD | Pending |
+| RBST-02 | TBD | Pending |
+| RBST-03 | TBD | Pending |
+| RBST-04 | TBD | Pending |
 
 **Coverage:**
-- v1 requirements: 17 total
-- Mapped to phases: 17
-- Unmapped: 0 ✓
+- v1 requirements: 21 total
+- Mapped to phases: 0
+- Unmapped: 21
 
 ---
-*Requirements defined: 2026-04-10*
-*Last updated: 2026-04-12 after Phase 4 addition*
+*Requirements defined: 2026-04-12*
+*Last updated: 2026-04-12 after initial definition*

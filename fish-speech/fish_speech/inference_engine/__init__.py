@@ -31,11 +31,11 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
     # Light post-processing chain for clarity — runs on CPU, <10ms per clip
     _post_fx = Pedalboard([
-        HighpassFilter(cutoff_frequency_hz=80),       # remove low rumble
-        NoiseGate(threshold_db=-30, ratio=10),         # cut codec noise in silences
-        Compressor(threshold_db=-12, ratio=2.5),       # even dynamics, add presence
-        HighShelfFilter(cutoff_frequency_hz=5000, gain_db=3),  # add crispness/air
-        Limiter(threshold_db=-0.1),                    # prevent clipping
+        HighpassFilter(cutoff_frequency_hz=80),                            # remove low rumble
+        NoiseGate(threshold_db=-30, ratio=2, attack_ms=2, release_ms=250), # gentle gate, preserves word tails
+        Compressor(threshold_db=-12, ratio=2.5, attack_ms=10, release_ms=200),  # even dynamics
+        HighShelfFilter(cutoff_frequency_hz=8000, gain_db=1.5),            # add air without sibilance
+        Limiter(threshold_db=-1.0),                                        # prevent clipping, 1dB headroom
     ])
 
     def __init__(

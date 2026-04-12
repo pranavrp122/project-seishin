@@ -36,7 +36,7 @@
 
 ### Robustness
 
-- [ ] **RBST-01**: Context window managed — old conversation turns truncated for long texts
+- [ ] **RBST-01**: Context window managed -- old conversation turns truncated for long texts
 - [ ] **RBST-02**: VRAM does not exceed current 10.7GB peak
 - [ ] **RBST-03**: Non-streaming path continues to work unchanged (backward compatible)
 - [ ] **RBST-04**: Compatible with existing INT8 W8A16 + torch.compile reduce-overhead
@@ -45,7 +45,7 @@
 
 ### Advanced Quality
 
-- **ADVQ-01**: Acoustic tail prompting — feed previous chunk's last ~25 codec frames to DAC decoder
+- **ADVQ-01**: Acoustic tail prompting -- feed previous chunk's last ~25 codec frames to DAC decoder
 - **ADVQ-02**: Overlapped DAC decoding with extra context tokens at boundaries
 - **ADVQ-03**: Adaptive chunk sizing based on emotion (shorter for high-energy, longer for low-energy)
 
@@ -69,33 +69,33 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPLIT-01 | TBD | Pending |
-| SPLIT-02 | TBD | Pending |
-| SPLIT-03 | TBD | Pending |
-| SPLIT-04 | TBD | Pending |
-| SPLIT-05 | TBD | Pending |
-| EMOT-01 | TBD | Pending |
-| EMOT-02 | TBD | Pending |
-| EMOT-03 | TBD | Pending |
-| QUAL-01 | TBD | Pending |
-| QUAL-02 | TBD | Pending |
-| QUAL-03 | TBD | Pending |
-| QUAL-04 | TBD | Pending |
-| STRM-01 | TBD | Pending |
-| STRM-02 | TBD | Pending |
-| STRM-03 | TBD | Pending |
-| STRM-04 | TBD | Pending |
-| STRM-05 | TBD | Pending |
-| RBST-01 | TBD | Pending |
-| RBST-02 | TBD | Pending |
-| RBST-03 | TBD | Pending |
-| RBST-04 | TBD | Pending |
+| SPLIT-01 | Phase 1 | Pending |
+| SPLIT-02 | Phase 1 | Pending |
+| SPLIT-03 | Phase 1 | Pending |
+| SPLIT-04 | Phase 1 | Pending |
+| SPLIT-05 | Phase 1 | Pending |
+| EMOT-01 | Phase 1 | Pending |
+| EMOT-02 | Phase 1 | Pending |
+| EMOT-03 | Phase 1 | Pending |
+| QUAL-01 | Phase 2 | Pending |
+| QUAL-02 | Phase 2 | Pending |
+| QUAL-03 | Phase 2 | Pending |
+| QUAL-04 | Phase 2 | Pending |
+| STRM-01 | Phase 2 | Pending |
+| STRM-02 | Phase 2 | Pending |
+| STRM-03 | Phase 2 | Pending |
+| STRM-04 | Phase 2 | Pending |
+| STRM-05 | Phase 2 | Pending |
+| RBST-01 | Phase 3 | Pending |
+| RBST-02 | Phase 3 | Pending |
+| RBST-03 | Phase 3 | Pending |
+| RBST-04 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 21 total
-- Mapped to phases: 0
-- Unmapped: 21
+- Mapped to phases: 21
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-12 after initial definition*
+*Last updated: 2026-04-12 after roadmap creation*

@@ -1,72 +1,78 @@
-# Roadmap: Fish Speech S2-Pro Optimization
+# Roadmap: Streaming Chunked Audio
 
 ## Overview
 
-Four phases taking Fish Speech S2-Pro from stock to fully optimized. Phases 1-3 established the stable build (INT8+TF32+compile, 9.2GB VRAM, 0.263x RTF, presence EQ). Phase 4 is experimental research into further VRAM reduction and speed improvements on RTX 5090 (SM120 Blackwell).
+Transform Fish Speech S2-Pro from a batch-generates-everything-then-returns model into a chunk-streaming pipeline. Phase 1 builds the text splitter and emotion tag propagation (input side). Phase 2 wires up per-chunk generation, crossfade stitching, and streaming emission (output side). Phase 3 hardens the pipeline for production: context management, VRAM bounds, backward compatibility, and torch.compile compatibility.
 
 ## Phases
 
-- [x] **Phase 1: Baseline + Soundfile Fix** - Working Fish Speech environment with stable audio generation
-- [x] **Phase 2: INT8 Quantization + Compile + DAC Mask** - Core optimizations for VRAM and speed
-- [x] **Phase 3: TF32 + Final Verification** - Last optimization pass and full benchmark validation
-- [ ] **Phase 4: Experimental Optimizations** - Research and test cutting-edge techniques to push VRAM lower and RTF faster
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+
+Decimal phases appear between their surrounding integers in numeric order.
+
+- [ ] **Phase 1: Text Splitting & Emotion Propagation** - Chunk text at clause/sentence boundaries with emotion tag carryover
+- [ ] **Phase 2: Streaming Pipeline & Audio Quality** - Per-chunk generation, crossfade stitching, and streaming segment emission
+- [ ] **Phase 3: Robustness & Validation** - Context management, VRAM bounds, backward compat, TTFA validation
 
 ## Phase Details
 
-### Phase 1: Baseline + Soundfile Fix ✓
-**Goal**: Fish Speech server runs and generates audio clips without crashes
+### Phase 1: Text Splitting & Emotion Propagation
+**Goal**: Input text is split into correctly-sized chunks with emotion tags preserved, ready for per-chunk generation
 **Depends on**: Nothing (first phase)
-**Requirements**: ENV-01, ENV-02, SFX-01, SFX-02
-**Status**: COMPLETE
-**Success Criteria** (all met):
-  1. ✓ Python venv exists with all Fish Speech dependencies installed
-  2. ✓ Fish Speech server starts and accepts TTS requests without errors
-  3. ✓ reference_loader.py uses soundfile instead of torchaudio.load
-  4. ✓ Server generates audio clips from reference audio without crashing
-
-### Phase 2: INT8 Quantization + Compile + DAC Mask ✓
-**Goal**: Fish Speech runs with significantly reduced VRAM and faster inference
-**Depends on**: Phase 1
-**Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
-**Status**: COMPLETE
-**Success Criteria** (all met):
-  1. ✓ INT8 W8A16 quantization applied via Int8WeightOnlyConfig
-  2. ✓ torch.compile with reduce-overhead mode applied
-  3. ✓ DAC causal mask reduced to 4096x4096
-  4. ✓ VRAM ~9.74GB, RTF ~0.25x
-
-### Phase 3: TF32 + Final Verification ✓
-**Goal**: All optimizations active and verified through full benchmark
-**Depends on**: Phase 2
-**Requirements**: TF32-01, VER-01, VER-02, VER-03, VER-04
-**Status**: COMPLETE
-**Success Criteria** (all met):
-  1. ✓ TF32 matmul precision enabled
-  2. ✓ Benchmark of 6 clips completed successfully
-  3. ✓ All clips RTF < 0.3x (exceeded target)
-  4. ✓ VRAM 8.88-9.2GB (exceeded target)
-  5. ✓ Voice quality confirmed, presence EQ added for crispness
-
-### Phase 4: Experimental Optimizations
-**Goal**: Research and test cutting-edge techniques to further reduce VRAM and increase inference speed while maintaining voice quality
-**Depends on**: Phase 3
-**Requirements**: EXP-01, EXP-02, EXP-03, EXP-04
-**Stable baseline**: Tag `stable-v1.0` / branch `stable-backup` at commit `487e2f9`
-**Current metrics to beat**: VRAM 9.2GB, RTF 0.263x, quality = presence EQ + tuned gen params
+**Requirements**: SPLIT-01, SPLIT-02, SPLIT-03, SPLIT-04, SPLIT-05, EMOT-01, EMOT-02, EMOT-03
 **Success Criteria** (what must be TRUE):
-  1. At least 3 optimization techniques researched with real-world evidence from forums/papers/benchmarks
-  2. Each technique tested in isolation against the stable baseline
-  3. Any technique that improves VRAM or RTF without quality regression is committed
-  4. Techniques that degrade quality or regress metrics are documented and rejected
-  5. Final build matches or exceeds stable baseline on all 3 axes (VRAM, RTF, quality)
-**UI hint**: no
-**Plans**: TBD (research-first phase)
+  1. A multi-sentence input is split into 2+ chunks at natural clause/sentence boundaries
+  2. First chunk is 30-80 bytes; subsequent chunks are 100-200 bytes
+  3. Text with no natural boundary within max bytes is force-split without crashing
+  4. An input like "[angry] You betrayed me. I trusted you." produces chunks that each start with [angry]
+  5. An input with mid-text emotion change (e.g., "[angry] Stop! [sad] I'm sorry.") assigns correct tags to each chunk
+**Plans**: TBD
+
+Plans:
+- [ ] 01-01: TBD
+- [ ] 01-02: TBD
+
+### Phase 2: Streaming Pipeline & Audio Quality
+**Goal**: Users hear the first audio chunk within 500ms, with seamless crossfaded boundaries and consistent encoding
+**Depends on**: Phase 1
+**Requirements**: STRM-01, STRM-02, STRM-03, STRM-04, STRM-05, QUAL-01, QUAL-02, QUAL-03, QUAL-04
+**Success Criteria** (what must be TRUE):
+  1. First audio segment is yielded to the client in under 500ms for a typical 50-200 char input
+  2. Chunk boundaries have no audible clicks, pops, or discontinuities (crossfade applied)
+  3. Streaming audio is subjectively indistinguishable from current non-streaming output
+  4. WAV header uses 0xFFFFFFFF sizes and all segments use consistent int16 PCM encoding
+  5. PeakFilter post-FX is applied per-chunk in streaming mode
+**Plans**: TBD
+
+Plans:
+- [ ] 02-01: TBD
+- [ ] 02-02: TBD
+- [ ] 02-03: TBD
+
+### Phase 3: Robustness & Validation
+**Goal**: Streaming pipeline handles edge cases without exceeding resource limits and coexists with the existing non-streaming path
+**Depends on**: Phase 2
+**Requirements**: RBST-01, RBST-02, RBST-03, RBST-04
+**Success Criteria** (what must be TRUE):
+  1. A 2000+ character input generates audio without context overflow or degraded output on later chunks
+  2. Peak VRAM stays at or below 10.7GB during streaming generation
+  3. Non-streaming API requests produce identical output to pre-change behavior (backward compatible)
+  4. INT8 W8A16 quantization and torch.compile reduce-overhead mode remain functional with streaming
+**Plans**: TBD
+
+Plans:
+- [ ] 03-01: TBD
+- [ ] 03-02: TBD
 
 ## Progress
 
+**Execution Order:**
+Phases execute in numeric order: 1 -> 2 -> 3
+
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Baseline + Soundfile Fix | - | ✓ Complete | 2026-04-10 |
-| 2. INT8 Quantization + Compile + DAC Mask | - | ✓ Complete | 2026-04-11 |
-| 3. TF32 + Final Verification | - | ✓ Complete | 2026-04-12 |
-| 4. Experimental Optimizations | 0/0 | ◆ Active | - |
+| 1. Text Splitting & Emotion Propagation | 0/0 | Not started | - |
+| 2. Streaming Pipeline & Audio Quality | 0/0 | Not started | - |
+| 3. Robustness & Validation | 0/0 | Not started | - |

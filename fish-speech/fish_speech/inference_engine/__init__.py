@@ -5,14 +5,7 @@ from typing import Generator
 import numpy as np
 import torch
 from loguru import logger
-from pedalboard import (
-    Pedalboard,
-    HighpassFilter,
-    HighShelfFilter,
-    NoiseGate,
-    Compressor,
-    Limiter,
-)
+from pedalboard import Pedalboard, PeakFilter
 
 from fish_speech.inference_engine.reference_loader import ReferenceLoader
 from fish_speech.inference_engine.utils import InferenceResult, wav_chunk_header
@@ -29,13 +22,8 @@ from fish_speech.utils.schema import ServeTTSRequest
 
 class TTSInferenceEngine(ReferenceLoader, VQManager):
 
-    # Light post-processing chain for clarity — runs on CPU, <10ms per clip
     _post_fx = Pedalboard([
-        HighpassFilter(cutoff_frequency_hz=80),                            # remove low rumble
-        NoiseGate(threshold_db=-30, ratio=2, attack_ms=2, release_ms=250), # gentle gate, preserves word tails
-        Compressor(threshold_db=-12, ratio=2.5, attack_ms=10, release_ms=200),  # even dynamics
-        HighShelfFilter(cutoff_frequency_hz=8000, gain_db=1.5),            # add air without sibilance
-        Limiter(threshold_db=-1.0),                                        # prevent clipping, 1dB headroom
+        PeakFilter(cutoff_frequency_hz=3500, gain_db=1.5, q=0.7),
     ])
 
     def __init__(
@@ -204,14 +192,10 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             # Decode the symbolic tokens to audio
             segment = self.decode_vq_tokens(codes=result.codes)
 
-        # Convert the audio to numpy
+        # Convert the audio to numpy and apply post-processing filter
         audio = segment.float().cpu().numpy()
-
-        # Apply post-processing for clarity
         if hasattr(self.decoder_model, "spec_transform"):
             sr = self.decoder_model.spec_transform.sample_rate
         else:
             sr = self.decoder_model.sample_rate
-        audio = self._post_fx(audio, sr)
-
-        return audio
+        return self._post_fx(audio, sr)

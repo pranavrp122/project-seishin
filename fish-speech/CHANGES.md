@@ -251,57 +251,47 @@ Send 3 requests with short/medium/long text to compile CUDA graphs for different
 
 ---
 
-## Step 10: Pedalboard post-processing — A/B tested ✅
+## Step 10: Generation parameter tuning + presence EQ ✅ CURRENT
 
 **Date**: 2026-04-12
-**Status**: A/B tested, tuned params committed as default
+**Status**: Tuned generation params + minimal presence EQ committed
 
-**Changes**:
-- `__init__.py`: Spotify `pedalboard` post-processing chain applied to every clip after DAC decode in `get_audio_segment()`
-- `pyproject.toml`: added `pedalboard>=0.9.0` to dependencies
-- Chain runs on CPU, zero VRAM impact, sub-millisecond overhead per clip
-- Two parameter sets tested: "harsh" (initial) and "tuned" (research-backed)
+### Generation parameter changes (from Step 9 defaults)
+| Parameter | Step 9 | Step 10 | Why |
+|-----------|--------|---------|-----|
+| temperature | 0.85 | 0.875 | Higher emotion ceiling — more expressive range for tagged emotions |
+| repetition_penalty | 1.1 | 1.05 | Less repetition suppression = more natural prosody variation |
+| chunk_length | 200 | 350 | Fewer chunk seams — eliminates choppy phrasing on longer sentences |
 
-### Harsh params (initial, rejected)
+### Post-processing: presence-only EQ (committed) ✅
 ```python
 Pedalboard([
-    HighpassFilter(cutoff_frequency_hz=80),
-    NoiseGate(threshold_db=-30, ratio=10),            # too aggressive, chops word tails
-    Compressor(threshold_db=-12, ratio=2.5),
-    HighShelfFilter(cutoff_frequency_hz=5000, gain_db=3),  # boosts sibilance, not air
-    Limiter(threshold_db=-0.1),
+    PeakFilter(cutoff_frequency_hz=3500, gain_db=1.5, q=0.7),
 ])
 ```
+A single parametric EQ band centered at 3.5kHz adds consonant clarity/crispness without altering dynamics, loudness, or voice character. No compressor, no limiter, no noise gate — the raw generation is already clean enough.
 
-### Tuned params (committed) ✅
-```python
-Pedalboard([
-    HighpassFilter(cutoff_frequency_hz=80),                            # remove low rumble
-    NoiseGate(threshold_db=-30, ratio=2, attack_ms=2, release_ms=250), # gentle gate, preserves word tails
-    Compressor(threshold_db=-12, ratio=2.5, attack_ms=10, release_ms=200),  # even dynamics
-    HighShelfFilter(cutoff_frequency_hz=8000, gain_db=1.5),            # add air without sibilance
-    Limiter(threshold_db=-1.0),                                        # prevent clipping, 1dB headroom
-])
-```
+Full 5-stage chain (highpass + noise gate + compressor + shelf + limiter) was A/B tested and rejected — it over-processed the output, flattening dynamics and adding unnatural loudness consistency.
 
-### Why tuned beats harsh
-- **NoiseGate ratio 10→2**: Ratio 10 hard-cuts quiet word endings ("s", "th", trailing vowels) making speech choppy. Ratio 2 gently reduces — TTS output is already clean, so the gate barely needs to work.
-- **HighShelfFilter 5kHz→8kHz, +3dB→+1.5dB**: 5kHz +3dB boosts sibilance/harshness range, fatiguing on headphones. 8kHz +1.5dB boosts "air" above sibilance — subtle openness without edge.
-- **Limiter -0.1→-1.0 dBFS**: 1dB headroom is standard for digital delivery; -0.1 leaves no safety margin.
+### Metrics (presence EQ, tuned gen params)
+| Clip | Audio | Total | RTF | VRAM | Peak dB | RMS dB |
+|------|-------|-------|-----|------|---------|--------|
+| 01_warm | 5.4s | 1.5s | 0.272x | 9403 MB | -0.3 | -15.2 |
+| 02_exhausted | 10.5s | 2.6s | 0.245x | 9863 MB | -2.1 | -15.5 |
+| 03_angry | 3.5s | 1.0s | 0.294x | 9221 MB | -0.3 | -15.5 |
+| 04_tender | 7.3s | 1.9s | 0.256x | 9563 MB | -2.6 | -15.9 |
+| 05_professional | 9.7s | 2.4s | 0.249x | 9803 MB | -1.6 | -16.7 |
+| 06_playful | 7.0s | 1.8s | 0.260x | 9543 MB | -0.0 | -16.7 |
 
-### Metrics (both sets use same raw generation, filter applied client-side)
-| Clip | Audio | Total | RTF | VRAM |
-|------|-------|-------|-----|------|
-| 01_warm | 5.4s | 1.5s | 0.28x | 9426 MiB |
-| 02_exhausted | 10.1s | 2.6s | 0.26x | 9846 MiB |
-| 03_angry | 3.6s | 1.1s | 0.30x | 9264 MiB |
-| 04_tender | 6.5s | 1.7s | 0.26x | 9506 MiB |
-| 05_professional | 9.6s | 2.4s | 0.25x | 9806 MiB |
-| 06_playful | 7.0s | 1.8s | 0.26x | 9586 MiB |
+**RTF**: 0.263x mean | **VRAM**: ~9.2-9.9 GB (same as Step 9 — single EQ band adds zero measurable overhead)
 
-VRAM: 8.88 GB baseline, ~9.2-9.8 GB during generation (same as Step 9 — pedalboard adds zero GPU overhead)
-RTF: ~0.27x average (same as Step 9 — CPU post-processing is sub-millisecond)
+### HuggingFace test clips
+All voice filter test clips are organized under `voice_filter_test/`:
+- `01_baseline_no_filter/` — Step 9 defaults (temp=0.85, rep=1.1, chunk=200), no filter
+- `02_tuned_params_no_filter/` — tuned gen params (temp=0.875, rep=1.05, chunk=350), no filter
+- `03_tuned_filter/` — tuned gen params + full 5-stage pedalboard chain (rejected)
+- `04_presence_eq/` — tuned gen params + presence-only EQ (committed)
 
-HuggingFace:
-- Harsh: `model_comparison/s2pro_filter_harsh/`
-- Tuned: `model_comparison/s2pro_filter_tuned/`
+Previous A/B filter tests remain at:
+- `model_comparison/s2pro_filter_harsh/` — aggressive 5-stage chain
+- `model_comparison/s2pro_filter_tuned/` — research-tuned 5-stage chain

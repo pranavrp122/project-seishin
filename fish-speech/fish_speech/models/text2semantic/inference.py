@@ -398,6 +398,7 @@ def init_model(checkpoint_path, device, precision, compile=False):
         torch._inductor.config.coordinate_descent_tuning = True
         torch._inductor.config.coordinate_descent_check_all_directions = True
 
+
         logger.info("Compiling function with reduce-overhead...")
         decode_one_token = torch.compile(
             decode_one_token,

@@ -44,6 +44,7 @@ def load_model(config_name, checkpoint_path, device="cuda"):
     model.to(device)
 
     logger.info(f"Loaded model: {result}")
+
     return model
 
 

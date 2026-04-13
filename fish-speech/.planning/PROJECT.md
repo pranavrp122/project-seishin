@@ -57,6 +57,20 @@ Users hear the first audio within 500ms of submitting text, with no perceivable 
 | Skip speculative decoding | Audio codebook tokens have lower acceptance rates than text; 2-3 weeks engineering for 1.3-1.7x gain | — Pending |
 | Focus on chunk streaming first | Biggest TTFA improvement with least engineering risk | — Pending |
 
+## Current Milestone: v2.0 TTS Humanism
+
+**Goal:** Make Fish Speech TTS engine output sound as natural and human-like as possible through engine-side modifications only
+
+**Target features:**
+- Research how humans actually speak (rhythm, breath, micro-pauses, pitch variation, vocal fry, trailing off)
+- Dynamic pause/delay injection at punctuation and clause boundaries
+- Prosody enhancements (speech rate variation, emphasis patterns, natural cadence)
+- Breathing and filler sound evaluation (implement or document skip rationale)
+- Post-processing for warmth/presence (EQ, subtle compression, room tone)
+- Any other TTS-engine-side humanism techniques discovered during research
+
+**Scope boundary:** TTS engine modifications only. LLM sentence structure changes documented for future milestone but not implemented here.
+
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
@@ -75,4 +89,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-12 after initialization*
+*Last updated: 2026-04-13 after milestone v2.0 start*

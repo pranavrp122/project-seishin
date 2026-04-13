@@ -1,450 +1,565 @@
-# Architecture: Streaming Chunked TTS Pipeline
+# Architecture: TTS Humanism Integration Points
 
-**Domain:** Real-time streaming TTS audio generation
-**Researched:** 2026-04-12
+**Domain:** Natural speech realism for Fish Speech S2-Pro TTS engine
+**Researched:** 2026-04-13
+**Confidence:** HIGH (based on direct codebase analysis of every integration point)
 
-## Current Architecture (Baseline)
-
-Before describing the streaming architecture, here is how the system works today:
-
-```
-Client Request
-    |
-    v
-API Server (kui.asgi) ─── StreamResponse
-    |
-    v
-TTSInferenceEngine.inference()
-    |
-    ├── Load reference audio (cached) ──> DAC.encode() ──> prompt_tokens
-    |
-    ├── send_Llama_request() ──> llama_queue ──> worker thread
-    |       |
-    |       v
-    |   generate_long():
-    |       ├── Build Conversation (system prompt + reference audio VQ codes)
-    |       ├── For each text batch:
-    |       |     ├── split_text_by_speaker() ──> turns
-    |       |     ├── group_turns_into_batches(max_bytes=chunk_length)
-    |       |     ├── Append user message to Conversation
-    |       |     ├── deepcopy Conversation + encode_for_inference()
-    |       |     ├── generate() ──> DualAR token generation (prefill + decode)
-    |       |     ├── Append assistant VQ codes back to Conversation
-    |       |     └── yield GenerateResponse(action="sample", codes=codes)
-    |       └── yield GenerateResponse(action="next")
-    |
-    ├── For each "sample" response:
-    |       ├── get_audio_segment() ──> DAC.from_indices(codes) ──> audio
-    |       ├── Apply post-FX (PeakFilter)
-    |       └── yield InferenceResult(code="segment") [streaming]
-    |
-    └── Concatenate all segments ──> yield InferenceResult(code="final")
-```
-
-### Key Observations
-
-1. **Text chunking already exists.** `group_turns_into_batches()` splits text by speaker tags and groups by byte limit (`chunk_length`, default 300 bytes). Each batch becomes a separate LLM generation call.
-
-2. **Context carryover already exists.** `generate_long()` appends generated VQ codes back to the `Conversation` object before processing the next batch. The model sees previous audio context when generating the next batch.
-
-3. **KV cache is NOT reused between batches.** Each batch re-encodes the full conversation from scratch (`deepcopy(conversation)` + `encode_for_inference()`). The KV cache is rebuilt from the growing prompt each time. This is the primary performance bottleneck for streaming.
-
-4. **Audio segments are already streamed individually** via `inference_async()`. But each segment corresponds to a full text batch (hundreds of bytes), not a small chunk designed for low latency.
-
-5. **DAC decode is synchronous and blocking.** `get_audio_segment()` runs on the main inference thread after each batch completes. There is no pipelining between LLM generation and DAC decoding.
-
-6. **No crossfade exists.** Audio segments from different batches are simply concatenated (`np.concatenate(segments, axis=0)`), which can produce boundary artifacts.
-
-## Codec Timing Parameters
-
-Understanding the token-to-audio mapping is critical for buffer sizing:
-
-| Parameter | Value | Source |
-|-----------|-------|--------|
-| DAC sample_rate | 44100 Hz | `modded_dac_vq.yaml` |
-| DAC encoder_rates | [2, 4, 8, 8] | `modded_dac_vq.yaml` |
-| DAC hop_length | 512 samples | `prod(encoder_rates)` |
-| Quantizer downsample_factor | [2, 2] = 4x | `modded_dac_vq.yaml` |
-| **Samples per codec token** | **2048** | `hop_length * downsample_factor` |
-| **Audio duration per token** | **~46.4 ms** | `2048 / 44100` |
-| DualAR generation rate | ~80 tok/s | Measured, PROJECT.md |
-| **Time to generate 1 token** | **~12.5 ms** | `1 / 80` |
-| DualAR num_codebooks | 4 (acoustic) + 1 (semantic) | `llama.py` config |
-| n_codebooks in DAC | 9 | `modded_dac_vq.yaml` |
-| Max context length | 8192 tokens | Model config |
-
-Key implication: Each semantic token the DualAR generates maps to 2048 audio samples (~46.4ms). At 80 tok/s, 10 tokens takes ~125ms to generate but produces ~464ms of audio. The system generates audio faster than real-time (~3.7x real-time factor).
-
-## Recommended Streaming Architecture
-
-### Component Diagram
+## Pipeline Overview (Current State)
 
 ```
-                          ┌─────────────────────────────────────┐
-                          │         TTSInferenceEngine          │
-                          │          (orchestrator)             │
-                          └──────┬──────────────────────────────┘
-                                 │
-    ┌────────────────────────────┼───────────────────────────────┐
-    │                            │                               │
-    v                            v                               v
-┌──────────┐           ┌─────────────────┐           ┌──────────────────┐
-│  [C1]    │  text     │  [C2]           │  codes    │  [C3]            │
-│  Text    │  chunks   │  LLM Token      │  (per     │  DAC Decoder     │
-│  Chunker │ ────────> │  Generator      │  chunk)   │  + Post-FX       │
-│          │           │  (generate_long) │ ────────> │                  │
-└──────────┘           └─────────────────┘           └────────┬─────────┘
-                                                              │ raw audio
-                                                              │ segments
-                                                              v
-                                                    ┌──────────────────┐
-                                                    │  [C4]            │
-                                                    │  Crossfade       │
-                                                    │  Stitcher        │
-                                                    └────────┬─────────┘
-                                                              │ stitched
-                                                              │ audio
-                                                              v
-                                                    ┌──────────────────┐
-                                                    │  [C5]            │
-                                                    │  Stream          │
-                                                    │  Emitter         │
-                                                    └──────────────────┘
-                                                              │
-                                                              v
-                                                         HTTP Response
-                                                     (chunked WAV/PCM)
+Request
+  |
+  v
+[1] ServeTTSRequest (schema.py)
+  |
+  v
+[2] TTSInferenceEngine.inference() (__init__.py)
+  |
+  +---> [3] send_Llama_request() --> llama_queue --> worker thread
+  |           |
+  |           v
+  |     [4] generate_long() (inference.py)
+  |           |
+  |           +---> [5] split_text_into_chunks() (inference.py:760-808)
+  |           |
+  |           +---> For each text batch:
+  |           |       +---> [6] Build Conversation, encode_for_inference()
+  |           |       +---> [7] generate() --> decode_n_tokens() --> DualAR tokens
+  |           |       +---> yield GenerateResponse(codes=..., is_partial=True/False)
+  |           |
+  |           +---> yield GenerateResponse(action="next")
+  |
+  +---> [8] get_audio_segment() (__init__.py:261-279)
+  |           |
+  |           +---> [9] decode_vq_tokens() --> DAC.from_indices() --> raw tensor
+  |           +---> [10] float().cpu().numpy()
+  |           +---> [11] _post_fx(audio, sr) --> PeakFilter(3500Hz, +1.5dB, q=0.7)
+  |
+  +---> [12] Sub-chunk streaming: grow-and-redecode with sin^2 crossfade
+  |     OR:   StreamingCrossfader.process() (crossfader.py)
+  |
+  +---> [13] yield InferenceResult(code="segment", audio=(sr, numpy_array))
+  |
+  v
+[14] inference_wrapper() (tools/server/inference.py)
+  |
+  +---> [15] (audio * 32768).astype(np.int16).tobytes()
+  |
+  v
+[16] inference_async() --> HTTP chunked response (api_utils.py:72-92)
 ```
 
-### Component Boundaries
+## Technique-to-Integration-Point Map
 
-| Component | Responsibility | Input | Output | Location |
-|-----------|---------------|-------|--------|----------|
-| **[C1] Text Chunker** | Split input text into small streaming chunks with intelligent boundaries | Full request text | Ordered list of text chunks | New: `fish_speech/inference_engine/text_chunker.py` |
-| **[C2] LLM Token Generator** | Generate codec tokens for each chunk, maintaining context across chunks | Text chunks + reference tokens + conversation state | Codec token tensors per chunk | Modified: `generate_long()` in `inference.py` |
-| **[C3] DAC Decoder + Post-FX** | Convert codec tokens to audio waveform and apply EQ | Codec token tensor | Raw float32 audio array | Existing: `get_audio_segment()` in `__init__.py` |
-| **[C4] Crossfade Stitcher** | Blend chunk boundaries using Hann window overlap-add | Sequential raw audio segments | Seamless audio stream | New: `fish_speech/inference_engine/crossfade.py` |
-| **[C5] Stream Emitter** | Package audio into WAV chunks and yield to HTTP response | Stitched audio segments | Bytes (WAV header + PCM data) | Modified: `inference_wrapper()` in `inference.py` |
+### 1. Dynamic Pause Injection
+
+**Where:** Two viable insertion points, with different tradeoffs.
+
+#### Option A: Text-level (RECOMMENDED -- easiest, most natural)
+
+**File:** `fish_speech/models/text2semantic/inference.py`
+**Function:** `split_text_into_chunks()` (lines 760-808)
+**Hook point:** After Phase 3 (emotion propagation, line 808), add a Phase 4 that analyzes chunk boundaries and annotates pause durations.
+
+**Mechanism:** Insert extra punctuation or SSML-style pause markers into text chunks before they enter the LLM. The DualAR model already produces natural pauses at punctuation -- a period produces roughly 200-400ms of near-silence in the generated audio. By manipulating punctuation (e.g., adding `...` for longer pauses, or `--` for mid-sentence hesitations), you control pause duration at the model level without touching audio.
+
+**Alternatively:** A new function `inject_pauses(chunks: list[str]) -> list[str]` called from `generate_long()` at line 900, right after `split_text_into_chunks()` returns its chunk list and before the batches enter the generation loop.
+
+**Constraints:**
+- Must happen BEFORE tokens enter the LLM (before line 919's batch loop)
+- Punctuation-based pauses are approximate -- the model decides final duration
+- Cannot insert pauses mid-word or at sub-phoneme granularity this way
+
+#### Option B: Audio-level silence insertion
+
+**File:** `fish_speech/inference_engine/__init__.py`
+**Function:** `inference()` (lines 97-221)
+**Hook point:** Between get_audio_segment() return (line 279) and the yield of InferenceResult (lines 142-147 for sub-chunk, or lines 174-182 for crossfader path).
+
+**Mechanism:** After decoding audio for a chunk, prepend or append `np.zeros(pause_samples, dtype=np.float32)` to the audio array before yielding. The pause duration maps directly to sample count: `pause_ms * 44.1` samples.
+
+**Specific insertion code path (sub-chunk mode):**
+```
+Line 127: new_audio = segment[prev_audio_samples:]
+    --> Insert silence AFTER this line, BEFORE the crossfade check at line 129
+    --> new_audio = np.concatenate([np.zeros(pause_samples), new_audio])
+```
+
+**Specific insertion code path (crossfader mode):**
+```
+Line 174: segment = self.get_audio_segment(result)
+    --> Insert silence BEFORE crossfader.process()
+    --> segment = np.concatenate([np.zeros(pause_samples), segment])
+```
+
+**Constraints:**
+- Must happen BEFORE crossfade blending (silence in the crossfade region would be faded away)
+- Audio-level pauses sound mechanical unless shaped (fade-in from silence)
+- Adds to total audio length, which is fine for streaming but affects the "final" concatenation at line 216
+
+**Recommendation:** Use Option A (text-level) as primary. Use Option B only for precise sub-sentence pauses that the model cannot learn from punctuation (e.g., dramatic pauses mid-clause).
 
 ---
 
-## Component Details
+### 2. Prosody / Pitch Modification
 
-### [C1] Text Chunker
+**Where:** This CANNOT meaningfully happen at the token level without model retraining. Must happen post-decode in the audio domain.
 
-**Problem:** The existing `group_turns_into_batches()` groups by speaker turns and byte limits (default 300 bytes). This produces large batches -- fine for throughput, bad for latency. We need smaller chunks to get first audio out faster.
+**Why not token-level:** The DualAR transformer generates semantic tokens that map to VQ codebook indices. These indices encode a compressed representation of the audio (pitch + timbre + phoneme identity all entangled). There is no "pitch knob" at the token level -- modifying token values would produce garbled audio, not pitch-shifted audio. Prosody is implicitly learned from the reference audio and text context.
 
-**Strategy: Sentence-boundary splitting with minimum size floor.**
+**File:** `fish_speech/inference_engine/__init__.py`
+**Function:** `get_audio_segment()` (lines 261-279)
+**Hook point:** Line 278-279, after DAC decode and before _post_fx, or integrated into the _post_fx chain.
 
-Split text at natural prosodic boundaries in this priority order:
-1. Sentence boundaries (`.` `!` `?`)
-2. Clause boundaries (`,` `;` `:` `--`)
-3. Force-split at max byte limit if no boundary found
-
-Constraints:
-- **Minimum chunk: ~50 bytes** (~25 CJK chars or ~10 English words). Chunks smaller than this produce poor prosody because the model lacks context for natural intonation.
-- **Maximum chunk: ~150 bytes** for streaming mode (vs. 300 default). Smaller max means faster TTFA.
-- **First chunk should be smaller** (~80 bytes) to minimize TTFA. Subsequent chunks can be larger.
-- **Emotion/speaker tags propagate.** If the input starts with `[angry]` or `<|speaker:0|>`, every chunk inherits the prefix tag. The tag is NOT repeated in token counting for byte limits.
-
-**Interaction with existing code:** The text chunker replaces `split_text_by_speaker()` + `group_turns_into_batches()` for streaming mode only. Non-streaming requests continue using the existing path.
-
-**Confidence:** HIGH -- sentence boundary splitting is well-established for TTS. The byte thresholds need empirical tuning.
-
-### [C2] LLM Token Generator (generate_long modification)
-
-**Problem:** Currently, `generate_long()` re-encodes the entire conversation for every batch. With a 17.27s reference audio (372 semantic tokens), the system prompt alone is substantial. Re-encoding this for every small chunk is wasteful.
-
-**Current flow per batch:**
-1. `deepcopy(conversation)` (includes all prior generated audio)
-2. Append assistant message shell
-3. `encode_for_inference()` -- tokenizes everything into a prompt tensor
-4. `generate()` -- prefills the entire prompt through the model, rebuilding KV cache
-5. Decode new tokens
-
-**Recommended approach for streaming: Keep the existing re-encoding pattern, but with aggressive chunk sizing.**
-
-Why NOT try to persist KV cache between chunks:
-- The KV cache is set up once in `generate()` with `setup_caches()` and is tied to the `max_seq_len`. It does not support incremental appending across separate `generate()` calls.
-- The `torch.compile` with `reduce-overhead` mode uses CUDA graphs, which capture fixed execution patterns. Changing the prefill length between calls would trigger recompilation/graph invalidation.
-- The conversation accumulates VQ codes from previous chunks, so the prompt grows. But the reference audio tokens (372 tokens) and system prompt are the dominant prefix cost. With small text chunks, the incremental growth per chunk is modest.
-- Attempting to persist KV cache state across calls would require deep changes to `generate()`, `setup_caches()`, and the compiled `decode_one_token`. This is high risk for the quality constraint.
-
-**Instead, optimize by keeping chunks small and accepting the re-prefill cost:**
-- With ~150 byte text chunks generating ~30-50 semantic tokens each, the prefill of ~500-600 tokens (system prompt + reference + growing context) completes in ~50-100ms.
-- This is acceptable because the real-time factor is ~3.7x: while chunk N is being prefilled and decoded, the client is still playing chunk N-1's audio.
-
-**Context carryover works as-is:** The existing `generate_long()` already appends generated VQ codes back to the conversation between batches. Smaller chunks mean more frequent context updates, which may actually improve prosodic consistency.
-
-**What changes:**
-- `generate_long()` accepts a `streaming_chunk_sizes` parameter (list of byte limits per chunk, with first chunk smaller)
-- The existing `group_turns_into_batches()` is replaced by the new Text Chunker's output for streaming mode
-- No changes to `generate()`, `decode_one_token`, or KV cache management
-
-**Confidence:** HIGH for the conservative approach. The re-encoding overhead is real but bounded, and preserving `torch.compile` compatibility is critical.
-
-### [C3] DAC Decoder + Post-FX
-
-**No architectural changes required.** The existing `get_audio_segment()` correctly:
-1. Takes codec token tensor `(num_codebooks, T)` from the LLM
-2. Calls `DAC.from_indices(codes[None])` to decode to waveform
-3. Applies PeakFilter post-FX
-
-The only change: this component now processes smaller code tensors (fewer tokens per chunk), which is actually faster per call.
-
-**Timing estimate:** DAC decode for ~40 tokens (~1.9s of audio) takes ~20-30ms. This is negligible compared to LLM generation time.
-
-**Confidence:** HIGH -- existing code works correctly, just called more frequently with smaller inputs.
-
-### [C4] Crossfade Stitcher
-
-**Problem:** Adjacent audio segments from different LLM generation calls produce boundary artifacts. The model generates each chunk with context from previous chunks (via the conversation), so prosody is generally continuous, but the DAC decoder independently decodes each chunk's tokens. The waveform values at chunk boundaries may not align smoothly.
-
-**Strategy: Hann window overlap-add crossfade.**
-
-```
-Chunk N audio:    [.......audio_data_N.......TAIL]
-Chunk N+1 audio:  [HEAD.......audio_data_N+1.......]
-
-                        overlap region
-                   |<-- crossfade_samples -->|
-
-Tail (fade out):   *= 0.5 * (1 + cos(pi * t))    where t = linspace(0, 1, crossfade_samples)
-Head (fade in):    *= 0.5 * (1 - cos(pi * t))
-Blended:           tail_faded + head_faded
+**Current code:**
+```python
+# Line 275-279
+audio = segment.float().cpu().numpy()
+if hasattr(self.decoder_model, "spec_transform"):
+    sr = self.decoder_model.spec_transform.sample_rate
+else:
+    sr = self.decoder_model.sample_rate
+return self._post_fx(audio, sr)
 ```
 
-**Parameters:**
-- **crossfade_samples: 882** (~20ms at 44100 Hz). This matches the proven approach from Qwen3-TTS-streaming (512 samples at 24kHz = ~21ms). At 44100 Hz, 20ms = 882 samples.
-- This is configurable. Start with 882, tune empirically. Range: 441 (10ms) to 2205 (50ms).
+**Mechanism:** Use `pedalboard.PitchShift` (already available in the pedalboard library, which is an existing dependency). Apply subtle pitch variation per-segment to avoid the monotone "same pitch contour for every sentence" problem.
 
-**Buffer management:**
-1. Receive raw audio from DAC decoder
-2. If this is the first chunk: store tail region (`audio[-crossfade_samples:]`), emit `audio[:-crossfade_samples]`
-3. For subsequent chunks: crossfade `stored_tail` with `audio[:crossfade_samples]`, emit crossfaded region + `audio[crossfade_samples:-crossfade_samples]`, store new tail
-4. For the final chunk: crossfade stored_tail with head, emit crossfaded + remaining audio (no tail withheld)
+**Implementation approach:**
+```python
+# In get_audio_segment(), before return:
+audio = segment.float().cpu().numpy()
+sr = ...
+# Apply prosody variation BEFORE the EQ chain
+audio = self._prosody_fx(audio, sr)  # pitch shift, etc.
+return self._post_fx(audio, sr)
+```
 
-**Latency impact:** The crossfade introduces a delay of `crossfade_samples` (20ms) because we must withhold the tail of each chunk until the next chunk arrives. This is negligible.
+**Constraints:**
+- Pitch shifting on short segments (< 1s) can produce artifacts at segment boundaries
+- Must happen BEFORE crossfade -- if you pitch-shift after crossfade, the blended region will have mismatched pitch
+- `pedalboard.PitchShift` operates on numpy arrays and is fast (C++ backend via JUCE)
+- Aggressive pitch shifting (> +/- 2 semitones) will sound artificial. Target range: +/- 0.3 semitones for subtle warmth variation
+- The shift amount should vary per chunk (not per sub-chunk), driven by text analysis (questions pitch up, statements pitch down, trailing clauses pitch down slightly)
 
-**Implementation:**
+**Alternative for speech rate variation (see section 5):** Time-stretching can also happen here, but pedalboard does not have a native time-stretch effect. Would need `python-stretch` or `pyrubberband`.
+
+---
+
+### 3. Breathing Sounds
+
+**Where:** Audio-level mixing, inserted between segments.
+
+**Approach:** Pre-recorded breath samples mixed into the audio stream. Synthesized breaths are possible but require significant modeling effort for minimal gain over well-recorded samples.
+
+**File:** `fish_speech/inference_engine/__init__.py`
+**Function:** `inference()` (lines 97-221)
+**Hook point:** Same as pause injection Option B -- between `get_audio_segment()` and the yield.
+
+**Specific insertion points (two cases):**
+
+**Case 1: Between text batches (chunk boundaries)**
+
+In the sub-chunk path, at the batch boundary transition (lines 150-170):
+```
+Line 157: new_audio = segment[prev_audio_samples:]
+    --> At batch boundary (is_partial=False), prepend a breath sample:
+    --> breath = load_breath_sample(breath_type, sr)  # cached
+    --> body = np.concatenate([breath, new_audio[:-overlap]])
+```
+
+In the crossfader path (lines 171-182):
+```
+Line 174: segment = self.get_audio_segment(result)
+    --> segment = np.concatenate([breath_sample, segment])
+    --> THEN pass to crossfader
+```
+
+**Case 2: Within a batch (at sentence boundaries detected from text)**
+
+This requires knowing where sentence boundaries fall within a single audio segment. Since each `GenerateResponse` corresponds to one text batch, and batches may contain multiple sentences, mid-batch breath insertion is harder.
+
+**Better approach:** Let the text chunker split at sentence boundaries (it already does in `split_text_into_chunks()`), and insert breaths at every chunk transition. This means breaths happen at natural sentence boundaries.
+
+**Breath sample management:**
+- Pre-record 5-10 breath variations (inhale, soft exhale, quick breath) at 44100Hz mono float32
+- Store as `.npy` files in a `resources/breaths/` directory
+- Load and cache at engine initialization
+- Randomly select per-insertion for variation
+- Apply volume scaling (breaths should be 15-25dB below speech level)
+- Apply fade-in/fade-out (5ms) to avoid clicks
+
+**Constraints:**
+- Breath samples must match the reference voice's timbre to sound natural. Generic breaths may sound jarring with a specific voice.
+- Must happen BEFORE crossfade -- the breath is part of the segment that gets crossfaded
+- Breath duration adds to total audio length (typical: 150-400ms, i.e., 6600-17640 samples at 44100Hz)
+- Not every boundary needs a breath. Use a probability-based approach: 60% chance after sentences, 20% after clauses, 0% for sub-chunk partials.
+
+---
+
+### 4. Post-Processing Chain (Warmth/Presence)
+
+**Where:** Expand the existing `_post_fx` Pedalboard chain.
+
+**File:** `fish_speech/inference_engine/__init__.py`
+**Class attribute:** `_post_fx` (line 25-27)
+**Current state:**
+```python
+_post_fx = Pedalboard([
+    PeakFilter(cutoff_frequency_hz=3500, gain_db=1.5, q=0.7),
+])
+```
+
+**Recommended expanded chain:**
 
 ```python
-class CrossfadeStitcher:
-    def __init__(self, crossfade_samples: int = 882):
-        self.crossfade_samples = crossfade_samples
-        self.stored_tail: np.ndarray | None = None
-        # Pre-compute Hann curves
-        t = np.linspace(0, 1, crossfade_samples, dtype=np.float32)
-        self.fade_out = (0.5 * (1 + np.cos(np.pi * t))).astype(np.float32)
-        self.fade_in  = (0.5 * (1 - np.cos(np.pi * t))).astype(np.float32)
+from pedalboard import (
+    Pedalboard, PeakFilter, Compressor, Gain,
+    LowShelfFilter, HighShelfFilter, HighpassFilter,
+)
 
-    def process(self, audio: np.ndarray, is_last: bool = False) -> np.ndarray:
-        """Process one audio chunk. Returns stitched audio to emit."""
-        cs = self.crossfade_samples
+_post_fx = Pedalboard([
+    # 1. Subsonic rumble removal (DAC decoder can produce low-freq artifacts)
+    HighpassFilter(cutoff_frequency_hz=80),
 
-        if self.stored_tail is None:
-            # First chunk
-            if is_last:
-                return audio
-            self.stored_tail = audio[-cs:].copy()
-            return audio[:-cs]
+    # 2. Warmth: gentle low-mid boost
+    LowShelfFilter(cutoff_frequency_hz=250, gain_db=1.5, q=0.7),
 
-        # Crossfade stored tail with current head
-        blended = self.stored_tail * self.fade_out + audio[:cs] * self.fade_in
+    # 3. Presence: existing brightness boost (unchanged)
+    PeakFilter(cutoff_frequency_hz=3500, gain_db=1.5, q=0.7),
 
-        if is_last:
-            # Final chunk: emit everything
-            result = np.concatenate([blended, audio[cs:]])
-            self.stored_tail = None
-            return result
+    # 4. Air: subtle high-frequency lift for clarity
+    HighShelfFilter(cutoff_frequency_hz=8000, gain_db=1.0, q=0.7),
 
-        # Middle chunk: emit blended + middle, store new tail
-        self.stored_tail = audio[-cs:].copy()
-        return np.concatenate([blended, audio[cs:-cs]])
+    # 5. Gentle compression: reduces volume spikes, adds consistency
+    Compressor(threshold_db=-18, ratio=2.5, attack_ms=10, release_ms=100),
 
-    def reset(self):
-        self.stored_tail = None
+    # 6. Makeup gain (compression reduces overall level)
+    Gain(gain_db=2.0),
+])
 ```
 
-**Confidence:** HIGH -- Hann window crossfade is the standard approach for audio stitching, validated by multiple TTS streaming implementations.
+**Constraints:**
+- This runs on EVERY audio segment, including sub-chunk partials. Must be fast.
+- Pedalboard processes numpy arrays in C++ -- a 1-second segment at 44100Hz takes < 1ms. No streaming concern.
+- The Compressor has state (attack/release envelope). For streaming with sub-chunk partials, the compressor state resets per `get_audio_segment()` call. This means the first few ms of each segment have no compression history. At segment sizes of 500ms+, this is inaudible.
+- **Critical:** The compressor must come AFTER EQ, not before. Boosting frequencies then compressing prevents the compressor from fighting the EQ.
+- Do NOT add Reverb to the chain. Reverb tails would bleed across chunk boundaries and produce artifacts with crossfading. If reverb is desired, it must be applied as a final pass on the complete concatenated audio (the "final" InferenceResult), not on individual segments.
 
-### [C5] Stream Emitter (WAV Header + PCM Streaming)
-
-**Problem:** The current `wav_chunk_header()` emits a WAV header with zero data length, followed by raw PCM int16 chunks. This works because WAV players typically ignore the data length field when streaming. But it has a subtle issue: the header uses a placeholder size, so the resulting file is technically malformed if saved.
-
-**Recommended approach: Keep the existing WAV streaming pattern.**
-
-The current implementation is correct for streaming:
-1. Emit WAV header with `data` chunk size set to 0 (or 0xFFFFFFFF)
-2. Stream PCM int16 data chunks as they become available
-3. Clients that support chunked transfer encoding play progressively
-
-**What changes:**
-- `inference_wrapper()` gains awareness of the crossfade stitcher
-- Each yielded segment goes through the stitcher before being converted to int16 bytes
-- The AMPLITUDE scaling (32768) and int16 conversion remain as-is
-
-**Data flow through the emitter:**
-
-```
-inference() yields InferenceResult(code="segment", audio=(sr, float32_array))
-    |
-    v
-CrossfadeStitcher.process(float32_array)
-    |
-    v
-(stitched_audio * 32768).astype(np.int16).tobytes()
-    |
-    v
-HTTP chunked response
-```
-
-**Confidence:** HIGH -- the existing pattern works and just needs the crossfade stitcher inserted.
+**Where applied:** `get_audio_segment()` line 279: `return self._post_fx(audio, sr)`. No change to calling code needed -- just expand the `_post_fx` chain.
 
 ---
 
-## Data Flow (End to End)
+### 5. Speech Rate Variation
+
+**Where:** Three options with different tradeoff profiles.
+
+#### Option A: Text-level (chunk size hints) -- SIMPLEST
+
+**File:** `fish_speech/models/text2semantic/inference.py`
+**Function:** `split_text_into_chunks()` (lines 760-808)
+
+**Mechanism:** Vary the `subsequent_chunk_bytes` parameter per-chunk based on text analysis. Shorter chunks produce faster-feeling speech (more frequent pauses). Longer chunks produce more flowing speech. This is crude but zero-risk.
+
+#### Option B: Token-level (temperature variation) -- MODERATE COMPLEXITY
+
+**File:** `fish_speech/models/text2semantic/inference.py`
+**Function:** `generate_long()` (line 988, the `temperature=temperature` kwarg to `generate()`)
+
+**Mechanism:** Vary the temperature parameter per text batch. Higher temperature = more variation in token selection = more expressive (but potentially less stable) speech. Lower temperature = more predictable, measured speech.
+
+**Constraints:** Temperature affects quality and consistency, not just speed. Must stay within safe range (0.6-0.95). This is a blunt instrument.
+
+#### Option C: Audio-level time-stretching -- MOST CONTROL, MOST RISK
+
+**File:** `fish_speech/inference_engine/__init__.py`
+**Function:** `get_audio_segment()` (lines 261-279)
+**Hook point:** After DAC decode, before _post_fx (same location as pitch modification).
+
+**Mechanism:** Use `python-stretch` (Signalsmith Stretch) or `pyrubberband` for per-segment time-stretching. Stretch factor 0.95 = 5% faster, 1.05 = 5% slower.
+
+**Constraints:**
+- Time-stretching changes segment length, which breaks the sub-chunk grow-and-redecode math. The `prev_audio_samples` counter (line 125) tracks cumulative audio length for the grow-and-redecode window. If segments change length due to stretching, the offset calculations become wrong.
+- Time-stretching MUST happen AFTER the full chunk is decoded (is_partial=False path), not during sub-chunk partials.
+- Adds a new dependency (python-stretch or pyrubberband). pyrubberband writes to disk (slow). python-stretch is native and fast.
+- Must happen BEFORE crossfade.
+
+**Recommendation:** Start with Option A (text-level chunk sizing). Graduate to Option C only if noticeable monotonous pacing remains. Option B (temperature variation) is a last resort due to quality risk.
+
+---
+
+### 6. Volume Dynamics / Gain Automation
+
+**Where:** Two integration points.
+
+#### Per-segment volume (sentence-level dynamics)
+
+**File:** `fish_speech/inference_engine/__init__.py`
+**Function:** `get_audio_segment()` (lines 261-279)
+**Hook point:** After DAC decode, as part of the post-processing. Can be integrated into the `_post_fx` chain or applied separately.
+
+**Mechanism:** Analyze the text content for each batch (available from `GenerateResponse.text`), and apply a gain multiplier. Parenthetical text or trailing clauses get -1 to -3 dB. Emphasized text gets +1 dB. Questions get a slight overall boost.
+
+**Problem:** `get_audio_segment()` does not currently receive the text content -- it only receives `GenerateResponse` which has `.codes` and `.text`. The `.text` field IS available.
+
+**Implementation:**
+```python
+# In inference(), where get_audio_segment is called:
+# Line 123: segment = self.get_audio_segment(result)
+# Change to pass text context:
+segment = self.get_audio_segment(result, text_hint=result.text)
+```
+
+Then in `get_audio_segment()`:
+```python
+def get_audio_segment(self, result: GenerateResponse, text_hint: str = "") -> np.ndarray:
+    # ... existing decode ...
+    audio = segment.float().cpu().numpy()
+    # Apply text-driven gain
+    gain_db = self._compute_text_gain(text_hint)
+    audio = audio * (10 ** (gain_db / 20))
+    return self._post_fx(audio, sr)
+```
+
+#### Within-segment volume (word-level dynamics via compression)
+
+Already handled by the Compressor in the expanded `_post_fx` chain (section 4). The compressor reduces peaks and raises quieter passages, creating more even volume with natural-sounding dynamics.
+
+**Constraints:**
+- Per-segment gain must be subtle (max +/- 3 dB) to avoid noticeable volume jumps at chunk boundaries
+- The crossfader blends audio at boundaries, so a sudden volume change between segments will create an audible ramp during the crossfade region. Keep gains smooth.
+- If using sub-chunk streaming, gain must be consistent within a single text batch (all sub-chunks of one batch get the same gain)
+
+---
+
+## Component Boundary Map
 
 ```
-1. Request arrives: text="Hello, how are you? I'm doing well, thanks for asking."
-
-2. Text Chunker splits:
-   chunk_0: "Hello, how are you?"         (~55 bytes, small for fast TTFA)
-   chunk_1: "I'm doing well, thanks for asking."  (~100 bytes)
-
-3. LLM generates chunk_0:
-   - Conversation: [system + reference audio]
-   - User: "Hello, how are you?"
-   - generate() -> ~35 semantic tokens (~430ms generation, ~1.6s audio)
-   - Append VQ codes to Conversation
-
-4. DAC decodes chunk_0 codes -> raw_audio_0 (float32, ~71,680 samples)
-
-5. Crossfade processes raw_audio_0 (first chunk):
-   - Emit audio_0[:-882] (70,798 samples)
-   - Store audio_0[-882:] as tail
-
-6. Stream emitter converts to int16 PCM bytes and yields to HTTP
-
-   >>> Client starts playback (~500ms from request) <<<
-
-7. LLM generates chunk_1 (while client plays chunk_0):
-   - Conversation: [system + reference + chunk_0 VQ + user chunk_0 text + assistant chunk_0 codes]
-   - User: "I'm doing well, thanks for asking."
-   - generate() -> ~50 semantic tokens
-
-8. DAC decodes chunk_1 codes -> raw_audio_1
-
-9. Crossfade: blend stored_tail with raw_audio_1[:882], emit, store new tail
-
-10. Stream remaining audio from chunk_1
-
-11. Final: flush stored tail (fade out to zero or emit as-is)
+┌─────────────────────────────────────────────────────────────────────┐
+│                        TEXT DOMAIN                                   │
+│                                                                     │
+│  [A] Text Preprocessor (NEW)                                       │
+│      - Pause injection via punctuation manipulation                 │
+│      - Chunk size variation for speech rate                         │
+│      - Sentence analysis for downstream volume hints                │
+│                                                                     │
+│  Location: inference.py, between split_text_into_chunks()           │
+│            and the generate_long() batch loop                       │
+│                                                                     │
+│  Input:  list[str] (text chunks)                                    │
+│  Output: list[str] (modified text chunks with pause markers)        │
+│          + dict[int, HumanismHints] (per-chunk metadata)            │
+├─────────────────────────────────────────────────────────────────────┤
+│                        TOKEN DOMAIN                                  │
+│                                                                     │
+│  [B] Generation Parameters (EXISTING, minor modification)           │
+│      - Per-batch temperature variation (optional)                   │
+│                                                                     │
+│  Location: generate_long() batch loop, line 988                     │
+│                                                                     │
+│  Input:  HumanismHints for current batch                            │
+│  Output: Modified temperature/top_p for generate() call             │
+├─────────────────────────────────────────────────────────────────────┤
+│                        AUDIO DOMAIN                                  │
+│                                                                     │
+│  [C] Audio Post-Processor (EXPANDED from existing _post_fx)        │
+│      - EQ chain: HPF -> warmth -> presence -> air                  │
+│      - Dynamics: compressor -> makeup gain                         │
+│      - Pitch variation: subtle per-segment shift                   │
+│      - Volume automation: text-driven gain adjustment              │
+│                                                                     │
+│  Location: get_audio_segment() in __init__.py                      │
+│                                                                     │
+│  Input:  raw DAC output tensor + text hint                          │
+│  Output: processed numpy float32 array                              │
+│                                                                     │
+│  [D] Breath Inserter (NEW)                                         │
+│      - Pre-recorded breath sample mixing                            │
+│      - Probability-based insertion at chunk boundaries              │
+│                                                                     │
+│  Location: inference() main loop, between get_audio_segment()       │
+│            and crossfade/yield                                      │
+│                                                                     │
+│  Input:  processed audio segment + chunk boundary info              │
+│  Output: audio segment with optional breath prepended               │
+│                                                                     │
+│  [E] Silence Inserter (NEW, optional)                              │
+│      - Precise audio-level pause insertion                          │
+│      - Shaped silence (fade envelope, not hard zeros)              │
+│                                                                     │
+│  Location: inference() main loop, same as [D]                       │
+│                                                                     │
+│  Input:  audio segment + pause duration from HumanismHints         │
+│  Output: audio segment with silence prepended/appended              │
+├─────────────────────────────────────────────────────────────────────┤
+│                        STREAMING DOMAIN (unchanged)                  │
+│                                                                     │
+│  [F] Crossfader (EXISTING -- StreamingCrossfader)                  │
+│      - sin^2 equal-power blending                                  │
+│      - No changes needed, operates on whatever audio it receives   │
+│                                                                     │
+│  [G] Stream Emitter (EXISTING -- inference_wrapper)                │
+│      - int16 conversion, HTTP chunked response                     │
+│      - No changes needed                                            │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## TTFA Analysis
+## Data Flow (With Humanism Hooks)
 
-| Step | Time (estimated) | Cumulative |
-|------|----------------:|----------:|
-| Request parsing + reference load (cached) | ~5 ms | 5 ms |
-| Text chunking | ~1 ms | 6 ms |
-| Conversation encoding (system + ref) | ~20 ms | 26 ms |
-| LLM prefill (~400 tokens prompt) | ~50 ms | 76 ms |
-| LLM decode first token | ~12.5 ms | 89 ms |
-| LLM decode ~34 more tokens (small first chunk) | ~425 ms | 514 ms |
-| DAC decode ~35 tokens | ~20 ms | 534 ms |
-| Crossfade + int16 conversion | ~1 ms | 535 ms |
-| Network transmission (first chunk) | ~5 ms | 540 ms |
+```
+Request text: "Hello, how are you? I'm doing well, thanks for asking."
+    |
+    v
+[A] Text Preprocessor:
+    - Split into chunks: ["Hello, how are you?", "I'm doing well, thanks for asking."]
+    - Analyze: chunk[0] is a question, chunk[1] is a statement
+    - Generate hints: {0: {gain: +0.5dB, pitch: +0.2st, breath_after: 0.7},
+                       1: {gain: -0.5dB, pitch: -0.1st, breath_after: 0.3}}
+    - Optionally insert pause markers: "Hello... how are you?"
+    |
+    v
+[B] Token Generation (per batch):
+    - Batch 0: temperature=0.85 (default)
+    - Batch 1: temperature=0.82 (slightly lower for calmer statement)
+    |
+    v
+[7] DualAR generates VQ codes for each batch
+    |
+    v
+[C] Audio Post-Processor (per segment):
+    - DAC decode: codes -> raw waveform
+    - Pitch shift: +0.2 semitones (batch 0, question)
+    - EQ chain: HPF(80) -> LowShelf(250, +1.5dB) -> Peak(3500, +1.5dB)
+               -> HighShelf(8000, +1.0dB)
+    - Compressor: threshold -18dB, ratio 2.5:1
+    - Gain: +2dB makeup + text-driven +0.5dB
+    |
+    v
+[D] Breath Inserter (at batch boundary):
+    - Roll dice: 0.7 probability -> YES, insert breath
+    - Select random breath sample (150ms)
+    - Scale to -20dB relative to speech RMS
+    - Prepend to segment
+    |
+    v
+[12] Crossfader:
+    - Blends breath tail of segment N with head of segment N+1
+    - sin^2 equal-power, 1764 samples overlap
+    |
+    v
+[13-16] Yield -> int16 -> HTTP
+```
 
-This is slightly over the 500ms target. To hit <500ms, the first chunk should target ~25 tokens (~30 bytes of text, roughly one short sentence or clause). Tuning the first-chunk size is the primary lever.
+## Ordering Constraints (What Must Happen Before What)
 
-With a ~30-byte first chunk (~25 tokens, ~312ms generation):
-- Prefill (~400 tokens): ~50ms
-- Decode 25 tokens: ~312ms
-- DAC + overhead: ~30ms
-- **Total TTFA: ~392ms** -- well under 500ms target
+```
+Text Domain:    [A] pause injection + chunk analysis
+                    |
+                    v
+Token Domain:   [B] generation with hints
+                    |
+                    v
+Audio Domain:   [9] DAC decode (untouchable)
+                    |
+                    v
+                [C.pitch] pitch shift (if any)   <-- BEFORE EQ/compression
+                    |
+                    v
+                [C.eq] EQ chain (HPF, shelves, peak)
+                    |
+                    v
+                [C.dynamics] compressor + gain
+                    |
+                    v
+                [D/E] breath/silence insertion    <-- AFTER post-fx, BEFORE crossfade
+                    |
+                    v
+                [F] crossfade blending           <-- MUST be last audio operation
+                    |
+                    v
+                [G] int16 conversion + stream     <-- AFTER crossfade
+```
+
+**Critical ordering rules:**
+1. Pitch shift BEFORE EQ/compression. Shifting after compression would undo the compressor's envelope.
+2. All audio modifications BEFORE crossfade. Crossfade operates on the final audio; any post-crossfade modification would create discontinuities at blend points.
+3. Breath insertion BEFORE crossfade. The breath becomes part of the segment that gets blended smoothly.
+4. Compression AFTER EQ. The EQ shapes the spectrum; the compressor then manages the dynamics of the shaped signal.
+5. Silence insertion can happen before OR after breath insertion (silence then breath = pause then inhale, which is natural).
+
+## Difficulty Assessment
+
+| Technique | Difficulty | Risk to Streaming | Files Modified | New Dependencies |
+|-----------|-----------|-------------------|----------------|-----------------|
+| Post-FX chain expansion | Easy | None | `__init__.py` only | None (pedalboard already present) |
+| Text-level pause injection | Easy | None | `inference.py` only | None |
+| Volume dynamics (per-segment) | Easy | None | `__init__.py` only | None |
+| Breathing sounds | Medium | Low | `__init__.py` + new resource files | None (numpy only) |
+| Audio-level silence insertion | Easy | Low | `__init__.py` only | None |
+| Pitch variation (pedalboard) | Medium | Low | `__init__.py` only | Need to verify `PitchShift` available in installed version |
+| Speech rate (text-level) | Easy | None | `inference.py` only | None |
+| Speech rate (time-stretch) | Hard | Medium | `__init__.py`, breaks sub-chunk math | `python-stretch` or `pyrubberband` |
+| Temperature variation | Easy | Low (quality risk) | `inference.py` only | None |
+
+## Suggested Build Order (Dependencies)
+
+```
+Phase 1: Post-FX Chain        [C.eq + C.dynamics]     -- No dependencies, immediate quality win
+    |
+Phase 2: Text Preprocessor    [A]                      -- No audio deps, text-only
+    |
+    v
+Phase 3: Pause Injection      [A -> audio silence]     -- Depends on Phase 2 for hints
+    |
+Phase 4: Breathing Sounds     [D]                      -- Independent, but benefits from Phase 2's boundary data
+    |
+Phase 5: Volume Dynamics      [C.gain]                 -- Depends on Phase 2 for text analysis
+    |
+Phase 6: Pitch Variation      [C.pitch]                -- Most experimental, do last
+```
+
+**Rationale:**
+- Phase 1 is the easiest win: modifying a single class attribute in `__init__.py` with no risk to streaming. Immediate warmth/presence improvement.
+- Phase 2 is text-only, no audio risk. Creates the infrastructure (HumanismHints) that Phases 3-5 consume.
+- Phases 3-4 are the biggest perceptual improvements (pauses and breathing make speech sound human).
+- Phase 5 is subtle refinement.
+- Phase 6 (pitch) is most likely to introduce artifacts and should be done last with careful A/B testing.
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Persisting KV Cache Across generate() Calls
-**What:** Attempting to save and restore the KV cache between chunk generation calls to avoid re-prefilling.
-**Why bad:** The KV cache is tied to `torch.compile` CUDA graphs. Modifying cache state between graph executions causes silent corruption or recompilation storms. The conversation context changes between chunks (new user text + new assistant codes), making partial cache reuse complex and error-prone.
-**Instead:** Accept the re-prefill cost. It is bounded (~50-100ms) and the system runs faster than real-time.
+### Anti-Pattern 1: Modifying Audio After Crossfade
+**What:** Applying pitch shift, EQ, or gain after the crossfader has blended segments.
+**Why bad:** The crossfade region contains blended samples from two segments. Any modification to the blended audio (especially pitch shifting or time-stretching) will create artifacts because the blend assumes waveform continuity.
+**Instead:** All audio processing happens in `get_audio_segment()` BEFORE the segment enters the crossfade pipeline.
 
-### Anti-Pattern 2: Parallel DAC Decoding
-**What:** Attempting to decode multiple chunks' codes through DAC simultaneously on the same GPU.
-**Why bad:** DAC is a GPU-bound operation. Running concurrent decodes on the same device does not improve throughput and can increase VRAM usage. The DualAR transformer already occupies most VRAM.
-**Instead:** Sequential DAC decode per chunk. Each decode is ~20-30ms, which is negligible.
+### Anti-Pattern 2: Reverb on Individual Segments
+**What:** Adding reverb to the `_post_fx` chain that runs per-segment.
+**Why bad:** Reverb tails extend 200-2000ms beyond the dry signal. When segment N's reverb tail bleeds into the crossfade region, it gets blended with segment N+1's start, creating a doubled/phased reverb artifact.
+**Instead:** If reverb is desired, apply it ONLY to the final concatenated audio (the `InferenceResult(code="final")` path at line 216-220), not to individual segments. For streaming, reverb cannot be used.
 
-### Anti-Pattern 3: Raw PCM Without WAV Header
-**What:** Streaming raw PCM bytes without any container format, expecting clients to know the sample rate and format.
-**Why bad:** Clients need metadata to play audio. Raw PCM requires out-of-band format negotiation.
-**Instead:** Keep the existing WAV header approach. A single WAV header at the start, followed by chunked PCM data.
+### Anti-Pattern 3: Time-Stretching Sub-Chunk Partials
+**What:** Applying time-stretching to sub-chunk partial audio segments (is_partial=True).
+**Why bad:** The grow-and-redecode strategy in the sub-chunk path tracks `prev_audio_samples` to slice only the new audio from each growing decode. Time-stretching changes the sample count, making the `segment[prev_audio_samples:]` slice incorrect -- you'd either skip audio or double-emit audio.
+**Instead:** If time-stretching is needed, apply it only to the final audio of each text batch (is_partial=False path) after all sub-chunks have been accumulated.
 
-### Anti-Pattern 4: Overlapping LLM Generation with DAC Decode via Threading
-**What:** Running LLM token generation for chunk N+1 concurrently with DAC decode for chunk N using separate threads.
-**Why bad:** Both operations use the same GPU. The LLM worker thread holds the model; DAC decode in `get_audio_segment()` also runs on GPU. Threading for GPU operations does not achieve parallelism -- it adds synchronization overhead and risks CUDA stream conflicts.
-**Instead:** Sequential pipeline: generate chunk N tokens -> decode chunk N audio -> emit chunk N -> generate chunk N+1 tokens. The real-time factor (3.7x) provides sufficient headroom.
+### Anti-Pattern 4: Stateful Effects Across Segments Without Reset Awareness
+**What:** Using effects with long state memory (e.g., a compressor with 500ms release) across independent segments without considering state discontinuity.
+**Why bad:** Each `get_audio_segment()` call creates a fresh audio array. The compressor has no memory of the previous segment's level. If the previous segment ended loud and this one starts quiet, the compressor won't apply the expected gain reduction for the first ~release_ms.
+**Instead:** Use short attack/release times (attack 5-15ms, release 50-150ms) so the compressor reaches steady state quickly within each segment. Alternatively, maintain a shared `Pedalboard` instance with persistent state, but this requires careful handling of the streaming pipeline.
 
-## Scalability Considerations
-
-| Concern | Current (single user) | At 10 concurrent users |
-|---------|----------------------|----------------------|
-| VRAM | ~10.7 GB peak (fits in 32GB) | Not applicable -- single-worker, serialized via `llama_queue` |
-| Latency | ~540ms TTFA (tunable to <400ms) | Queued; Nth user waits for N-1 completions |
-| Throughput | ~3.7x real-time factor | Same per-request; concurrency via multiple GPU workers (out of scope) |
-| Context growth | Conversation grows with each chunk; bounded by 8192 max_seq_len | Same per-request |
-
-## Suggested Build Order
-
-The components have these dependencies:
-
-```
-[C1] Text Chunker ──────────────────────────┐
-                                             │
-[C4] Crossfade Stitcher (standalone) ───────┐│
-                                            ││
-[C2] LLM Generator modifications ──────────┤│ all feed into
-                                            ││
-[C3] DAC Decoder (no changes needed) ──────┤│
-                                            vv
-                              [C5] Stream Emitter (integration)
-```
-
-**Phase 1: Crossfade Stitcher [C4]**
-- Build and unit test independently with synthetic audio
-- No dependencies on other components
-- Can be validated with known audio samples for artifact-free stitching
-- Estimated: 1-2 hours
-
-**Phase 2: Text Chunker [C1]**
-- Build sentence-boundary splitting with configurable chunk sizes
-- Unit test with various text inputs (English, CJK, mixed)
-- Test edge cases: very short text, single sentence, emotion tags
-- No dependency on streaming infrastructure
-- Estimated: 2-3 hours
-
-**Phase 3: Integration [C2 + C5]**
-- Modify `generate_long()` to accept chunker output
-- Wire crossfade stitcher into `inference_wrapper()`
-- Modify `TTSInferenceEngine.inference()` to use new chunking in streaming mode
-- Integration test: full request -> streamed audio -> verify no artifacts
-- This is where things get tested end-to-end
-- Estimated: 3-4 hours
-
-**Phase 4: Tuning and Validation**
-- Measure TTFA with various first-chunk sizes
-- A/B compare audio quality vs non-streaming output
-- Tune crossfade_samples parameter
-- Stress test with long text inputs (context growth toward 8192 limit)
-- Estimated: 2-3 hours
+### Anti-Pattern 5: Generic Breath Samples
+**What:** Using a single breath recording for all insertions.
+**Why bad:** Identical breaths at every pause sound robotic. Humans vary their breathing.
+**Instead:** Maintain a pool of 5-10 breath variations. Randomize selection. Vary volume by +/- 3dB. Vary timing slightly (prepend 0-50ms of silence before the breath).
 
 ## Sources
 
-- [Qwen3-TTS-streaming (Hann crossfade implementation)](https://github.com/rekuenkdr/Qwen3-TTS-streaming) -- HIGH confidence, verified implementation
-- [Fish Audio S2 Technical Report](https://arxiv.org/html/2603.08823v2) -- HIGH confidence, official architecture docs
-- [Deepgram Text Chunking for TTS](https://developers.deepgram.com/docs/tts-text-chunking) -- MEDIUM confidence, industry practice reference
-- [Prosodic Boundary-Aware Streaming TTS (arXiv 2603.06444)](https://arxiv.org/html/2603.06444) -- MEDIUM confidence, academic reference for boundary-aware approaches
-- [RealtimeTTS (sentence boundary splitting)](https://github.com/KoljaB/RealtimeTTS) -- MEDIUM confidence, open source reference implementation
-- [Fish Speech GitHub Discussion #692](https://github.com/fishaudio/fish-speech/discussions/692) -- MEDIUM confidence, community discussion on streaming context reuse
-- Codebase analysis of `/home/prana/project-seishin/fish-speech/` -- HIGH confidence, direct code reading
+- Codebase analysis of `/home/prana/project-seishin/fish-speech/` -- HIGH confidence, direct code reading of all integration points
+- [Spotify Pedalboard v0.9.22 API](https://spotify.github.io/pedalboard/reference/pedalboard.html) -- HIGH confidence, effects available: Compressor, LowShelfFilter, HighShelfFilter, PeakFilter, HighpassFilter, Gain, PitchShift
+- [Semicolon Injection for Natural TTS Pauses (2026)](https://bagrounds.org/ai-blog/2026-03-10-tts-semicolon-injection) -- MEDIUM confidence, text-level pause technique
+- [Google Patent US9508338B1: Inserting Breath Sounds into TTS](https://patents.google.com/patent/US9508338B1/en) -- HIGH confidence, established technique
+- [Amazon Polly SSML Breath Feature](https://aws.amazon.com/blogs/machine-learning/amazon-polly-releases-new-ssml-breath-feature/) -- HIGH confidence, industry standard
+- [python-stretch (Signalsmith Stretch)](https://pypi.org/project/python-stretch/) -- MEDIUM confidence, streaming-compatible time-stretch
+- [Rubber Band Library v4.0](https://breakfastquay.com/rubberband/) -- HIGH confidence, native pitch/time manipulation
+- [Apple Research: Controllable Neural TTS (NAACL 2025)](https://machinelearning.apple.com/research/controllable-neural-text-to-speech-synthesis) -- MEDIUM confidence, confirms prosody must be controlled at model level or post-hoc in audio domain
+- [Duration-Aware Pause Insertion (arXiv 2302.13652)](https://arxiv.org/abs/2302.13652) -- MEDIUM confidence, academic validation of pause insertion importance
+- [Kokoro-82M Silence Insertion via np.zeros](https://huggingface.co/hexgrad/Kokoro-82M/discussions/61) -- MEDIUM confidence, community-validated approach

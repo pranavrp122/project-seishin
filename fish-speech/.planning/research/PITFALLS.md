@@ -1,211 +1,319 @@
-# Domain Pitfalls: Streaming Chunked TTS Audio
+# Domain Pitfalls: TTS Naturalness / Humanism
 
-**Domain:** Streaming chunked audio for Fish Speech S2-Pro (DualAR transformer + DAC codec decoder)
-**Researched:** 2026-04-12
+**Domain:** Making Fish Speech S2-Pro sound more human-like through TTS engine modifications
+**Researched:** 2026-04-13
+**Milestone:** v2.0 TTS Humanism
+**Overall confidence:** MEDIUM-HIGH (synthesized from industry sources, practitioner reports, and academic literature)
+
+---
 
 ## Critical Pitfalls
 
-Mistakes that cause the user's previous problem (choppiness) or require significant rework.
-
-### Pitfall 1: DAC Decoder Boundary Discontinuities (The Core Problem)
-
-**What goes wrong:** Each text chunk is independently encoded to semantic tokens by the DualAR transformer, then independently decoded to audio by the DAC codec. Even though Fish Speech's DAC uses causal convolutions (`causal=True` in config), the decoder still has a receptive field that extends backwards. When you decode chunk N independently, the decoder's causal convolutions start with zero-padded state at the left edge. When you decode chunk N+1, it also starts with zero-padded state. The left edge of chunk N+1's audio is synthesized without any context from chunk N's final state. This produces a waveform discontinuity at the boundary -- the exact choppiness the user experienced.
-
-**Why it happens:** The DAC decoder architecture has `decoder_rates: [8, 8, 4, 2]` (total upsampling = 512x), with 4 transformer layers in the first decoder block and causal convolution kernels (size 7) at every stage. The causal padding `(kernel_size - stride)` adds zeros at the left edge of each chunk's input to the convolution. These zeros produce transient artifacts in the first few decoded samples of each chunk. At 44100 Hz sample rate, the first ~50-100 samples of each decoded chunk are "cold start" artifacts.
-
-**Consequences:** Audible clicks, pops, or volume dips at every chunk boundary. For a 10-sentence passage with 5 chunks, that is 4 audible discontinuities. This is the user's exact reported problem.
-
-**Prevention strategy (ranked by effectiveness):**
-
-1. **Overlap-decode with crossfade (recommended).** When decoding chunk N+1's VQ codes, prepend the last K codes from chunk N (where K covers the decoder's receptive field). Decode the full overlapping sequence, then discard the first K*hop_length samples (they reconstruct chunk N's tail) and crossfade the remaining overlap region with the tail of chunk N's decoded audio using a Hann window. This ensures the decoder has proper context at the boundary.
-
-   Concrete numbers for this DAC: The quantizer has `downsample_factor: [2, 2]`, so each VQ token spans `512 * 4 = 2048` audio samples (~46.4ms at 44100 Hz). The decoder's receptive field through 4 upsampling stages with kernel-7 causal convolutions is approximately 3-5 VQ tokens. Prepending 4-8 VQ tokens of overlap (~185-370ms of audio) and crossfading over 512-1024 samples (~12-23ms) should eliminate boundary artifacts.
-
-2. **Hann window crossfade (simpler, less effective).** If overlap-decoding is too complex, apply a Hann crossfade directly on the raw decoded samples at boundaries. Save the last N samples of chunk K's audio, and blend with the first N samples of chunk K+1's audio using `fade_out = 0.5 * (1 + cos(pi * t))` and `fade_in = 0.5 * (1 - cos(pi * t))`. The Qwen3-TTS-streaming project uses 512 samples (~21ms at 24kHz, equivalent to ~1024 samples at 44100Hz). This masks the discontinuity but does not fix it -- the crossfaded region may have slightly different timbre.
-
-3. **Fade-in the first chunk and fade-out the last chunk.** Even with crossfading between chunks, the very first chunk's start and very last chunk's end need a short fade (128-256 samples) to avoid transient pops from the decoder's initial zero state.
-
-**Detection:** Compare the waveform at chunk boundaries to a reference generated from the full text in one pass. Plot the amplitude around boundaries -- discontinuities show as sudden jumps in the waveform envelope.
-
-**Phase mapping:** Phase 1 (core implementation) -- this is the single most important technical challenge.
+Mistakes that make speech sound actively *worse* than the current baseline, or that require fundamental rework.
 
 ---
 
-### Pitfall 2: Conversation Context Explosion Across Chunks
+### Pitfall 1: The Uncanny Valley Amplification Effect
 
-**What goes wrong:** Fish Speech's `generate_long` function appends each batch's generated VQ codes back into the conversation history (line 730 in inference.py). For each subsequent chunk, the entire conversation (system prompt + reference audio tokens + all previous user/assistant turns) is re-encoded from scratch. This means:
-- Chunk 1: Encodes system + ref + text_1 (prompt)
-- Chunk 2: Encodes system + ref + text_1 + audio_1 + text_2 (longer prompt)
-- Chunk 3: Encodes system + ref + text_1 + audio_1 + text_2 + audio_2 + text_3 (even longer)
+**What goes wrong:** Adding "human" features (breathing, fillers, micro-pauses, vocal fry) to speech that is already reasonably good pushes it *into* the uncanny valley rather than *past* it. When a voice gets close to sounding real, every tiny mistake becomes more noticeable -- a pause that is half a second too long, a breath in the wrong place, or a filler word with slightly wrong timing. The result is that partially-humanized speech sounds creepier than the original "clean" robotic output.
 
-Each chunk's generation starts with a full KV cache rebuild from the growing prompt. The prompt length grows linearly. This is NOT a memory leak (the KV cache is fixed-size at `max_seq_len`), but it means:
-1. **TTFA for later chunks degrades** because prefill time grows with prompt length.
-2. **Risk of hitting max_seq_len** (4096 tokens). With a 372-token reference and ~50-80 tokens per generated audio chunk, you can only fit ~40-50 chunks before overflow.
-3. **The `deepcopy(conversation)` on line 657 copies all accumulated VQ codes**, which is a CPU-side memory allocation growing linearly.
+This is the single most dangerous pitfall for this milestone. The current Fish Speech output is clean and intelligible with good emotion tagging. Adding naturalness features risks landing in "almost human but off" territory, which listeners find more unsettling than obviously synthetic speech.
 
-**Why it happens:** The conversation-based architecture is designed for multi-turn dialogue coherence -- each chunk "sees" all previous audio to maintain prosody consistency. But for streaming TTFA optimization, the full re-encode is the main bottleneck for second-and-later chunks.
+**Why it happens:** Human perception of voice naturalness is nonlinear. Research confirms a non-monotonic uncanniness function when plotted against human-likeness -- the uncanny valley exists for audio just as it does for visual human likenesses. Partial naturalness features signal "this should be human" to the listener's brain, which then scrutinizes every remaining synthetic artifact 10x harder than it would in clearly-synthetic speech.
 
-**Consequences:** Second chunk takes longer than first. Third chunk longer than second. For long texts (10+ chunks), later chunks can take 2-3x the time of the first chunk, negating the TTFA benefit of chunking. With max_seq_len=4096 and a 372-token reference, overflow happens around 3000-3500 generated tokens.
+**Consequences:** Users who previously tolerated the output now find it unsettling. Trust drops. The "improvement" is perceived as a regression.
 
-**Prevention strategy:**
+**Warning signs:**
+- A/B testers describe the new output as "creepy," "trying too hard," or "unsettling" even though they cannot pinpoint what is wrong
+- Individual features (breathing, pauses) sound fine in isolation but feel wrong together
+- The enhanced output tests worse in MOS (Mean Opinion Score) than the original despite having objectively more human-like characteristics
 
-1. **Cap conversation history.** Only keep the last 1-2 assistant turns (VQ codes) in the conversation, not all of them. This bounds the prompt size while still providing prosody context.
-2. **Pre-compute the KV cache for the static prefix** (system prompt + reference). Cache it once, and for each chunk only run prefill on the new user/assistant turns. This avoids redundant computation of the ~400+ token prefix.
-3. **Monitor prompt length.** Add a guard that logs a warning when `encoded.size(1) > max_length - 2048` is approaching, and truncate old conversation history rather than failing.
+**Prevention:**
+1. **Always A/B test against the unmodified baseline** on blind listeners before shipping any naturalness feature. If a feature does not beat baseline in listener preference, do not ship it -- even if it is technically more "human-like."
+2. **Add features incrementally.** One feature at a time, tested. Never stack breathing + fillers + vocal fry + micro-pauses simultaneously.
+3. **Implement a bypass/mix knob.** Every naturalness feature should have a 0.0-1.0 intensity parameter so it can be dialed back or disabled without code changes.
+4. **Start subtle.** Begin with features at 20-30% of their "realistic" intensity and increase only if testing confirms improvement.
 
-**Detection:** Log the `encoded.shape` for each batch (the code already does this). If the prompt grows by 100+ tokens per batch, the conversation is accumulating unboundedly.
-
-**Phase mapping:** Phase 2 (optimization) -- the naive approach works for short texts but breaks for long ones.
+**Phase mapping:** Applies to ALL phases. Must be the governing principle throughout the milestone.
 
 ---
 
-### Pitfall 3: Text Splitting at Wrong Boundaries
+### Pitfall 2: Over-Engineered Prosody ("The Sing-Song Problem")
 
-**What goes wrong:** The current `group_turns_into_batches` function in `inference.py` splits text by byte count (`max_bytes=chunk_length`, default 300 bytes). For text without `<|speaker:X|>` tags (the common case for single-speaker streaming), the text falls through to `batches = [text]` -- a SINGLE batch with NO splitting at all. This means the "streaming" endpoint currently does NOT actually chunk single-speaker text for progressive generation.
+**What goes wrong:** Explicitly manipulating pitch contours, emphasis patterns, or speech rate variation produces a new kind of unnaturalness -- speech that sounds "sing-song," over-modulated, or like a bad radio DJ. This is the mirror image of monotone speech: instead of too-flat pitch, you get exaggerated, rhythmic pitch patterns that no human actually produces in conversation.
 
-If you add splitting, naive byte-count splitting can cut mid-sentence or mid-word, producing:
-- Unnatural prosody breaks (the model generates end-of-utterance falling intonation mid-sentence)
-- Repeated or dropped words at boundaries
-- Loss of emotion/tag context (e.g., `[angry]I can't believe you did that` split into `[angry]I can't` and `believe you did that` -- second chunk loses the emotion tag)
+The quality impact of pitch control depends on balancing customization with natural speech patterns. Poorly implemented pitch control results in speech that sounds exaggerated or inconsistent, and overly rigid adjustments sound robotic in a new way.
 
-**Why it happens:** The current splitting logic is designed for multi-speaker dialogue with `<|speaker:X|>` tags. Single-speaker text has no tags to split on. The `chunk_length` parameter (default 200 bytes in `ServeTTSRequest`) only controls the byte-count grouping of speaker turns, not sentence-level splitting.
+**Why it happens:**
+- Rule-based prosody ("raise pitch 20% on emphasized words, lower 15% at sentence end") produces mechanical patterns that repeat predictably. Humans vary these patterns every time.
+- Training prosody models separately from the acoustic model degrades overall quality. Research confirms that "while this enables fully controllable prosody, the quality of the synthesized speech is somewhat worse, compared to jointly trained seq2seq neural TTS systems."
+- Overcorrecting for flat intonation by naively adding pitch/rate variation without context awareness produces patterns no human would use.
 
-**Consequences:** Either no chunking happens (defeating the purpose of streaming) or naive chunking produces unnatural speech with wrong prosody.
+**Consequences:** Speech sounds like a GPS navigation voice or a sing-along -- technically varying in pitch but in a way that immediately signals "machine." Users notice and dislike it even if they cannot articulate why.
 
-**Prevention strategy:**
+**Warning signs:**
+- Pitch contour looks periodic or symmetric when plotted (real speech pitch is messy and asymmetric)
+- The same emphasis pattern repeats across unrelated sentences
+- Listeners describe the voice as "enthusiastic in a fake way" or "like it is reading to a child"
+- The voice sounds better on short demo sentences than on paragraphs of conversational text
 
-1. **Split at sentence boundaries** using regex for sentence-ending punctuation: `.!?` and their CJK equivalents. Fall back to clause boundaries (`,;:` and CJK commas) if sentences are too long.
-2. **Propagate emotion/style tags** to all chunks. If the original text starts with `[angry]`, prepend `[angry]` to every chunk.
-3. **Minimum chunk size.** Never split a chunk smaller than ~50 bytes / 3-4 words. Very short chunks produce worse audio quality because the model has insufficient context for natural prosody.
-4. **Maximum chunk size.** Keep chunks under ~200 bytes to maintain fast TTFA per chunk.
+**Prevention:**
+1. **Do not implement rule-based pitch manipulation.** Fish Speech's DualAR transformer already produces learned prosody from training data. Adding explicit pitch curve modifications on top will fight the model's own prosody predictions and produce artifacts.
+2. **If modifying prosody, work at the token/embedding level** -- not the waveform level. Adjust prosodic embedding inputs to the model rather than post-processing the output audio pitch.
+3. **Use the model's own capabilities.** Choose reference audio that naturally exhibits the desired prosodic style. The reference audio's 372 semantic tokens already encode prosodic patterns that the model clones.
+4. **Test on boring sentences.** Prosody enhancements that sound great on "The quick brown fox jumps over the lazy dog!" will fall apart on "Please confirm your appointment for Tuesday at 3:00 PM."
 
-**Detection:** Log each chunk's text content. If any chunk is a sentence fragment that does not end at punctuation, the splitting is wrong.
-
-**Phase mapping:** Phase 1 (core implementation) -- must be solved before streaming works at all for single-speaker text.
+**Phase mapping:** Prosody enhancement phase. This pitfall gates whether explicit prosody manipulation should be attempted at all vs. relying on reference audio selection and training data quality.
 
 ---
 
-### Pitfall 4: torch.compile + CUDA Graphs Recompilation with Variable Sequence Lengths
+### Pitfall 3: Filler Word and Breathing Overuse
 
-**What goes wrong:** The current pipeline uses `torch.compile(mode="reduce-overhead")` which activates CUDA Graphs. CUDA Graphs require fixed tensor shapes. When chunking produces different-length VQ code sequences per chunk (because different text chunks produce different numbers of tokens), each new sequence length triggers a CUDA Graph re-recording. This costs:
-- 64 KB GPU memory per re-recording per kernel (pre-CUDA 12.4)
-- 100-500ms compilation overhead per new shape
-- Up to `recompile_limit` (default 8) re-recordings before falling back to eager mode
+**What goes wrong:** Injecting "um," "uh," breaths, and hesitation sounds to make speech sound conversational crosses a line from "sounds human" to "sounds like the speaker has a speech impediment" or "sounds drunk." A telemarketing study found success rates dropped in proportion to filler word use, especially after use exceeded 1.3% of total words. Overuse of filler words is clinically associated with stuttering.
 
-With streaming chunks, you will have different prompt lengths for every chunk (due to growing conversation context). The prefill step processes a different-length prompt each time, triggering recompilation.
+TTS models like XTTS v2 already suffer from hallucinating unwanted breathing sounds and vocalization artifacts ("aah," "yee," gibberish) -- especially at utterance ends. Deliberately adding more breath/filler tokens risks amplifying this existing problem.
 
-**Why it happens:** The `generate()` function creates tensors sized to the prompt length (`T = prompt.size(1)`) and the KV cache is set to `max_seq_len`. The prefill step processes `input_pos = torch.arange(0, T)` where T varies per chunk. The `decode_one_token` function is compiled with `reduce-overhead`, and while the token-by-token generation loop uses fixed shapes (always 1 new token), the prefill call to `decode_one_token_ar` uses variable-length inputs.
+**Why it happens:**
+- Developers test fillers on individual sentences where one "um" sounds natural, then apply the same rate to all output. In longer passages, the cumulative effect is overwhelming.
+- Breath sounds are acoustically complex (broadband noise with specific spectral shape and duration). Synthetic breaths that are even slightly wrong in timing, spectral shape, or loudness immediately sound artificial.
+- The model may already produce some natural hesitation and breathing from its training data. Adding explicit fillers on top doubles the frequency.
 
-**Consequences:** First few chunks may see 200-500ms compilation stalls. After 8 unique shapes, the compiled function falls back to uncompiled eager mode, losing the ~30-40% speedup.
+**Consequences:** Voice sounds impaired, hesitant, or nervous. Listeners focus on the fillers rather than the content. In professional/formal contexts (narration, customer service), fillers actively damage perceived quality.
 
-**Prevention strategy:**
+**Warning signs:**
+- More than 1-2 fillers per 100 words of output
+- Breath sounds placed at positions where no human would breathe (mid-word, mid-clause before a short word)
+- Listeners describe the voice as "nervous" or "stuttering"
+- Fillers appear at mechanically regular intervals rather than at natural decision points
 
-1. **Pad prompts to fixed sizes.** Pad the encoded prompt tensor to one of a few fixed lengths (e.g., powers of 2: 512, 1024, 2048, 4096). This ensures CUDA Graphs only need to be recorded for a small number of shapes.
-2. **Separate prefill from decode.** Only apply `torch.compile(mode="reduce-overhead")` to the token-by-token `decode_one_token` function (which already uses fixed shapes). Leave the prefill step uncompiled or compiled with `mode="default"`.
-3. **Pre-warm all expected shapes.** During server startup, run dummy inference with each expected prompt length to pre-record all CUDA Graphs.
+**Prevention:**
+1. **Audit what the model already does.** Before adding any filler/breath injection, analyze the current output's existing breath-like pauses and hesitation markers. The model may already produce enough.
+2. **Context-appropriate fillers only.** Fillers belong in conversational speech, NOT in narration, reading, or formal announcements. Implement different profiles (conversational vs. narrated) and default to the conservative one.
+3. **Cap filler density.** Hard maximum of 1 filler per 50-80 words. Never place two fillers within 5 seconds of each other.
+4. **Breath sounds at clause boundaries only.** Breathing only at positions where a human would run out of air: after long clauses (15+ words), at sentence boundaries, or before a new thought. Never mid-clause.
+5. **Synthetic breath quality matters enormously.** If the breath sound is not nearly indistinguishable from a real breath, do not include it. A bad synthetic breath is far worse than no breath at all.
 
-**Detection:** Set `TORCH_LOGS=guards,perf_hints` and look for "recompiling" messages during streaming inference. Also monitor `torch.cuda.max_memory_reserved()` -- unexpected growth indicates CUDA Graph re-recordings.
+**Phase mapping:** Breathing/filler evaluation phase. This pitfall strongly argues for the "evaluate and document skip rationale" path over the "implement" path, unless the synthetic breath quality is exceptional.
 
-**Phase mapping:** Phase 2 (optimization) -- the system works without this, but will have latency spikes.
+---
+
+### Pitfall 4: Pause Timing Failures
+
+**What goes wrong:** Three distinct failure modes:
+
+**Too long:** Pauses over 800ms-1s feel like the system has crashed or is buffering. Users check their connection. In streaming contexts, long pauses are indistinguishable from buffer underruns.
+
+**Too short:** No pause between sentences or after punctuation creates rushed, breathless speech. Listeners cannot process the content and feel stressed.
+
+**Wrong placement:** Pausing mid-clause in grammatically incorrect positions ("I want to / go to the store" with a 300ms pause at /) sounds broken. Pausing before trivial words ("I went to the / the store") sounds like a stutter.
+
+**Why it happens:**
+- Punctuation-based rules are too coarse. A comma in "red, blue, and green" needs a different pause than a comma in "However, the situation changed." Same punctuation, different semantic weight.
+- Fixed-duration pauses sound mechanical. Humans vary pause duration based on what comes next -- longer before complex ideas, shorter before simple continuations.
+- In streaming/chunked generation, natural pauses can coincide with chunk boundaries, making it impossible for the listener to distinguish intentional pauses from processing delays.
+
+**Consequences:** Short pauses make speech feel rushed and robotic (a new kind of robotic). Long pauses break immersion and trigger "is it working?" anxiety in interactive contexts. Wrong-place pauses sound like speech errors.
+
+**Warning signs:**
+- All pauses are the same duration regardless of context
+- Pauses appear at every comma with no variation
+- Streaming users report "the voice keeps stopping and starting"
+- Speech sounds like a list being read even when the content is conversational
+
+**Prevention:**
+1. **Variable pause durations.** Commas: 150-350ms (vary based on clause length). Periods: 300-600ms. Paragraph breaks: 500-900ms. Never exceed 1s for any automated pause.
+2. **Semantic-aware placement.** Pause length should correlate with the complexity of what follows, not just punctuation type. Longer pauses before new topics, shorter pauses in lists.
+3. **Distinguish streaming pauses from intentional pauses.** In streaming mode, intentional pauses should be filled with a tiny amount of room tone (not dead silence) so the listener knows audio is still active. Dead silence = "connection dropped" in the listener's mind.
+4. **Add jitter.** Every pause should have +/-15-20% random variation. Perfectly regular pause timing (exactly 300ms every time) is a dead giveaway of synthesis.
+
+**Phase mapping:** Pause/delay injection phase. Core implementation concern.
 
 ---
 
 ## Moderate Pitfalls
 
-### Pitfall 5: WAV Streaming Header Issues
+---
 
-**What goes wrong:** The current WAV streaming implementation (`wav_chunk_header()` in utils.py) writes a header with zero data length, then streams PCM chunks after it. This is the standard approach for WAV streaming with unknown length. However:
+### Pitfall 5: Post-Processing Artifact Introduction
 
-1. The header uses `bit_depth=16` but the segment data in `inference_wrapper` is converted with `(result.audio[1] * 32768).astype(np.int16).tobytes()` -- this is correct for int16 PCM.
-2. The `final` result yields `result.audio[1]` WITHOUT the int16 conversion (line 38 in `tools/server/inference.py`). If a client receives the final audio after segments, the encoding is inconsistent (float32 vs int16).
-3. Some audio players and libraries do not handle WAV files with zero/max-value chunk sizes properly. The `wave` module Python uses writes a RIFF header with `nframes=0`, and some parsers interpret this as "empty file."
+**What goes wrong:** Applying audio post-processing (EQ warmth, compression, subtle reverb, room tone) to add "presence" and "warmth" to the output introduces artifacts that were not in the original synthesis. These include:
 
-**Prevention strategy:**
+- **Compression pumping:** Compressor gain reduction creates audible volume swelling, especially after pauses. The loudest part of the signal triggers compression on the entire signal, including reverb tails.
+- **EQ resonance:** Boosting frequencies for "warmth" (200-400Hz) or "presence" (2-5kHz) can create resonant peaks that make certain phonemes ring unnaturally.
+- **Reverb smearing:** Room reverb applied to short utterances smears consonant transients, reducing intelligibility. The reverb tail from one phrase bleeds into the next.
+- **Filter state discontinuities in streaming:** IIR filters (which most EQ and compression implementations use) have internal state. The existing `_post_fx` PeakFilter (3500Hz, +1.5dB, Q=0.7) already applied per-chunk creates a transient at the start of each chunk when the filter state resets to zero.
 
-1. Ensure consistent encoding: all streamed chunks must use the same format (int16 PCM at 44100 Hz).
-2. For the `final` result, apply the same `* AMPLITUDE` + `astype(np.int16)` conversion as segments.
-3. Consider using raw PCM streaming instead of WAV for the streaming endpoint, and only produce a proper WAV header when `streaming=False`.
+**Why it happens:** Post-processing is designed for recorded audio, not synthesized audio. Synthesized audio has different spectral characteristics (typically cleaner, with less natural variation in level) that make compressors and EQs behave differently than expected. In streaming mode, per-chunk processing compounds the problem.
 
-**Detection:** Save the raw bytes from a streaming request and try to open them as a WAV file. If the header is malformed, standard audio libraries will fail to parse it.
+**Warning signs:**
+- Volume "breathes" (audible gain changes) after pauses or quiet passages
+- Sibilants ("s," "sh") become harsh or sharp after EQ
+- Consonant clarity drops (words become "mushy") after reverb
+- Clicks or pops at chunk boundaries are worse with post-processing than without
 
-**Phase mapping:** Phase 1 -- should be fixed as part of the streaming implementation.
+**Prevention:**
+1. **Signal chain order matters.** EQ first (cut problem frequencies, boost gently), then compression, then reverb. Never compress after reverb -- it creates the swelling artifact.
+2. **Subtract, do not add.** Cut harsh frequencies rather than boosting warm ones. A high-shelf reduction at 6-8kHz does more for "warmth" than a low-shelf boost at 200Hz.
+3. **Gentle ratios.** Compression ratio no higher than 2:1 for TTS warmth. Attack > 10ms to preserve consonant transients. Release > 100ms to avoid pumping.
+4. **Carry filter state across chunks.** For streaming, maintain IIR filter state between chunks rather than re-initializing. This eliminates the per-chunk transient. Alternatively, apply post-processing after chunk stitching (for non-streaming) or use FIR filters (linear phase, no state dependency).
+5. **A/B test raw vs. processed on diverse content.** Post-processing that sounds great on a demo sentence may hurt intelligibility on rapid dialogue or whispered speech.
+
+**Phase mapping:** Post-processing for warmth/presence phase. Must be validated against streaming pipeline.
 
 ---
 
-### Pitfall 6: Buffer Underrun (Next Chunk Not Ready When Current Finishes Playing)
+### Pitfall 6: The "Demo Effect" (Cherry-Picked Success)
 
-**What goes wrong:** If the client plays audio chunks in real-time and the server cannot generate the next chunk fast enough, there is a gap of silence between chunks. At ~80 tokens/sec and each token representing ~46ms of audio, the model generates audio roughly 3.7x faster than real-time (80 * 46ms = 3.68 seconds of audio per second). This seems safe, but:
+**What goes wrong:** Naturalness techniques are tuned and demonstrated on specific sentences that showcase the feature well. In production with arbitrary input text, the same techniques produce wildly variable quality. Specific failure patterns:
 
-1. **First chunk is the bottleneck.** The prefill step for the first chunk (reference encoding + prompt encoding + first-token generation) takes ~1.5s currently. During this time, nothing is playing.
-2. **Later chunks have growing prefill times** (Pitfall 2). If conversation history is not capped, chunk 5+ may take longer than real-time to generate.
-3. **Network latency** for API clients adds another variable. A 200ms network round-trip per chunk adds up.
+- **Techniques tuned on short sentences fail on long passages.** Models degrade with longer inputs -- studies show error rates exceeding 25-32% on longer content for some models.
+- **Techniques tuned on declarative text fail on questions, commands, exclamations, or code-mixed text.** Each sentence type needs different prosodic treatment.
+- **Techniques tuned on clean input fail on real-world text.** Abbreviations, numbers, URLs, code snippets, mixed-language text, and unusual punctuation all break naturalness features in unexpected ways.
+- **Performance that is great in batch mode degrades in streaming.** Non-streaming TTS results can be significantly better than streaming results, especially in coherence.
 
-**Prevention strategy:**
+Real practitioners report: "What works in a demo often does not work in real life." After 8+ years of deploying AI for voice, the gap between demo quality and production quality remains one of the top industry challenges.
 
-1. **Generate-ahead buffer.** Start generating the next chunk immediately after yielding the current one. Maintain a buffer of 1-2 pre-generated chunks so the client always has the next chunk ready.
-2. **Cap conversation context** (Pitfall 2 prevention) to keep generation speed constant across chunks.
-3. **Monitor real-time factor.** Log `audio_duration / generation_time` for each chunk. If it drops below 1.5x, emit a warning.
+**Why it happens:** Developers naturally test with sentences that sound good and then ship. The distribution of real-world input text is far broader and messier than any test set. Additionally, latency that is invisible in a demo compounds in production under load.
 
-**Detection:** On the client side, measure the gap between receiving the last byte of chunk N and the first byte of chunk N+1. If this gap exceeds the chunk's audio duration, there is a buffer underrun.
+**Warning signs:**
+- MOS scores are high on your test set but user complaints are frequent
+- The voice sounds great on the first 3 sentences of any text but degrades on subsequent ones
+- Quality varies dramatically between different types of content (narrative vs. dialogue vs. technical)
+- Streaming quality is noticeably worse than batch-generated quality for the same text
 
-**Phase mapping:** Phase 2 (optimization) -- TTFA improvement is Phase 1, buffer management is Phase 2.
+**Prevention:**
+1. **Test on adversarial inputs.** Build a test corpus that includes: sentence fragments, very long sentences (50+ words), questions, exclamations, numbers and dates, mixed-language text, text with unusual punctuation, and boring/repetitive content.
+2. **Test on quantity.** Generate 100+ diverse utterances and listen to all of them, not just the best 5. Track the failure rate, not the best case.
+3. **Test in streaming mode specifically.** Every feature must be validated in the actual streaming pipeline (chunked generation, crossfaded output) not just in single-shot batch mode.
+4. **Measure the worst case, not the average.** A feature that makes 80% of utterances better but makes 20% terrible is worse than no feature at all. Users remember the bad experiences.
+5. **Regression testing against baseline.** For every new feature, re-run the full test corpus and compare to the pre-feature baseline. Never let a "naturalness improvement" regress quality on any significant subset of inputs.
+
+**Phase mapping:** Applies to ALL phases. Must be baked into the testing methodology from the start.
 
 ---
 
-### Pitfall 7: Emotion/Prosody Drift Across Chunks
+### Pitfall 7: Consistency Collapse Across Utterances
 
-**What goes wrong:** When text is split into chunks, each chunk is generated as a separate "turn" in the conversation. The model's prosodic style (pitch contour, speaking rate, emotional intensity) may drift across chunks because:
+**What goes wrong:** Naturalness features sound good on some sentences but terrible on others within the same generation. The voice shifts tone, pronunciation, rhythm, or character unpredictably across utterances. This is distinct from prosody drift (which is gradual) -- this is sudden, per-sentence quality variance.
 
-1. Each chunk generates its own `im_end` token, signaling a complete utterance. The model is trained to produce utterance-final prosody (pitch dropping, tempo slowing) at the end of each chunk.
-2. If emotion tags are only present in the first chunk, subsequent chunks revert to neutral tone.
-3. The model may produce slightly different voice characteristics across chunks due to sampling randomness (top-p, temperature).
+Studies confirm this is a systemic TTS problem: "A TTS system that shifts tone, pronunciation, or rhythm unpredictably can confuse and frustrate users." Even among leading commercial models, some are inconsistent in naturalness across different sentence types.
 
-**Consequences:** Audio sounds like a sequence of short separate utterances stitched together, rather than a continuous flowing speech. Each chunk may have a "mini-conclusion" prosodic contour followed by a "new beginning."
+**Why it happens:**
+- Neural TTS models produce non-deterministic output (sampling randomness). Temperature, top-p, and other sampling parameters create different realizations each time.
+- Some phoneme combinations interact poorly with naturalness features. A breath injection that sounds fine before "I think" sounds terrible before "sss" or "fff" sounds.
+- Naturalness features applied uniformly ignore sentence-level context. Not every sentence in a passage should have the same level of informality, hesitation, or expression.
 
-**Prevention strategy:**
+**Consequences:** The listener's attention keeps getting pulled to quality variations rather than content. Even if the average quality is higher, the variance itself is perceived as a problem.
 
-1. **Do NOT place `im_end` markers mid-text.** If the text is one continuous utterance split for streaming purposes, the last chunk should be the only one that ends naturally. Earlier chunks should be generated without the model producing a final-utterance prosodic pattern. This may require modifying the generation loop to suppress or defer `im_end`.
-2. **Set a fixed seed** across all chunks of one request to reduce sampling variance.
-3. **Use conversation context** (the existing mechanism) to let the model "hear" its previous output before generating the next chunk, maintaining prosodic continuity.
-4. **Propagate all style/emotion tags** to every chunk's text input.
+**Warning signs:**
+- Generating the same text three times produces noticeably different naturalness quality each time
+- Some phoneme/word combinations consistently produce worse output
+- Naturalness features work well on English but produce artifacts on other languages or code-switched text
 
-**Detection:** Generate the same text as one chunk and as multiple chunks. Compare the pitch contour (F0) and speaking rate across the two versions. Significant F0 drops at chunk boundaries indicate utterance-final prosody leaking in.
+**Prevention:**
+1. **Reduce sampling randomness.** Use lower temperature (0.5-0.7 instead of 1.0) and tighter top-p for naturalness features. Consistency is more important than variety.
+2. **Test on phoneme coverage.** Build a test corpus that covers all common phoneme combinations, especially challenging ones (sibilants, plosives, nasals before/after pauses and breaths).
+3. **Per-sentence naturalness profiling.** Analyze each sentence before applying features. Short functional sentences ("OK." "Got it." "Sure.") need different treatment than long expressive ones.
+4. **Fixed seed per request.** Use a consistent random seed across all chunks/utterances within a single generation request to reduce inter-utterance variance.
 
-**Phase mapping:** Phase 1 (quality) -- directly affects the "no perceivable quality loss" requirement.
+**Phase mapping:** All phases, but especially critical for pause injection and prosody enhancement phases.
+
+---
+
+### Pitfall 8: Streaming-Specific Naturalness Breakage
+
+**What goes wrong:** Naturalness techniques that work in batch (full-text) generation fail when audio is chunked and streamed. Specific failure modes:
+
+- **Pauses at chunk boundaries are doubled.** If the text is split at a period, the model generates utterance-final prosody (natural pause) AND the streaming system adds its own pause. The result is an unnaturally long gap.
+- **Breathing sounds get cut in half.** A breath sound that spans a chunk boundary is split into two halves by the crossfade, producing a bizarre truncated gasp.
+- **Prosody resets at chunk starts.** Each chunk starts with "beginning of utterance" energy regardless of what came before, creating a sawtooth energy pattern.
+- **Post-processing artifacts compound.** The existing PeakFilter transient + crossfade region + prosody reset all pile up at the same chunk boundary point.
+
+**Why it happens:** Naturalness features are typically designed and tested with full-text context available. Chunked generation loses future context, and each chunk is independently processed by the model. The crossfade/overlap system masks waveform discontinuities but cannot fix prosodic or semantic discontinuities.
+
+**Warning signs:**
+- Enhanced audio sounds natural in batch mode but choppy or inconsistent in streaming mode
+- Pauses and breaths cluster at chunk boundaries rather than being distributed naturally
+- The energy/volume envelope has visible discontinuities at chunk boundaries even after crossfading
+
+**Prevention:**
+1. **Design for streaming first.** Every naturalness feature should be designed and tested in the streaming pipeline from day one. Do not develop in batch mode and port to streaming later.
+2. **Pause injection must account for chunk boundaries.** If a chunk naturally ends with falling prosody, do not add additional pause. If a chunk boundary coincides with a comma, the comma pause must be generated by the model (in the chunk's output), not injected as silence between chunks.
+3. **Breathing and fillers must not span chunk boundaries.** If injecting breath/filler tokens, ensure they are fully contained within a single chunk with a safety margin of at least 100ms from the chunk edge.
+4. **Test naturalness in streaming at production chunk sizes.** The project's target chunk sizes (200-300 bytes of text) should be the test environment, not longer batch inputs.
+
+**Phase mapping:** All phases. The streaming pipeline from milestone v1.0 is the operating constraint for every naturalness feature.
 
 ---
 
 ## Minor Pitfalls
 
-### Pitfall 8: Memory Growth from deepcopy of Conversation Objects
+---
 
-**What goes wrong:** The `generate_long` function calls `deepcopy(conversation)` for every batch (line 657). Each conversation object contains all previous VQ codes as CPU tensors. For a 10-chunk generation, this creates 10 deep copies of progressively larger conversation objects. The VQ codes are `(9 codebooks, N tokens)` tensors where N grows per chunk.
+### Pitfall 9: Vocal Fry / Creaky Voice Implementation Failure
 
-**Prevention:** Use shallow copies or reference-counted views of the VQ code tensors instead of deep copies. The VQ codes are never mutated after creation, so sharing references is safe.
+**What goes wrong:** Vocal fry (the low-frequency creaky sound at the end of phrases) is one of the most recognizable human vocal characteristics and also one of the hardest to synthesize. The creaky excitation displays different acoustic characteristics than modal excitations and is "not suitably modelled by standard vocoders." When implemented poorly, it sounds like digital distortion, audio dropout, or the speaker clearing their throat.
 
-**Phase mapping:** Phase 2 (optimization).
+**Prevention:**
+1. Do not attempt to add vocal fry through post-processing or waveform manipulation. It must come from the model's learned behavior or reference audio.
+2. If the reference audio clip (17.27s) does not exhibit vocal fry, the model will not produce it. Choose or supplement reference audio that naturally includes the desired vocal quality.
+3. If vocal fry is desired, fine-tuning (LoRA) on data with natural vocal fry is far more reliable than any post-processing approach. This is out of scope for this milestone but should be documented for the LoRA milestone.
+
+**Phase mapping:** Breathing/filler evaluation phase (to document skip rationale).
 
 ---
 
-### Pitfall 9: Post-Processing Filter Applied Per-Chunk
+### Pitfall 10: Room Tone / Ambience Mismatch
 
-**What goes wrong:** The `_post_fx` PeakFilter (3500Hz, +1.5dB, Q=0.7) is applied to each chunk independently. IIR filters (which PeakFilter likely is) have internal state. Starting each chunk with fresh filter state causes a transient at the beginning of each chunk's filtered output. This transient overlaps with the crossfade region, potentially making crossfading less effective.
+**What goes wrong:** Adding "room tone" (subtle background noise that simulates a physical space) to create presence backfires when the room tone does not match the voice's acoustic properties. If the synthesized voice sounds like it was recorded in a studio (dry, no reverb) but the room tone suggests a living room (subtle reverb, wider stereo), the mismatch is jarring. Worse, room tone added to streamed audio must be continuous -- any gap in room tone at chunk boundaries signals the synthesis.
 
-**Prevention:** Either (a) apply the post-processing filter to the full concatenated audio after all chunks are joined (for non-streaming), or (b) carry the filter state across chunks (requires modifying the pedalboard library usage or implementing the filter manually).
+**Prevention:**
+1. Room tone must be spectrally matched to the voice's own reverb characteristics. Analyze the reference audio clip's room tone and match that.
+2. Room tone must be continuous across chunks -- it should be generated independently of the speech chunks and mixed in at the final output stage.
+3. Start with no room tone (dry output) and only add it if testing shows clear improvement. The DAC codec already produces clean output; adding noise rarely helps.
 
-**Detection:** Filter a long audio file as one piece vs. as chunks. Compare the output at chunk boundaries.
-
-**Phase mapping:** Phase 2 (quality refinement).
+**Phase mapping:** Post-processing for warmth/presence phase.
 
 ---
 
-### Pitfall 10: Streaming Endpoint Returns Final Audio Redundantly
+### Pitfall 11: Naturalness Features Fighting the Model
 
-**What goes wrong:** In `TTSInferenceEngine.inference()`, streaming mode yields both individual segments AND a final concatenated audio (line 139). The `inference_wrapper` in `tools/server/inference.py` handles segments (yielding int16 bytes) and the final result (yielding raw float32 array). A streaming client receives all segments AND then the full audio at the end. This doubles bandwidth for streaming clients.
+**What goes wrong:** Fish Speech S2-Pro's DualAR transformer was trained on 10M+ hours of diverse speech data. It has already learned prosodic patterns, pause timing, emphasis, and speaking rate variation from its training data. Adding explicit naturalness features on top of what the model already produces creates conflicts -- explicit pause injection fights the model's learned pauses, explicit pitch modification fights the model's learned pitch contours, and post-processing warmth fights the DAC codec's learned spectral balance.
 
-**Prevention:** For streaming mode, skip the final concatenation yield. Only yield segments. The client can concatenate if it needs the full audio.
+The result is a voice that sounds "over-processed" -- like a photo with too many Instagram filters. Each individual filter might improve something, but stacked together they produce an unnatural result.
 
-**Phase mapping:** Phase 1 -- straightforward fix during streaming implementation.
+**Prevention:**
+1. **Measure the baseline first.** Before implementing any naturalness feature, quantitatively measure what the model already does: its pause distribution, pitch variation range, breath-like gaps, and spectral characteristics.
+2. **Fill gaps, do not duplicate.** Only add features that address measurable deficiencies in the current output. If the model already pauses naturally at periods, do not add pause injection at periods.
+3. **Work with the model, not against it.** Use text preprocessing (adding punctuation, adjusting phrasing) and reference audio selection to guide the model's existing capabilities rather than overriding its output with post-processing.
+
+**Phase mapping:** Research/analysis phase should precede any implementation.
+
+---
+
+## Lessons from ElevenLabs and PlayHT
+
+### What ElevenLabs Got Wrong (and Fixed)
+
+1. **Stability/Similarity slider overexposure:** Early versions exposed raw model parameters (stability, similarity boost) to users. Setting similarity too high on low-quality source audio reproduced noise and artifacts. Setting stability too low produced wildly random, sometimes incoherent output. Fix: introduced sensible defaults, added Speaker Boost for clarity, and added Style Exaggeration as a separate controlled parameter.
+
+2. **Non-determinism without controls:** Early versions had no way to reduce inter-generation variance. Each generation of the same text could sound noticeably different. Fix: added speed control and more deterministic generation options.
+
+3. **Long-form degradation:** Quality degraded on passages longer than ~500 words. Fix: improved text chunking, better context management across chunks.
+
+4. **Background noise reproduction:** Voice clones faithfully reproduced background noise from source samples. Fix: recommended high-quality source audio, added noise reduction options.
+
+**Lesson for Fish Speech:** The knob-per-feature approach (stability, similarity, style) creates combinatorial complexity. Sensible defaults that work for 90% of cases are better than maximum configurability.
+
+### What PlayHT Got Wrong (and Fixed)
+
+1. **Flat emotional delivery:** Early conversational models maintained natural dialogue flow but felt "flat with complex emotions." Fix: introduced emotion-specific models and prosody-aware generation.
+
+2. **Long-form consistency:** Voice realism was good but "not always consistent," especially in long-form speech. Fix: improved context window management and consistency-focused training.
+
+3. **Inflection on complex terms:** Natural inflection struggled with technical terms, proper nouns, and unusual words. Fix: improved pronunciation models and user-facing pronunciation customization.
+
+**Lesson for Fish Speech:** Consistency across sentence types and content complexity is harder than making any single sentence sound good. Test on the hard cases first.
 
 ---
 
@@ -213,43 +321,70 @@ With streaming chunks, you will have different prompt lengths for every chunk (d
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| Text splitting | Pitfall 3: Wrong boundaries for single-speaker text | Implement sentence-boundary splitting with emotion tag propagation |
-| DAC decoding | Pitfall 1: Boundary discontinuities | Overlap-decode + Hann crossfade; this is THE core challenge |
-| Streaming API | Pitfall 5: WAV header inconsistency | Fix int16/float32 encoding mismatch |
-| Streaming API | Pitfall 10: Redundant final audio | Skip final yield in streaming mode |
-| TTFA optimization | Pitfall 2: Context explosion | Cap conversation history to last 1-2 turns |
-| TTFA optimization | Pitfall 4: CUDA Graph recompilation | Pad prompts to fixed sizes; separate prefill from decode compilation |
-| Quality | Pitfall 7: Prosody drift | Propagate emotion tags; use conversation context; avoid im_end mid-text |
-| Quality | Pitfall 9: Filter transients | Carry pedalboard filter state across chunks or apply post-concat |
-| Buffer management | Pitfall 6: Buffer underrun | Generate-ahead buffer of 1-2 chunks |
-| Memory | Pitfall 8: deepcopy growth | Use shallow copies of immutable VQ tensors |
+| Baseline analysis | Pitfall 11: Not measuring what model already does | Quantify pause distribution, pitch range, breath gaps before ANY implementation |
+| Pause/delay injection | Pitfall 4: Timing too uniform or wrong placement | Variable durations with jitter; semantic-aware placement; fill pauses with room tone |
+| Pause/delay injection | Pitfall 8: Streaming double-pauses at chunk boundaries | Account for model-generated pauses; do not add on top |
+| Prosody enhancement | Pitfall 2: Sing-song over-modulation | Do not manipulate pitch at waveform level; use reference audio or embedding-level adjustments |
+| Prosody enhancement | Pitfall 11: Fighting model's learned prosody | Work with model capabilities, not against them |
+| Breathing/filler eval | Pitfall 3: Overuse or uncanny synthetic breaths | Audit existing model behavior first; hard cap filler density; skip if quality is not exceptional |
+| Breathing/filler eval | Pitfall 1: Pushing into uncanny valley | A/B test against unmodified baseline; err on side of fewer, not more |
+| Post-processing | Pitfall 5: Compression pumping, EQ resonance, streaming artifacts | Correct signal chain order; carry filter state; subtract rather than add |
+| Post-processing | Pitfall 10: Room tone mismatch | Match reference audio acoustics; continuous across chunks |
+| All phases | Pitfall 6: Demo effect / cherry-picked test cases | Adversarial test corpus; measure worst case, not average; regression test |
+| All phases | Pitfall 7: Consistency collapse across utterances | Lower temperature; fixed seed per request; per-sentence profiling |
+| All phases | Pitfall 1: Uncanny valley amplification | Incremental feature addition; A/B test each feature independently |
+
+---
+
+## The Cardinal Rule
+
+**Less is more.** The natural instinct is to add features until the voice sounds human. The correct approach is to add as few features as possible, each validated independently against the baseline. A voice with one well-tuned naturalness feature sounds better than a voice with five mediocre ones.
+
+Every feature added is a feature that can go wrong. Every feature that goes wrong makes the entire output sound less natural than if no naturalness features were present at all. The threshold for "this feature improves things" must be: it improves quality on at least 95% of diverse test inputs AND does not degrade quality on any significant subset.
+
+---
 
 ## Confidence Assessment
 
 | Pitfall | Confidence | Basis |
 |---------|-----------|-------|
-| DAC boundary discontinuities | HIGH | Verified causal=True in config, analyzed CausalConvNet zero-padding behavior in code, confirmed by Gibiansky's streaming synthesis analysis and DAC-JAX documentation |
-| Conversation context explosion | HIGH | Directly verified in generate_long source code -- conversation grows linearly, deepcopy confirmed |
-| Text splitting for single-speaker | HIGH | Verified in code -- `split_text_by_speaker` returns empty for text without speaker tags, falls through to single batch |
-| CUDA Graph recompilation | MEDIUM | Verified torch.compile reduce-overhead is used; variable prompt lengths confirmed in code; recompilation behavior from PyTorch documentation |
-| WAV header issues | HIGH | Verified encoding mismatch between segment (int16) and final (float32) in inference_wrapper source |
-| Buffer underrun | MEDIUM | Calculated from known token rates; later-chunk degradation depends on context accumulation rate |
-| Prosody drift | MEDIUM | Known TTS chunking issue per literature; Fish Speech uses im_end per chunk, but severity depends on model behavior |
-| deepcopy growth | HIGH | Directly visible in source code |
-| Filter transients | LOW | IIR filter state assumption; pedalboard library may handle this internally |
-| Redundant final yield | HIGH | Directly visible in source code |
+| Uncanny valley amplification | HIGH | Confirmed by multiple academic studies and industry practitioners; non-monotonic uncanniness function experimentally verified |
+| Over-engineered prosody | HIGH | Documented across TTS literature; confirmed by research showing separate prosody models degrade quality |
+| Filler/breathing overuse | HIGH | Quantified threshold (1.3% filler rate) from telemarketing study; XTTS v2 hallucination reports confirm existing artifact risk |
+| Pause timing failures | MEDIUM | Consensus across practitioner sources; specific duration thresholds are approximations needing project-specific tuning |
+| Post-processing artifacts | MEDIUM | Signal chain principles from audio engineering well-established; streaming-specific filter state issue confirmed in codebase |
+| Demo effect | HIGH | Extensively documented across voice AI industry; multiple 2025-2026 practitioner reports confirm demo-to-production gap |
+| Consistency collapse | MEDIUM | Confirmed by TTS evaluation studies; specific phoneme interactions need project-specific testing |
+| Streaming naturalness breakage | MEDIUM | Confirmed by SpeakStream, Marvis TTS research; specific interactions with Fish Speech's pipeline need testing |
+| Vocal fry implementation | MEDIUM | Academic literature confirms vocoder difficulties; skip recommendation based on scope analysis |
+| Room tone mismatch | LOW | General audio engineering principle; Fish Speech-specific impact needs testing |
+| Features fighting the model | MEDIUM | Architectural principle confirmed by research on separate vs. joint prosody models; Fish Speech-specific model behavior not tested |
+
+---
 
 ## Sources
 
-- [Qwen3-TTS-streaming: Hann crossfade implementation](https://github.com/rekuenkdr/Qwen3-TTS-streaming) -- 512-sample Hann window crossfade, chunk processing order
-- [Pipecat/Nemotron pipeline: COLA-compliant overlap-add](https://github.com/pipecat-ai/nemotron-january-2026/blob/main/docs/streaming-pipeline-architecture.md) -- Adaptive blending with correlation measurement
-- [Andrew Gibiansky: Streaming Audio Synthesis](https://andrew.gibiansky.com/streaming-audio-synthesis/) -- Causal convolution state carryover, zero-padding boundary artifact analysis
-- [DAC-JAX: Chunked compression/decompression](https://arxiv.org/html/2405.11554v1) -- DAC padding behavior changes for chunked operations
-- [Fish Speech Issue #1020: First chunk latency](https://github.com/fishaudio/fish-speech/issues/1020) -- response_queue.get() blocking delay
-- [Fish Speech Discussion #853: Multi-second TTFA](https://github.com/fishaudio/fish-speech/discussions/853) -- 3.5-6s delay for medium text
-- [Fish Speech Issue #819: Streaming returns all fragments](https://github.com/fishaudio/fish-speech/issues/819) -- Streaming parameter bug
-- [PyTorch CUDA Graph Trees documentation](https://docs.pytorch.org/docs/stable/torch.compiler_cudagraph_trees.html) -- Recompilation behavior with dynamic shapes
-- [Deepgram: Text Chunking for TTS Optimization](https://developers.deepgram.com/docs/text-chunking-for-tts-optimization) -- Sentence/clause boundary splitting best practices
-- [EnCodec: Overlapping chunk processing](https://github.com/facebookresearch/encodec) -- 1% overlap for 48kHz model
-- [WAV file format specification](http://soundfile.sapp.org/doc/WaveFormat/) -- Header structure, unknown-length streaming
-- [SpeakStream: Interleaved text-speech streaming](https://arxiv.org/html/2505.19206v1) -- Architectural alternative avoiding chunk boundaries
+- [Sesame: Crossing the Uncanny Valley of Conversational Voice](https://www.sesame.com/research/crossing_the_uncanny_valley_of_voice) -- Contextual awareness for naturalness; CSM architecture
+- [Springer: Speech Synthesis and Uncanny Valley](https://link.springer.com/chapter/10.1007/978-3-319-10816-2_72) -- Experimental confirmation of vocal uncanny valley
+- [ScienceDirect: Deviation from Typical Organic Voices](https://www.sciencedirect.com/science/article/pii/S2451958824000630) -- Non-monotonic uncanniness function in voice perception
+- [Talkdesk: Voice AI - The Case for Artificial Imperfection](https://www.talkdesk.com/blog/voice-ai-case-artificial-imperfection/) -- Production vs. demo quality gap
+- [Medium: Why Most AI Voice Deployments Fail After the Demo](https://medium.com/@marketing_34023/why-most-ai-voice-deployments-fail-after-the-demo-a2341a93b44e) -- Demo effect analysis
+- [Chanl: The Voice AI Quality Crisis](https://www.channel.tel/blog/voice-ai-quality-crisis) -- Production deployment failure patterns
+- [Rime AI: Filler Words - A Secret Facet of Conversational Realism](https://www.rime.ai/blog/filler-words-a-secret-facet-of-conversational-realism/) -- Role and dangers of filler words in TTS
+- [Picovoice: Complete Guide to TTS Technology (2025)](https://picovoice.ai/blog/complete-guide-to-text-to-speech/) -- Prosody modeling challenges
+- [Medium: The Persistent Challenge of Prosody Modeling](https://medium.com/@shukla.vjs/the-persistent-challenge-of-prosody-modeling-in-advanced-natural-language-processing-systems-44e8edbeb6d9) -- Text-speech modality gap in prosody
+- [APXML: TTS Prosody Modeling and Control Techniques](https://apxml.com/courses/speech-recognition-synthesis-asr-tts/chapter-4-advanced-text-to-speech-synthesis/prosody-modeling-control-tts) -- Implicit vs. explicit prosody modeling tradeoffs
+- [Milvus: How Does Pitch Control Affect TTS Output Quality](https://milvus.io/ai-quick-reference/how-does-pitch-control-affect-tts-output-quality) -- Pitch control quality impact
+- [ElevenLabs: Troubleshooting](https://elevenlabs.io/docs/resources/troubleshooting) -- Stability/similarity slider artifact management
+- [ElevenLabs: Voice Settings](https://elevenlabs-sdk.mintlify.app/speech-synthesis/voice-settings) -- Parameter interaction effects
+- [Deepgram: Handling Audio Issues in TTS](https://developers.deepgram.com/docs/handling-audio-issues-in-text-to-speech) -- Streaming audio artifact handling
+- [Deepgram: Text Chunking for TTS Optimization](https://developers.deepgram.com/docs/text-chunking-for-tts-optimization) -- Boundary detection best practices
+- [SpeakStream: Streaming TTS with Interleaved Data](https://arxiv.org/html/2505.19206v1) -- Streaming quality degradation vs. batch
+- [OpenReview: CLaM-TTS](https://openreview.net/pdf?id=ofzeypWosV) -- Codec language model artifact patterns
+- [EmergentTTS-Eval](https://arxiv.org/html/2505.23009v1) -- TTS model failure patterns on complex inputs
+- [GitHub: coqui-ai/TTS Discussion #4146](https://github.com/coqui-ai/TTS/discussions/4146) -- XTTS v2 hallucination artifacts and workarounds
+- [GitHub: coqui-ai/TTS Discussion #2742](https://github.com/coqui-ai/TTS/discussions/2742) -- Transformer-based TTS hallucination patterns
+- [ResearchGate: HMM-based Synthesis of Creaky Voice](https://www.researchgate.net/publication/258327995_HMM-based_synthesis_of_creaky_voice) -- Vocal fry synthesis challenges
+- [Respeecher: Four Common Synthetic Speech Problems](https://www.respeecher.com/blog/four-common-synthetic-speech-problems-solve-them) -- Prosody and emphasis failures
+- [FutureBeeAI: Evaluating TTS Voice Consistency](https://www.futurebeeai.com/knowledge-hub/evaluate-tts-voice-consistency) -- Multi-layered consistency evaluation
+- [WellSaid Labs: Naturalness as Primary Driver](https://www.wellsaid.io/resources/blog/naturalness-primary-driver-synthetic-voice-quality) -- MOS evaluation limitations

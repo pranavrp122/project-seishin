@@ -1,116 +1,125 @@
-# Requirements: Streaming Chunked Audio
+# Requirements: TTS Humanism (v2.0)
 
-**Defined:** 2026-04-12
-**Core Value:** Users hear first audio within 500ms with no perceivable quality loss or choppiness
+**Defined:** 2026-04-13
+**Core Value:** TTS output sounds as natural and human-like as possible for AI companion use
 
-## v1 Requirements
+## v2.0 Requirements
 
-### Text Splitting
+### Baseline Measurement
 
-- [x] **SPLIT-01**: System splits single-speaker text at clause/sentence boundaries (`.!?,;:--`)
-- [x] **SPLIT-02**: First chunk targets 30-80 bytes for fast TTFA
-- [x] **SPLIT-03**: Subsequent chunks target 100-200 bytes for quality
-- [x] **SPLIT-04**: Minimum chunk size of 50 bytes enforced (below this, prosody degrades)
-- [x] **SPLIT-05**: Force-split at max byte limit when no natural boundary exists
+- [ ] **BASE-01**: Generate baseline recordings with current pipeline for A/B comparison (10+ diverse prompts)
+- [ ] **BASE-02**: Measure F0 pitch variation using pyworld (voiced F0 std dev, contour shape)
+- [ ] **BASE-03**: Measure pause distribution (location, duration, frequency) across test corpus
+- [ ] **BASE-04**: Test model response to inline tags ([inhale], [slow], [fast], [pause]) and document effectiveness
+- [ ] **BASE-05**: Establish adversarial test corpus (fragments, 50+ word sentences, numbers, questions, mixed emotion)
 
-### Emotion Consistency
+### Post-FX Chain (Audio Warmth & Presence)
 
-- [x] **EMOT-01**: Leading emotion tag (e.g., `[angry]`) extracted from input text
-- [x] **EMOT-02**: Active emotion tag prepended to every chunk before generation
-- [x] **EMOT-03**: Mid-text emotion transitions tracked and applied to correct chunks
+- [ ] **WARM-01**: Low-shelf EQ at 250Hz adds body/warmth to voice
+- [ ] **WARM-02**: High-shelf at 8kHz adds subtle air/shimmer
+- [ ] **WARM-03**: Gentle compression (2:1 ratio, -20dB threshold) evens dynamics without pumping
+- [ ] **WARM-04**: De-essing reduces sibilance (narrow cut at 6.5kHz)
+- [ ] **WARM-05**: Asymmetric soft saturation adds even-harmonic analog warmth (tanh with quadratic asymmetry)
+- [ ] **WARM-06**: Safety limiter prevents clipping after boosts
+- [ ] **WARM-07**: Post-FX chain maintains streaming compatibility (no audible state-reset artifacts across chunks)
+- [ ] **WARM-08**: Each post-FX effect has intensity parameter for A/B tuning
 
-### Audio Quality
+### Text Preprocessing & Pause Injection
 
-- [x] **QUAL-01**: Equal-power crossfade at chunk boundaries eliminates clicks/pops/discontinuities
-- [x] **QUAL-02**: Crossfade duration tuned to ~10-20ms (441-882 samples at 44.1kHz)
-- [x] **QUAL-03**: Audio quality subjectively matches non-streaming output across all emotions
-- [x] **QUAL-04**: PeakFilter post-FX applied consistently (per-chunk for streaming, full audio for non-streaming)
+- [ ] **PAUS-01**: Text preprocessor injects punctuation at clause boundaries for natural model-generated pauses
+- [ ] **PAUS-02**: [pause]/[short pause] tag insertion at strategic points (sentence boundaries, before long clauses)
+- [ ] **PAUS-03**: Pause duration varies with Gaussian jitter (+/-15-20%) to avoid robotic regularity
+- [ ] **PAUS-04**: [slow]/[fast] tag injection for speech rate variation at emotional transition points
+- [ ] **PAUS-05**: Text preprocessor produces per-chunk metadata (HumanismHints) for downstream audio processing
+- [ ] **PAUS-06**: Text preprocessing adds < 10ms overhead to TTFA
 
-### Streaming Pipeline
+### Breathing & Volume Dynamics
 
-- [x] **STRM-01**: TTFA < 500ms for typical dialogue lines (50-200 chars)
-- [x] **STRM-02**: Audio segments yielded to client as each chunk completes
-- [x] **STRM-03**: StreamingCrossfader buffers tail of previous chunk and blends with head of next
-- [x] **STRM-04**: WAV header uses 0xFFFFFFFF sizes for streaming unknown length
-- [x] **STRM-05**: Streaming encoding consistent (int16 PCM throughout, no float32 mismatch)
+- [ ] **BRVL-01**: [inhale] tag injection before long phrases (15+ words), probability-based (not every phrase)
+- [ ] **BRVL-02**: Breathing injection capped at max 1 per 3-5 sentences to avoid uncanny valley
+- [ ] **BRVL-03**: [low volume] tag injection for asides/parentheticals, [volume up] for emphasis
+- [ ] **BRVL-04**: Text-driven per-segment gain adjustment based on HumanismHints metadata
+- [ ] **BRVL-05**: Each breathing/volume feature independently A/B tested and beats unmodified baseline
 
-### Sub-Chunk Audio Streaming
+### Validation & Tuning
 
-- [ ] **SUBCHK-01**: generate_long yields partial VQ code tensors every N tokens during generation (not after full chunk)
-- [x] **SUBCHK-02**: DAC decoder produces valid audio from partial VQ token sequences (minimum 10 tokens)
-- [x] **SUBCHK-03**: DAC decoder state managed correctly across partial decode calls (no boundary artifacts)
-- [ ] **SUBCHK-04**: TTFA < 200ms for typical dialogue lines (50-200 chars) with cached reference
-- [x] **SUBCHK-05**: Sub-chunk decode boundaries produce no audible artifacts within a text chunk
-- [x] **SUBCHK-06**: Existing between-chunk crossfader integrates correctly with sub-chunk streaming
+- [ ] **VALD-01**: Adversarial test corpus covers edge cases (fragments, long sentences, numbers, mixed-language, questions)
+- [ ] **VALD-02**: 100+ diverse utterances generated and manually evaluated for naturalness
+- [ ] **VALD-03**: Streaming-specific validation confirms no new artifacts at chunk boundaries
+- [ ] **VALD-04**: Every humanism feature has 0.0-1.0 intensity dial for disable/tune capability
+- [ ] **VALD-05**: Optimal parameter settings documented with rationale
+- [ ] **VALD-06**: Regression baseline established (reference recordings + metrics for future comparison)
 
-### Robustness
+## v3+ Requirements (Deferred)
 
-- [ ] **RBST-01**: Context window managed -- old conversation turns truncated for long texts
-- [ ] **RBST-02**: VRAM does not exceed current 10.7GB peak
-- [ ] **RBST-03**: Non-streaming path continues to work unchanged (backward compatible)
-- [ ] **RBST-04**: Compatible with existing INT8 W8A16 + torch.compile reduce-overhead
+### Advanced Prosody
 
-## v2 Requirements
+- **PROS-01**: Vocal fry / creaky voice via LoRA fine-tuning (requires model training, not post-processing)
+- **PROS-02**: Content-word emphasis via POS tagging (requires spaCy dependency)
+- **PROS-03**: Real-time prosody prediction model for dynamic emphasis
 
-### Advanced Quality
+### Audio Enhancement
 
-- **ADVQ-01**: Acoustic tail prompting -- feed previous chunk's last ~25 codec frames to DAC decoder
-- **ADVQ-02**: Overlapped DAC decoding with extra context tokens at boundaries
-- **ADVQ-03**: Adaptive chunk sizing based on emotion (shorter for high-energy, longer for low-energy)
+- **ENHC-01**: Room tone via convolution IR (A/B gate: add only if testing shows clear improvement)
+- **ENHC-02**: Micro-pitch jitter for naturalness (high artifact risk, needs safe technique)
 
-### Performance
+### LLM Integration
 
-- **PERF-01**: CUDA graph recompilation mitigation (prompt length padding or caching)
-- **PERF-02**: KV cache accumulation between chunks (avoid re-prefill)
+- **LLM-01**: LLM generates emotion tags inline based on semantic context
+- **LLM-02**: LLM varies sentence structure for natural speech rhythm (short/long alternation)
+- **LLM-03**: LLM inserts conversational markers (trailing off, self-correction patterns)
 
-## Out of Scope
+## Out of Scope (Anti-Features)
 
 | Feature | Reason |
 |---------|--------|
-| Speculative decoding | Audio codebook tokens have low acceptance rates; 2-3 weeks for 1.3-1.7x |
-| SGLang serving | Fundamentally different architecture, requires infrastructure change |
-| WebSocket streaming | Chunked HTTP sufficient when full text submitted upfront |
-| NLP-based splitting (spaCy) | Adds 50-100ms latency per split, regex sufficient for pre-split text |
-| Multi-speaker streaming | Single voice only for this project |
-| Model retraining | Working within existing S2-Pro weights |
+| Filler word injection (um, uh) | KTH research: misplaced fillers worse than none; anti-feature |
+| Breathing sound synthesis | No convincing Python implementation; model generates breaths natively from reference audio |
+| Rule-based pitch manipulation | Fights DualAR transformer's learned prosody from 10M+ hours; produces sing-song artifacts |
+| Lip smacks / mouth sounds | Extremely sparse use case, high uncanny valley risk |
+| Model retraining | Out of scope for this milestone; existing S2-Pro weights only |
+| LLM sentence structure changes | Documented for v3+ but not implemented in this milestone |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPLIT-01 | Phase 1 | Complete |
-| SPLIT-02 | Phase 1 | Complete |
-| SPLIT-03 | Phase 1 | Complete |
-| SPLIT-04 | Phase 1 | Complete |
-| SPLIT-05 | Phase 1 | Complete |
-| EMOT-01 | Phase 1 | Complete |
-| EMOT-02 | Phase 1 | Complete |
-| EMOT-03 | Phase 1 | Complete |
-| QUAL-01 | Phase 2 | Complete |
-| QUAL-02 | Phase 2 | Complete |
-| QUAL-03 | Phase 2 | Complete |
-| QUAL-04 | Phase 2 | Complete |
-| STRM-01 | Phase 2 | Complete |
-| STRM-02 | Phase 2 | Complete |
-| STRM-03 | Phase 2 | Complete |
-| STRM-04 | Phase 2 | Complete |
-| STRM-05 | Phase 2 | Complete |
-| SUBCHK-01 | Phase 3 | Pending |
-| SUBCHK-02 | Phase 3 | Complete |
-| SUBCHK-03 | Phase 3 | Complete |
-| SUBCHK-04 | Phase 3 | Pending |
-| SUBCHK-05 | Phase 3 | Complete |
-| SUBCHK-06 | Phase 3 | Complete |
-| RBST-01 | Phase 4 | Pending |
-| RBST-02 | Phase 4 | Pending |
-| RBST-03 | Phase 4 | Pending |
-| RBST-04 | Phase 4 | Pending |
+| BASE-01 | Phase 1 | Pending |
+| BASE-02 | Phase 1 | Pending |
+| BASE-03 | Phase 1 | Pending |
+| BASE-04 | Phase 1 | Pending |
+| BASE-05 | Phase 1 | Pending |
+| WARM-01 | Phase 2 | Pending |
+| WARM-02 | Phase 2 | Pending |
+| WARM-03 | Phase 2 | Pending |
+| WARM-04 | Phase 2 | Pending |
+| WARM-05 | Phase 2 | Pending |
+| WARM-06 | Phase 2 | Pending |
+| WARM-07 | Phase 2 | Pending |
+| WARM-08 | Phase 2 | Pending |
+| PAUS-01 | Phase 3 | Pending |
+| PAUS-02 | Phase 3 | Pending |
+| PAUS-03 | Phase 3 | Pending |
+| PAUS-04 | Phase 3 | Pending |
+| PAUS-05 | Phase 3 | Pending |
+| PAUS-06 | Phase 3 | Pending |
+| BRVL-01 | Phase 4 | Pending |
+| BRVL-02 | Phase 4 | Pending |
+| BRVL-03 | Phase 4 | Pending |
+| BRVL-04 | Phase 4 | Pending |
+| BRVL-05 | Phase 4 | Pending |
+| VALD-01 | Phase 5 | Pending |
+| VALD-02 | Phase 5 | Pending |
+| VALD-03 | Phase 5 | Pending |
+| VALD-04 | Phase 5 | Pending |
+| VALD-05 | Phase 5 | Pending |
+| VALD-06 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 27 total
-- Mapped to phases: 27
+- v2.0 requirements: 30 total
+- Mapped to phases: 30
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-04-12*
-*Last updated: 2026-04-12 after roadmap creation*
+*Requirements defined: 2026-04-13*
+*Last updated: 2026-04-13 after roadmap creation*

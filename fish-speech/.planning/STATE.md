@@ -1,41 +1,40 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unstable
-stopped_at: Phase 03 complete — unstable build, pending listening test
-last_updated: "2026-04-13T01:26:47.753Z"
+milestone: v2.0
+milestone_name: TTS Humanism
+status: roadmap-complete
+stopped_at: Roadmap created — 5 phases, 30 requirements mapped
+last_updated: "2026-04-13"
 last_activity: 2026-04-13
 progress:
-  total_phases: 4
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 7
-  percent: 100
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-12)
+See: .planning/PROJECT.md (updated 2026-04-13)
 
-**Core value:** Users hear first audio within 500ms with no perceivable quality loss or choppiness
-**Current focus:** Phase 03 — sub-chunk-audio-streaming (UNSTABLE — pending listening test)
+**Core value:** TTS output sounds as natural and human-like as possible for AI companion use
+**Current focus:** Milestone v2.0 -- TTS Humanism (roadmap complete, ready to plan Phase 1)
 
 ## Current Position
 
-Phase: 03 (sub-chunk-audio-streaming) — COMPLETE (UNSTABLE)
-Plan: 2 of 2
-Status: Code complete, TTFA verified (avg 290ms, 4.5x improvement), audio quality pending human review
-Last activity: 2026-04-12
+Phase: 1 of 5 (Baseline Measurement)
+Plan: --
+Status: Ready to plan
+Last activity: 2026-04-13 -- Roadmap created for v2.0 TTS Humanism
 
-Progress: [███████░░░] 75%
+Progress: [..........] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-
 - Total plans completed: 0
 - Average duration: -
 - Total execution time: 0 hours
@@ -47,16 +46,10 @@ Progress: [███████░░░] 75%
 | - | - | - | - |
 
 **Recent Trend:**
-
 - Last 5 plans: none
 - Trend: N/A
 
 *Updated after each plan completion*
-| Phase 01 P01 | 6min | 2 tasks | 3 files |
-| Phase 01 P02 | 2min | 1 tasks | 2 files |
-| Phase 02 P01 | 2min | 2 tasks | 2 files |
-| Phase 02 P02 | 2min | 3 tasks | 3 files |
-| Phase 03 P02 | 1min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -65,16 +58,9 @@ Progress: [███████░░░] 75%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Skip speculative decoding (low acceptance rates for audio codebooks, 2-3 weeks for uncertain 1.3-1.7x gain)
-- Focus on chunk streaming first (biggest TTFA improvement with least engineering risk)
-- [Phase 01]: Used abbreviation set filtering instead of variable-width lookbehind (Python re limitation)
-- [Phase 01]: Track chunk offsets from _split_at_boundaries for accurate emotion tag position mapping
-- [Phase 01]: chunk_length maps to subsequent_chunk_bytes with fixed first_chunk_bytes=80 for fast TTFA
-- [Phase 02]: Precompute sin^2/cos^2 fade curves in constructor for zero-cost per-segment blending
-- [Phase 02]: Short segments (< overlap) concatenated with tail buffer rather than partial crossfade
-- [Phase 02]: Crossfader instantiated only when req.streaming is True -- zero overhead for non-streaming
-- [Phase 02]: struct.pack replaces wave module for WAV header -- explicit byte control, 0xFFFFFFFF streaming sizes
-- [Phase 03]: Bypass StreamingCrossfader in sub-chunk mode; manage text-chunk crossfade manually via prev_batch_tail buffer
+- [v2.0 Roadmap]: 5 phases derived from research -- Baseline, Post-FX, Text Preprocessor, Breathing/Volume, Validation
+- [v2.0 Roadmap]: Phase ordering follows "measure before modify" principle -- baseline data gates all subsequent work
+- [v2.0 Roadmap]: Post-FX before text preprocessing because audio-only changes have zero pipeline risk and improve A/B test quality
 
 ### Pending Todos
 
@@ -82,11 +68,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- CUDA graph recompilation from variable prompt lengths may cause 100-500ms latency spikes (deferred to v2 PERF-01)
-- Context overflow at ~3000-3500 tokens for long texts (addressed in Phase 3 RBST-01)
+- [inhale] tag effectiveness unknown -- gates Phase 4 breathing approach. Must test in Phase 1 (BASE-04).
+- Compressor state across streaming chunks -- pedalboard may reset IIR filter state per segment. Needs empirical test in Phase 2.
+- [slow]/[fast] tag effectiveness unknown -- gates Phase 3 speech rate variation. Must test in Phase 1 (BASE-04).
 
 ## Session Continuity
 
-Last session: 2026-04-13T01:26:47.751Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-04-13
+Stopped at: Roadmap created for v2.0 TTS Humanism milestone
 Resume file: None

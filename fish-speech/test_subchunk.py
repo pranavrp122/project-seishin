@@ -75,37 +75,42 @@ def generate_clip(text, name, sub_chunk_tokens, label):
     return {"name": name, "label": label, "dur": dur, "ttfa_ms": ttfa * 1000, "total": total, "path": str(out_path)}
 
 
-print("=" * 60)
-print("SUB-CHUNK STREAMING TEST (sub_chunk_tokens=10)")
-print("=" * 60)
-subchunk_results = []
-for text, name in PROMPTS:
-    r = generate_clip(text, name, sub_chunk_tokens=10, label="subchunk")
-    if r:
-        subchunk_results.append(r)
+CONFIGS = [
+    ("N=5", 5, "n5"),
+    ("N=10", 10, "n10"),
+    ("Baseline (N=0)", 0, "baseline"),
+]
 
-print()
-print("=" * 60)
-print("BASELINE STREAMING TEST (sub_chunk_tokens=0)")
-print("=" * 60)
-baseline_results = []
-for text, name in PROMPTS:
-    r = generate_clip(text, name, sub_chunk_tokens=0, label="baseline")
-    if r:
-        baseline_results.append(r)
+all_results = {}
+for config_name, n, label in CONFIGS:
+    print("=" * 70)
+    print(f"{config_name} (sub_chunk_tokens={n})")
+    print("=" * 70)
+    all_results[label] = []
+    for text, name in PROMPTS:
+        r = generate_clip(text, name, sub_chunk_tokens=n, label=label)
+        if r:
+            all_results[label].append(r)
+    print()
 
-print()
-print("=" * 60)
+print("=" * 70)
 print("COMPARISON")
-print("=" * 60)
-print(f"{'Clip':<20} {'Sub-chunk TTFA':>15} {'Baseline TTFA':>15} {'Speedup':>10}")
-print("-" * 60)
-for sc, bl in zip(subchunk_results, baseline_results):
-    speedup = bl["ttfa_ms"] / sc["ttfa_ms"] if sc["ttfa_ms"] > 0 else 0
-    print(f"{sc['name']:<20} {sc['ttfa_ms']:>12.0f}ms {bl['ttfa_ms']:>12.0f}ms {speedup:>9.1f}x")
+print("=" * 70)
+print(f"{'Clip':<20} {'N=5 TTFA':>12} {'N=10 TTFA':>12} {'Baseline':>12} {'N=5 speedup':>12}")
+print("-" * 70)
+for i in range(len(PROMPTS)):
+    n5 = all_results["n5"][i] if i < len(all_results["n5"]) else None
+    n10 = all_results["n10"][i] if i < len(all_results["n10"]) else None
+    bl = all_results["baseline"][i] if i < len(all_results["baseline"]) else None
+    if n5 and n10 and bl:
+        speedup = bl["ttfa_ms"] / n5["ttfa_ms"] if n5["ttfa_ms"] > 0 else 0
+        print(f"{n5['name']:<20} {n5['ttfa_ms']:>9.0f}ms {n10['ttfa_ms']:>9.0f}ms {bl['ttfa_ms']:>9.0f}ms {speedup:>11.1f}x")
 
-avg_sc = sum(r["ttfa_ms"] for r in subchunk_results) / len(subchunk_results) if subchunk_results else 0
-avg_bl = sum(r["ttfa_ms"] for r in baseline_results) / len(baseline_results) if baseline_results else 0
-print("-" * 60)
-print(f"{'AVERAGE':<20} {avg_sc:>12.0f}ms {avg_bl:>12.0f}ms {avg_bl/avg_sc if avg_sc > 0 else 0:>9.1f}x")
+for label in ["n5", "n10", "baseline"]:
+    results = all_results[label]
+    avg = sum(r["ttfa_ms"] for r in results) / len(results) if results else 0
+    all_results[f"{label}_avg"] = avg
+
+print("-" * 70)
+print(f"{'AVERAGE':<20} {all_results['n5_avg']:>9.0f}ms {all_results['n10_avg']:>9.0f}ms {all_results['baseline_avg']:>9.0f}ms {all_results['baseline_avg']/all_results['n5_avg'] if all_results['n5_avg'] > 0 else 0:>11.1f}x")
 print(f"\nOutput: {OUT_DIR}")

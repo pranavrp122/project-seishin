@@ -12,7 +12,12 @@ Users hear the first audio within 500ms of submitting text, with no perceivable 
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Baseline recordings exist for diverse prompts (dialogue, narration, questions, exclamations, long passages) — Validated in Phase 1: Baseline Measurement
+- [x] F0 pitch and pause distribution metrics quantified — Validated in Phase 1: Baseline Measurement
+- [x] Inline tag effectiveness documented (2/9 responsive: [slow], [low volume]) — Validated in Phase 1: Baseline Measurement
+- [x] Professional vocal post-FX chain with 6 effects (EQ, compression, de-essing, saturation, limiter) — Validated in Phase 2: Post-FX Chain
+- [x] Per-effect 0.0-1.0 intensity controls with full bypass at 0.0 — Validated in Phase 2: Post-FX Chain
+- [x] Stateful streaming post-FX (process(reset=False) per request, no state-reset artifacts) — Validated in Phase 2: Post-FX Chain
 
 ### Active
 
@@ -89,4 +94,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-13 after milestone v2.0 start*
+*Last updated: 2026-04-13 after Phase 2 (Post-FX Chain) complete*

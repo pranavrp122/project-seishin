@@ -4,7 +4,7 @@ from typing import Generator
 import numpy as np
 import torch
 from loguru import logger
-from pedalboard import Pedalboard, PeakFilter
+from fish_speech.utils.post_fx import HumanismPostFX, PostFXConfig
 
 from fish_speech.inference_engine.crossfader import StreamingCrossfader
 from fish_speech.inference_engine.reference_loader import ReferenceLoader
@@ -21,10 +21,6 @@ from fish_speech.utils.schema import ServeTTSRequest
 
 
 class TTSInferenceEngine(ReferenceLoader, VQManager):
-
-    _post_fx = Pedalboard([
-        PeakFilter(cutoff_frequency_hz=3500, gain_db=1.5, q=0.7),
-    ])
 
     def __init__(
         self,
@@ -88,6 +84,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
         segments = []
         crossfader = StreamingCrossfader(overlap_samples=1764) if req.streaming else None
+        post_fx = HumanismPostFX(PostFXConfig())  # per-request instance (WARM-07)
 
         # Grow-and-redecode state for sub-chunk streaming
         prev_audio_samples = 0
@@ -125,6 +122,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 prev_audio_samples = len(segment)
 
                 if len(new_audio) > 0:
+                    new_audio = post_fx.process(new_audio, sample_rate)
                     # Apply text-chunk boundary crossfade if tail from previous batch exists
                     if prev_batch_tail is not None:
                         if len(new_audio) >= len(prev_batch_tail):
@@ -155,6 +153,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                     is_sub_chunk_mode = False
 
                     if len(new_audio) > 0:
+                        new_audio = post_fx.process(new_audio, sample_rate)
                         overlap = 1764
                         if len(new_audio) > overlap:
                             body = new_audio[:-overlap]
@@ -170,7 +169,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
                 else:
                     # No sub-chunking -- use crossfader as before (backward compat)
-                    segment = self.get_audio_segment(result)
+                    segment = post_fx.process(self.get_audio_segment(result), sample_rate)
                     if crossfader is not None:
                         emittable = crossfader.process(segment)
                         if emittable is not None and len(emittable) > 0:
@@ -270,10 +269,6 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             # Decode the symbolic tokens to audio
             segment = self.decode_vq_tokens(codes=result.codes)
 
-        # Convert the audio to numpy and apply post-processing filter
+        # Convert the audio to numpy (raw decoded, no FX -- FX applied per-request in inference())
         audio = segment.float().cpu().numpy()
-        if hasattr(self.decoder_model, "spec_transform"):
-            sr = self.decoder_model.spec_transform.sample_rate
-        else:
-            sr = self.decoder_model.sample_rate
-        return self._post_fx(audio, sr)
+        return audio

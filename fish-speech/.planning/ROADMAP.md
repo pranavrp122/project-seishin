@@ -33,9 +33,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Generate baseline + adversarial audio corpora (BASE-01, BASE-05)
-- [ ] 01-02-PLAN.md — Test inline tag responsiveness (BASE-04)
-- [ ] 01-03-PLAN.md — F0 pitch + pause distribution analysis (BASE-02, BASE-03)
+- [x] 01-01-PLAN.md — Generate baseline + adversarial audio corpora (BASE-01, BASE-05)
+- [x] 01-02-PLAN.md — Test inline tag responsiveness (BASE-04)
+- [x] 01-03-PLAN.md — F0 pitch + pause distribution analysis (BASE-02, BASE-03)
 
 ### Phase 2: Post-FX Chain
 **Goal**: Every utterance sounds warmer, more present, and more polished through a professional audio processing chain, with zero changes to text or generation pipeline
@@ -47,11 +47,11 @@ Plans:
   3. Streaming mode produces no audible state-reset artifacts at chunk boundaries with post-FX applied
   4. Each effect (EQ, compression, saturation, de-essing, limiter) can be independently enabled/disabled and intensity-tuned via 0.0-1.0 parameter
   5. Post-FX chain does not clip output audio on any test utterance (limiter prevents it)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [x] 02-01-PLAN.md — Create HumanismPostFX class with all 6 effects and per-effect intensity controls (WARM-01, WARM-02, WARM-03, WARM-04, WARM-05, WARM-06, WARM-08)
+- [x] 02-02-PLAN.md — Integrate into inference engine with stateful streaming + A/B corpus generation (WARM-07, WARM-08)
 
 ### Phase 3: Text Preprocessor & Pauses
 **Goal**: Speech rhythm sounds natural through text-level punctuation injection, pause tags, and speech rate variation that guide the model's existing prosody capabilities
@@ -107,8 +107,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Baseline Measurement | 0/3 | Planned | - |
-| 2. Post-FX Chain | 0/0 | Not started | - |
+| 1. Baseline Measurement | 3/3 | Complete | 2026-04-13 |
+| 2. Post-FX Chain | 0/2 | Planned | - |
 | 3. Text Preprocessor & Pauses | 0/0 | Not started | - |
 | 4. Breathing & Volume Dynamics | 0/0 | Not started | - |
 | 5. Validation & Tuning | 0/0 | Not started | - |

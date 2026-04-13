@@ -1,0 +1,150 @@
+{
+  "baseline": [
+    {
+      "id": "baseline_01",
+      "category": "dialogue",
+      "text": "[warm] Hey, I saved you a plate. It's in the microwave. I know you had a long day, so I made your favorite.",
+      "emotion_tag": "[warm]"
+    },
+    {
+      "id": "baseline_02",
+      "category": "dialogue",
+      "text": "[angry] You don't get to walk in here after three hours and act like nothing happened! I called you six times! Six!",
+      "emotion_tag": "[angry]"
+    },
+    {
+      "id": "baseline_03",
+      "category": "narration",
+      "text": "The kitchen smelled of cinnamon and burnt toast. Morning light cut through the blinds in narrow strips, falling across the counter where a half-empty coffee mug sat cooling.",
+      "emotion_tag": ""
+    },
+    {
+      "id": "baseline_04",
+      "category": "narration",
+      "text": "[professional] The human auditory system processes frequency, amplitude, and temporal cues simultaneously. This allows us to distinguish between speakers in a crowded room, a phenomenon known as the cocktail party effect.",
+      "emotion_tag": "[professional]"
+    },
+    {
+      "id": "baseline_05",
+      "category": "question",
+      "text": "Do we ever really know someone, or do we just know the version of them they've decided to show us?",
+      "emotion_tag": ""
+    },
+    {
+      "id": "baseline_06",
+      "category": "question",
+      "text": "[curious] What exactly happens to all the socks that go missing in the dryer? Like, where do they physically go?",
+      "emotion_tag": "[curious]"
+    },
+    {
+      "id": "baseline_07",
+      "category": "exclamation",
+      "text": "[joyful] Oh my God, you got the job! I knew it! I told you they'd love you! Come here, let me hug you!",
+      "emotion_tag": "[joyful]"
+    },
+    {
+      "id": "baseline_08",
+      "category": "exclamation",
+      "text": "[frustrated] For the last time, I am not doing this again! Every single week it's the same argument and I am done!",
+      "emotion_tag": "[frustrated]"
+    },
+    {
+      "id": "baseline_09",
+      "category": "long_passage",
+      "text": "The old man sat on the park bench and watched the pigeons fight over a piece of bread. He remembered when he used to come here with his wife, back when the trees were smaller and the benches were painted green instead of this faded gray. She would bring sandwiches wrapped in wax paper, and they would sit for hours, not saying much, just being together. He missed that silence most of all.",
+      "emotion_tag": ""
+    },
+    {
+      "id": "baseline_10",
+      "category": "long_passage",
+      "text": "[professional] To properly calibrate the spectrometer, first ensure the device has been powered on for at least fifteen minutes to allow the internal components to reach thermal equilibrium. Next, insert the reference cuvette containing the blank solution into the sample holder. Press the zero button and wait for the display to confirm baseline correction. Only then should you proceed to measure your actual samples, recording each absorbance reading at the designated wavelength.",
+      "emotion_tag": "[professional]"
+    },
+    {
+      "id": "baseline_11",
+      "category": "mixed_emotion",
+      "text": "[tender] I'm so proud of you for getting through this. I know it was the hardest year of your life. [sad] But I wish you didn't have to go through it at all.",
+      "emotion_tag": "[tender]"
+    },
+    {
+      "id": "baseline_12",
+      "category": "mixed_emotion",
+      "text": "[joyful] This is the best birthday I've ever had, honestly. [melancholy] I just wish Mom could have been here to see it.",
+      "emotion_tag": "[joyful]"
+    }
+  ],
+  "adversarial": [
+    {
+      "id": "adversarial_01",
+      "category": "fragment",
+      "text": "Yeah.",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_02",
+      "category": "fragment",
+      "text": "Wait, no, I--",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_03",
+      "category": "long_sentence",
+      "text": "So basically what happened was I went to the store to buy milk but they were out of the brand I like so I grabbed a different one and then I realized I also needed eggs and bread and maybe some cheese so I went down every single aisle just in case and by the time I got to the checkout my cart was completely full and I had no idea how that happened.",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_04",
+      "category": "long_sentence",
+      "text": "[exhausted] I have been on back-to-back calls since seven this morning and every single one of them could have been an email and now my manager wants me to write a summary document of all the meetings which is ironic because if they had just read the original documents we wouldn't have needed the meetings in the first place and honestly I am questioning every career decision I have ever made.",
+      "emotion_tag": "[exhausted]"
+    },
+    {
+      "id": "adversarial_05",
+      "category": "numbers",
+      "text": "Call me at 555-867-5309 when you get a chance. I'll be available until around 3:45 PM.",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_06",
+      "category": "numbers",
+      "text": "The total is $1,247.83 plus 8.5% tax, which brings it to $1,353.89. Payment is due by January 15th, 2025.",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_07",
+      "category": "question",
+      "text": "Wait, so you're saying he told her that they knew? When did he find out? Did she tell him directly or did someone else let it slip? And why didn't anyone tell me?",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_08",
+      "category": "question",
+      "text": "But if the universe is expanding, what is it expanding into? And if there's nothing outside the universe, then how can it expand? Doesn't expansion require a boundary? Or does the concept of a boundary not apply here?",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_09",
+      "category": "mixed_emotion",
+      "text": "[joyful] I got accepted into my dream school today! Full scholarship and everything! [devastated] But it means moving across the country and leaving everyone behind. I don't know if I can do that.",
+      "emotion_tag": "[joyful]"
+    },
+    {
+      "id": "adversarial_10",
+      "category": "mixed_emotion",
+      "text": "[sarcastic] Oh wow, what a fantastic presentation. Really, truly groundbreaking stuff. [sincere] No but actually, the data visualization on slide seven was genuinely impressive. Where did you learn to do that?",
+      "emotion_tag": "[sarcastic]"
+    },
+    {
+      "id": "adversarial_11",
+      "category": "edge_case",
+      "text": "I AM NOT YELLING. I AM SIMPLY EXPRESSING MY FEELINGS IN A DIRECT AND ASSERTIVE MANNER. THERE IS A DIFFERENCE.",
+      "emotion_tag": ""
+    },
+    {
+      "id": "adversarial_12",
+      "category": "edge_case",
+      "text": "I just... I can't even... like, it's not that I don't want to, it's more like... you know when you try so hard and it still... ugh, never mind.",
+      "emotion_tag": ""
+    }
+  ]
+}

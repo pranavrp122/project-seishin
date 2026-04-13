@@ -1,5 +1,12 @@
 {
-  "model_profile": "budget",
+  "model_profile": "quality",
+  "model_overrides": {
+    "gsd-executor": "opus",
+    "gsd-phase-researcher": "sonnet",
+    "gsd-project-researcher": "haiku",
+    "gsd-research-synthesizer": "sonnet",
+    "gsd-verifier": "haiku"
+  },
   "commit_docs": true,
   "parallelization": true,
   "search_gitignored": false,

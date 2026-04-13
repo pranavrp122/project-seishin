@@ -8,21 +8,21 @@
 ### Baseline Measurement
 
 - [ ] **BASE-01**: Generate baseline recordings with current pipeline for A/B comparison (10+ diverse prompts)
-- [ ] **BASE-02**: Measure F0 pitch variation using pyworld (voiced F0 std dev, contour shape)
-- [ ] **BASE-03**: Measure pause distribution (location, duration, frequency) across test corpus
+- [x] **BASE-02**: Measure F0 pitch variation using pyworld (voiced F0 std dev, contour shape)
+- [x] **BASE-03**: Measure pause distribution (location, duration, frequency) across test corpus
 - [ ] **BASE-04**: Test model response to inline tags ([inhale], [slow], [fast], [pause]) and document effectiveness
 - [ ] **BASE-05**: Establish adversarial test corpus (fragments, 50+ word sentences, numbers, questions, mixed emotion)
 
 ### Post-FX Chain (Audio Warmth & Presence)
 
-- [ ] **WARM-01**: Low-shelf EQ at 250Hz adds body/warmth to voice
-- [ ] **WARM-02**: High-shelf at 8kHz adds subtle air/shimmer
-- [ ] **WARM-03**: Gentle compression (2:1 ratio, -20dB threshold) evens dynamics without pumping
-- [ ] **WARM-04**: De-essing reduces sibilance (narrow cut at 6.5kHz)
-- [ ] **WARM-05**: Asymmetric soft saturation adds even-harmonic analog warmth (tanh with quadratic asymmetry)
-- [ ] **WARM-06**: Safety limiter prevents clipping after boosts
-- [ ] **WARM-07**: Post-FX chain maintains streaming compatibility (no audible state-reset artifacts across chunks)
-- [ ] **WARM-08**: Each post-FX effect has intensity parameter for A/B tuning
+- [x] **WARM-01**: Low-shelf EQ at 250Hz adds body/warmth to voice
+- [x] **WARM-02**: High-shelf at 8kHz adds subtle air/shimmer
+- [x] **WARM-03**: Gentle compression (2:1 ratio, -20dB threshold) evens dynamics without pumping
+- [x] **WARM-04**: De-essing reduces sibilance (narrow cut at 6.5kHz)
+- [x] **WARM-05**: Asymmetric soft saturation adds even-harmonic analog warmth (tanh with quadratic asymmetry)
+- [x] **WARM-06**: Safety limiter prevents clipping after boosts
+- [x] **WARM-07**: Post-FX chain maintains streaming compatibility (no audible state-reset artifacts across chunks)
+- [x] **WARM-08**: Each post-FX effect has intensity parameter for A/B tuning
 
 ### Text Preprocessing & Pause Injection
 
@@ -85,18 +85,18 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | BASE-01 | Phase 1 | Pending |
-| BASE-02 | Phase 1 | Pending |
-| BASE-03 | Phase 1 | Pending |
+| BASE-02 | Phase 1 | Complete |
+| BASE-03 | Phase 1 | Complete |
 | BASE-04 | Phase 1 | Pending |
 | BASE-05 | Phase 1 | Pending |
-| WARM-01 | Phase 2 | Pending |
-| WARM-02 | Phase 2 | Pending |
-| WARM-03 | Phase 2 | Pending |
-| WARM-04 | Phase 2 | Pending |
-| WARM-05 | Phase 2 | Pending |
-| WARM-06 | Phase 2 | Pending |
-| WARM-07 | Phase 2 | Pending |
-| WARM-08 | Phase 2 | Pending |
+| WARM-01 | Phase 2 | Complete |
+| WARM-02 | Phase 2 | Complete |
+| WARM-03 | Phase 2 | Complete |
+| WARM-04 | Phase 2 | Complete |
+| WARM-05 | Phase 2 | Complete |
+| WARM-06 | Phase 2 | Complete |
+| WARM-07 | Phase 2 | Complete |
+| WARM-08 | Phase 2 | Complete |
 | PAUS-01 | Phase 3 | Pending |
 | PAUS-02 | Phase 3 | Pending |
 | PAUS-03 | Phase 3 | Pending |

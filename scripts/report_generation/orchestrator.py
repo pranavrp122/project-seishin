@@ -161,4 +161,3 @@ def _run_report_pipeline_impl(job_id: str, user_text: str) -> dict[str, Any]:
         "summary": summary,
         "row_count": len(rows),
     }
-

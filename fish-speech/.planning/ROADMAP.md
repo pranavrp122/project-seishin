@@ -61,11 +61,11 @@ Plans:
   3. No audible artifacts at sub-chunk decode boundaries within a single text chunk
   4. Existing between-chunk crossfader continues to work correctly with sub-chunk streaming
   5. torch.compile compatibility maintained (no graph breaks from yield points)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [x] 03-01-PLAN.md — Generator conversion: convert decode_n_tokens/generate/generate_long to yield sub-chunk partials, add is_partial flag and sub_chunk_tokens parameter
+- [x] 03-02-PLAN.md — Consumer: grow-and-redecode in TTSInferenceEngine.inference with text-chunk boundary crossfade
 
 ### Phase 4: Robustness & Validation
 **Goal**: Streaming pipeline handles edge cases without exceeding resource limits and coexists with the existing non-streaming path
@@ -91,5 +91,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Text Splitting & Emotion Propagation | 2/2 | Complete | 2026-04-12 |
 | 2. Streaming Pipeline & Audio Quality | 2/2 | Complete | 2026-04-12 |
-| 3. Sub-Chunk Audio Streaming | 0/0 | Not started | - |
+| 3. Sub-Chunk Audio Streaming | 0/2 | Planning complete | - |
 | 4. Robustness & Validation | 0/0 | Not started | - |

@@ -97,6 +97,7 @@ class ServeTTSRequest(BaseModel):
     normalize: bool = True
     # not usually used below
     streaming: bool = False
+    sub_chunk_tokens: Annotated[int, Field(ge=0, le=100)] = 0
     max_new_tokens: int = 1024
     top_p: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
     repetition_penalty: Annotated[float, Field(ge=0.9, le=2.0, strict=True)] = 1.1

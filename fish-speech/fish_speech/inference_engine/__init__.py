@@ -89,8 +89,12 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
         segments = []
         crossfader = StreamingCrossfader(overlap_samples=1764) if req.streaming else None
 
+        # Grow-and-redecode state for sub-chunk streaming
+        prev_audio_samples = 0
+        prev_batch_tail: np.ndarray | None = None
+        is_sub_chunk_mode = False
+
         while True:
-            # Get the response from the LLAMA model
             wrapped_result: WrappedGenerateResponse = response_queue.get()
             if wrapped_result.status == "error":
                 yield InferenceResult(
@@ -104,28 +108,87 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 )
                 break
 
-            # Check the response type
             if not isinstance(wrapped_result.response, GenerateResponse):
                 raise TypeError(
                     f"Expected GenerateResponse, got {type(wrapped_result.response).__name__}"
                 )
 
             result: GenerateResponse = wrapped_result.response
-            if result.action != "next":
-                segment = self.get_audio_segment(result)
-
-                if crossfader is not None:
-                    emittable = crossfader.process(segment)
-                    if emittable is not None and len(emittable) > 0:
-                        yield InferenceResult(
-                            code="segment",
-                            audio=(sample_rate, emittable),
-                            error=None,
-                        )
-
-                segments.append(segment)
-            else:
+            if result.action == "next":
                 break
+
+            if result.is_partial:
+                # --- Sub-chunk partial: grow-and-redecode ---
+                is_sub_chunk_mode = True
+                segment = self.get_audio_segment(result)
+                new_audio = segment[prev_audio_samples:]
+                prev_audio_samples = len(segment)
+
+                if len(new_audio) > 0:
+                    # Apply text-chunk boundary crossfade if tail from previous batch exists
+                    if prev_batch_tail is not None:
+                        if len(new_audio) >= len(prev_batch_tail):
+                            overlap_len = len(prev_batch_tail)
+                            t = np.linspace(0, 1, overlap_len, dtype=np.float32)
+                            fade_in = np.sin(t * np.pi / 2) ** 2
+                            fade_out = np.cos(t * np.pi / 2) ** 2
+                            head = new_audio[:overlap_len]
+                            blended = prev_batch_tail * fade_out + head * fade_in
+                            new_audio = np.concatenate([blended, new_audio[overlap_len:]])
+                        else:
+                            new_audio = np.concatenate([prev_batch_tail, new_audio])
+                        prev_batch_tail = None
+
+                    yield InferenceResult(
+                        code="segment",
+                        audio=(sample_rate, new_audio),
+                        error=None,
+                    )
+                    segments.append(new_audio)
+
+            else:
+                # --- Final chunk of text batch (is_partial=False) ---
+                if is_sub_chunk_mode:
+                    segment = self.get_audio_segment(result)
+                    new_audio = segment[prev_audio_samples:]
+                    prev_audio_samples = 0
+                    is_sub_chunk_mode = False
+
+                    if len(new_audio) > 0:
+                        overlap = 1764
+                        if len(new_audio) > overlap:
+                            body = new_audio[:-overlap]
+                            prev_batch_tail = new_audio[-overlap:].copy()
+                            yield InferenceResult(
+                                code="segment",
+                                audio=(sample_rate, body),
+                                error=None,
+                            )
+                            segments.append(body)
+                        else:
+                            prev_batch_tail = new_audio.copy()
+
+                else:
+                    # No sub-chunking -- use crossfader as before (backward compat)
+                    segment = self.get_audio_segment(result)
+                    if crossfader is not None:
+                        emittable = crossfader.process(segment)
+                        if emittable is not None and len(emittable) > 0:
+                            yield InferenceResult(
+                                code="segment",
+                                audio=(sample_rate, emittable),
+                                error=None,
+                            )
+                    segments.append(segment)
+
+        # Flush sub-chunk tail buffer
+        if prev_batch_tail is not None:
+            yield InferenceResult(
+                code="segment",
+                audio=(sample_rate, prev_batch_tail),
+                error=None,
+            )
+            segments.append(prev_batch_tail)
 
         # Flush remaining crossfader tail for streaming (per D-07)
         if crossfader is not None:
@@ -179,6 +242,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             chunk_length=req.chunk_length,
             prompt_tokens=prompt_tokens,
             prompt_text=prompt_texts,
+            sub_chunk_tokens=req.sub_chunk_tokens if req.streaming else 0,
         )
 
         # Create a queue to get the response

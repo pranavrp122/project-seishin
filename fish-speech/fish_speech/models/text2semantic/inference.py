@@ -212,6 +212,7 @@ def decode_n_tokens(
     audio_masks: torch.Tensor,
     audio_parts: torch.Tensor,
     decode_one_token=decode_one_token_ar,
+    sub_chunk_tokens: int = 0,
 ):
     # Rolling window for RAS (Repetition Aware Sampling)
     previous_tokens = torch.zeros(
@@ -249,12 +250,19 @@ def decode_n_tokens(
         ]
         new_tokens.append(next_token)
 
+        # Sub-chunk yield point: yield accumulated tokens every sub_chunk_tokens steps
+        if sub_chunk_tokens > 0 and len(new_tokens) >= sub_chunk_tokens:
+            yield torch.cat(new_tokens, dim=1)
+            new_tokens = []
+
         if cur_token[0, 0, -1] == im_end_id:
             break
 
     del cur_token
 
-    return torch.cat(new_tokens, dim=1)
+    # Yield remaining tokens (final batch or all tokens if sub_chunk_tokens=0)
+    if new_tokens:
+        yield torch.cat(new_tokens, dim=1)
 
 
 @torch.no_grad()
@@ -268,6 +276,7 @@ def generate(
     audio_parts: torch.Tensor,
     decode_one_token=decode_one_token_ar,
     num_samples: int = 1,
+    sub_chunk_tokens: int = 0,
     **sampling_kwargs,
 ):
     """
@@ -356,7 +365,10 @@ def generate(
     # Recreate input_pos
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
 
-    x = decode_n_tokens(
+    # Track cumulative write position for assembling seq
+    write_pos = T + 1
+
+    for partial_codes in decode_n_tokens(
         model,
         first_token.view(1, codebook_dim, -1),
         input_pos,
@@ -368,14 +380,14 @@ def generate(
         audio_masks=audio_masks,
         audio_parts=audio_parts,
         decode_one_token=decode_one_token,
-    )
-    seq = seq[:, : T + 1 + x.size(1)]
-    seq[:, T + 1 :] = x
+        sub_chunk_tokens=sub_chunk_tokens,
+    ):
+        n = partial_codes.size(1)
+        seq[:, write_pos : write_pos + n] = partial_codes
+        write_pos += n
+        yield seq[:, :write_pos]
 
-    # Clean up temporary variables
-    del first_token, x, prompt, empty, input_pos
-
-    return seq
+    del first_token, prompt, empty, input_pos
 
 
 def init_model(checkpoint_path, device, precision, compile=False):
@@ -486,6 +498,7 @@ class GenerateResponse:
     action: Literal["sample", "next"]
     codes: Optional[torch.Tensor] = None
     text: Optional[str] = None
+    is_partial: bool = False
 
 
 def split_text_by_speaker(text: str) -> list[str]:
@@ -812,6 +825,7 @@ def generate_long(
     chunk_length: int = 512,
     prompt_text: Optional[Union[str, list[str]]] = None,
     prompt_tokens: Optional[Union[torch.Tensor, list[torch.Tensor]]] = None,
+    sub_chunk_tokens: int = 0,
 ):
     assert 0 < top_p <= 1, "top_p must be in (0, 1]"
     assert 0 < temperature < 2, "temperature must be in (0, 2)"
@@ -960,7 +974,8 @@ def generate_long(
             encoded = encoded.to(device=device)
             prompt_length = encoded.size(1)
 
-            y = generate(
+            last_seq = None
+            for cumulative_seq in generate(
                 model=model,
                 prompt=encoded,
                 max_new_tokens=max_new_tokens,
@@ -970,7 +985,16 @@ def generate_long(
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
-            )
+                sub_chunk_tokens=sub_chunk_tokens,
+            ):
+                last_seq = cumulative_seq
+                if sub_chunk_tokens > 0:
+                    # Extract codes from cumulative seq for this partial
+                    codes = cumulative_seq[1:, prompt_length:].clone()
+                    if codes.size(1) > 0:
+                        yield GenerateResponse(
+                            action="sample", codes=codes, text=batch_text, is_partial=True
+                        )
 
             if sample_idx == 0 and batch_idx == 0 and compile:
                 logger.info(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
@@ -978,6 +1002,7 @@ def generate_long(
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
 
+            y = last_seq
             t_batch = time.perf_counter() - t0
             tokens_generated = y.size(1) - prompt_length
             tokens_sec = tokens_generated / t_batch if t_batch > 0 else 0
@@ -989,7 +1014,7 @@ def generate_long(
                 f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s"
             )
 
-            # Extract generated codes
+            # Extract final codes (full chunk)
             codes = y[1:, prompt_length:-1].clone()
             assert (codes >= 0).all(), f"Negative code found: {codes}"
 
@@ -1005,9 +1030,9 @@ def generate_long(
                 )
             )
 
-            yield GenerateResponse(action="sample", codes=codes, text=batch_text)
+            # Final yield for this text batch (is_partial=False)
+            yield GenerateResponse(action="sample", codes=codes, text=batch_text, is_partial=False)
 
-            # Cleanup
             del y, encoded
 
         if torch.cuda.is_available():

@@ -37,11 +37,11 @@
 ### Sub-Chunk Audio Streaming
 
 - [ ] **SUBCHK-01**: generate_long yields partial VQ code tensors every N tokens during generation (not after full chunk)
-- [ ] **SUBCHK-02**: DAC decoder produces valid audio from partial VQ token sequences (minimum 10 tokens)
-- [ ] **SUBCHK-03**: DAC decoder state managed correctly across partial decode calls (no boundary artifacts)
+- [x] **SUBCHK-02**: DAC decoder produces valid audio from partial VQ token sequences (minimum 10 tokens)
+- [x] **SUBCHK-03**: DAC decoder state managed correctly across partial decode calls (no boundary artifacts)
 - [ ] **SUBCHK-04**: TTFA < 200ms for typical dialogue lines (50-200 chars) with cached reference
-- [ ] **SUBCHK-05**: Sub-chunk decode boundaries produce no audible artifacts within a text chunk
-- [ ] **SUBCHK-06**: Existing between-chunk crossfader integrates correctly with sub-chunk streaming
+- [x] **SUBCHK-05**: Sub-chunk decode boundaries produce no audible artifacts within a text chunk
+- [x] **SUBCHK-06**: Existing between-chunk crossfader integrates correctly with sub-chunk streaming
 
 ### Robustness
 
@@ -96,11 +96,11 @@
 | STRM-04 | Phase 2 | Complete |
 | STRM-05 | Phase 2 | Complete |
 | SUBCHK-01 | Phase 3 | Pending |
-| SUBCHK-02 | Phase 3 | Pending |
-| SUBCHK-03 | Phase 3 | Pending |
+| SUBCHK-02 | Phase 3 | Complete |
+| SUBCHK-03 | Phase 3 | Complete |
 | SUBCHK-04 | Phase 3 | Pending |
-| SUBCHK-05 | Phase 3 | Pending |
-| SUBCHK-06 | Phase 3 | Pending |
+| SUBCHK-05 | Phase 3 | Complete |
+| SUBCHK-06 | Phase 3 | Complete |
 | RBST-01 | Phase 4 | Pending |
 | RBST-02 | Phase 4 | Pending |
 | RBST-03 | Phase 4 | Pending |

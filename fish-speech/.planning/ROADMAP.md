@@ -30,11 +30,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Pause distribution (location, duration, frequency) is measured and documented across baseline corpus
   4. Inline tag responsiveness ([inhale], [slow], [fast], [pause]) is tested and documented with clear pass/fail per tag
   5. Adversarial test corpus exists with fragments, 50+ word sentences, numbers, questions, and mixed-emotion inputs
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Generate baseline + adversarial audio corpora (BASE-01, BASE-05)
+- [ ] 01-02-PLAN.md — Test inline tag responsiveness (BASE-04)
+- [ ] 01-03-PLAN.md — F0 pitch + pause distribution analysis (BASE-02, BASE-03)
 
 ### Phase 2: Post-FX Chain
 **Goal**: Every utterance sounds warmer, more present, and more polished through a professional audio processing chain, with zero changes to text or generation pipeline
@@ -106,7 +107,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Baseline Measurement | 0/0 | Not started | - |
+| 1. Baseline Measurement | 0/3 | Planned | - |
 | 2. Post-FX Chain | 0/0 | Not started | - |
 | 3. Text Preprocessor & Pauses | 0/0 | Not started | - |
 | 4. Breathing & Volume Dynamics | 0/0 | Not started | - |

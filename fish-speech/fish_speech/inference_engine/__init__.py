@@ -96,7 +96,9 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
         segments = []
         crossfader = StreamingCrossfader(overlap_samples=1764) if req.streaming else None
-        post_fx = HumanismPostFX(PostFXConfig())  # per-request instance (WARM-07)
+        # Post-FX disabled: A/B testing showed quality degradation (EQ/compression/saturation hurting clarity)
+        # Revisit with tuned parameters in Phase 5 validation
+        post_fx = None  # was: HumanismPostFX(PostFXConfig())
 
         # Grow-and-redecode state for sub-chunk streaming
         prev_audio_samples = 0
@@ -134,7 +136,8 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 prev_audio_samples = len(segment)
 
                 if len(new_audio) > 0:
-                    new_audio = post_fx.process(new_audio, sample_rate)
+                    if post_fx is not None:
+                        new_audio = post_fx.process(new_audio, sample_rate)
                     # Apply text-chunk boundary crossfade if tail from previous batch exists
                     if prev_batch_tail is not None:
                         if len(new_audio) >= len(prev_batch_tail):
@@ -165,7 +168,8 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                     is_sub_chunk_mode = False
 
                     if len(new_audio) > 0:
-                        new_audio = post_fx.process(new_audio, sample_rate)
+                        if post_fx is not None:
+                            new_audio = post_fx.process(new_audio, sample_rate)
                         overlap = 1764
                         if len(new_audio) > overlap:
                             body = new_audio[:-overlap]
@@ -181,7 +185,9 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
                 else:
                     # No sub-chunking -- use crossfader as before (backward compat)
-                    segment = post_fx.process(self.get_audio_segment(result), sample_rate)
+                    segment = self.get_audio_segment(result)
+                    if post_fx is not None:
+                        segment = post_fx.process(segment, sample_rate)
                     if crossfader is not None:
                         emittable = crossfader.process(segment)
                         if emittable is not None and len(emittable) > 0:

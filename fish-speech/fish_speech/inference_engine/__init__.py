@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from loguru import logger
 from fish_speech.utils.post_fx import HumanismPostFX, PostFXConfig
+from fish_speech.utils.text_preprocessor import TextPreprocessor, PreprocessorConfig
 
 from fish_speech.inference_engine.crossfader import StreamingCrossfader
 from fish_speech.inference_engine.reference_loader import ReferenceLoader
@@ -61,6 +62,17 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
         if req.seed is not None:
             set_seed(req.seed)
             logger.warning(f"set seed: {req.seed}")
+
+        # Text preprocessing: inject clause punctuation, [slow] tags, generate hints (Phase 3)
+        preprocessor = TextPreprocessor(PreprocessorConfig())
+        preprocessed_text, humanism_hints = preprocessor.preprocess(req.text)
+        req.text = preprocessed_text  # Modified text flows to generate_long -> split_text_into_chunks
+        # humanism_hints stored for Phase 4 consumption (breathing, volume dynamics)
+
+        if humanism_hints.original_text != preprocessed_text:
+            logger.debug(f"Text preprocessed: {len(humanism_hints.pause_hints)} pause hints, "
+                        f"{len(humanism_hints.rate_hints)} rate hints, "
+                        f"{len(humanism_hints.breathing_cues)} breathing cues")
 
         # Get the symbolic tokens from the LLAMA model
         response_queue = self.send_Llama_request(req, prompt_tokens, prompt_texts)

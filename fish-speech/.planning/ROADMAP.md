@@ -12,9 +12,9 @@ Make Fish Speech S2-Pro output sound like a person talking, not a machine readin
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Baseline Measurement** - Quantify what the model already does before modifying anything
-- [ ] **Phase 2: Post-FX Chain** - Professional vocal chain for warmth, presence, and polish
-- [ ] **Phase 3: Text Preprocessor & Pauses** - Punctuation injection, pause tags, and speech rate variation via text-level manipulation
+- [x] **Phase 1: Baseline Measurement** - Quantify what the model already does before modifying anything
+- [x] **Phase 2: Post-FX Chain** - Professional vocal chain for warmth, presence, and polish
+- [x] **Phase 3: Text Preprocessor & Pauses** - Punctuation injection, pause tags, and speech rate variation via text-level manipulation
 - [ ] **Phase 4: Breathing & Volume Dynamics** - Sparse breathing cues and per-segment volume variation for emotional range
 - [ ] **Phase 5: Validation & Tuning** - Adversarial testing, parameter tuning, and regression baseline
 
@@ -63,11 +63,11 @@ Plans:
   3. [slow] and [fast] tags are inserted at emotional transition points, producing audible speech rate variation
   4. Per-chunk HumanismHints metadata is generated and available for downstream audio processing (Phase 4)
   5. Text preprocessing adds less than 10ms to time-to-first-audio
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [x] 03-01-PLAN.md — TextPreprocessor module with clause injection, [slow] tags, pause hints, breathing cues (PAUS-01, PAUS-02, PAUS-03, PAUS-04, PAUS-05)
+- [x] 03-02-PLAN.md — Integrate into inference pipeline + verify <10ms overhead (PAUS-06)
 
 ### Phase 4: Breathing & Volume Dynamics
 **Goal**: Sparse breathing cues and volume variation add the final layer of humanness that crosses the line from "good TTS" to "forgot it was a machine"
@@ -108,7 +108,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Baseline Measurement | 3/3 | Complete | 2026-04-13 |
-| 2. Post-FX Chain | 0/2 | Planned | - |
-| 3. Text Preprocessor & Pauses | 0/0 | Not started | - |
+| 2. Post-FX Chain | 2/2 | Complete | 2026-04-13 |
+| 3. Text Preprocessor & Pauses | 2/2 | Complete | 2026-04-13 |
 | 4. Breathing & Volume Dynamics | 0/0 | Not started | - |
 | 5. Validation & Tuning | 0/0 | Not started | - |

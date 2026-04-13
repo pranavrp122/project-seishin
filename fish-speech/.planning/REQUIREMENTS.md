@@ -26,12 +26,12 @@
 
 ### Text Preprocessing & Pause Injection
 
-- [ ] **PAUS-01**: Text preprocessor injects punctuation at clause boundaries for natural model-generated pauses
-- [ ] **PAUS-02**: [pause]/[short pause] tag insertion at strategic points (sentence boundaries, before long clauses)
-- [ ] **PAUS-03**: Pause duration varies with Gaussian jitter (+/-15-20%) to avoid robotic regularity
-- [ ] **PAUS-04**: [slow]/[fast] tag injection for speech rate variation at emotional transition points
-- [ ] **PAUS-05**: Text preprocessor produces per-chunk metadata (HumanismHints) for downstream audio processing
-- [ ] **PAUS-06**: Text preprocessing adds < 10ms overhead to TTFA
+- [x] **PAUS-01**: Text preprocessor injects punctuation at clause boundaries for natural model-generated pauses
+- [x] **PAUS-02**: [pause]/[short pause] tag insertion at strategic points (sentence boundaries, before long clauses)
+- [x] **PAUS-03**: Pause duration varies with Gaussian jitter (+/-15-20%) to avoid robotic regularity
+- [x] **PAUS-04**: [slow]/[fast] tag injection for speech rate variation at emotional transition points
+- [x] **PAUS-05**: Text preprocessor produces per-chunk metadata (HumanismHints) for downstream audio processing
+- [x] **PAUS-06**: Text preprocessing adds < 10ms overhead to TTFA
 
 ### Breathing & Volume Dynamics
 
@@ -97,12 +97,12 @@
 | WARM-06 | Phase 2 | Complete |
 | WARM-07 | Phase 2 | Complete |
 | WARM-08 | Phase 2 | Complete |
-| PAUS-01 | Phase 3 | Pending |
-| PAUS-02 | Phase 3 | Pending |
-| PAUS-03 | Phase 3 | Pending |
-| PAUS-04 | Phase 3 | Pending |
-| PAUS-05 | Phase 3 | Pending |
-| PAUS-06 | Phase 3 | Pending |
+| PAUS-01 | Phase 3 | Complete |
+| PAUS-02 | Phase 3 | Complete |
+| PAUS-03 | Phase 3 | Complete |
+| PAUS-04 | Phase 3 | Complete |
+| PAUS-05 | Phase 3 | Complete |
+| PAUS-06 | Phase 3 | Complete |
 | BRVL-01 | Phase 4 | Pending |
 | BRVL-02 | Phase 4 | Pending |
 | BRVL-03 | Phase 4 | Pending |

@@ -1,6 +1,6 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
+milestone: v1.9
 milestone_name: TTS Humanism
 status: roadmap-complete
 stopped_at: Roadmap created — 5 phases, 30 requirements mapped
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-13)
 
 **Core value:** TTS output sounds as natural and human-like as possible for AI companion use
-**Current focus:** Milestone v2.0 -- TTS Humanism (roadmap complete, ready to plan Phase 1)
+**Current focus:** Milestone v1.9 -- TTS Humanism (roadmap complete, ready to plan Phase 1)
 
 ## Current Position
 
 Phase: 1 of 5 (Baseline Measurement)
 Plan: --
 Status: Ready to plan
-Last activity: 2026-04-13 -- Roadmap created for v2.0 TTS Humanism
+Last activity: 2026-04-13 -- Roadmap created for v1.9 TTS Humanism
 
 Progress: [..........] 0%
 
@@ -58,9 +58,9 @@ Progress: [..........] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [v2.0 Roadmap]: 5 phases derived from research -- Baseline, Post-FX, Text Preprocessor, Breathing/Volume, Validation
-- [v2.0 Roadmap]: Phase ordering follows "measure before modify" principle -- baseline data gates all subsequent work
-- [v2.0 Roadmap]: Post-FX before text preprocessing because audio-only changes have zero pipeline risk and improve A/B test quality
+- [v1.9 Roadmap]: 5 phases derived from research -- Baseline, Post-FX, Text Preprocessor, Breathing/Volume, Validation
+- [v1.9 Roadmap]: Phase ordering follows "measure before modify" principle -- baseline data gates all subsequent work
+- [v1.9 Roadmap]: Post-FX before text preprocessing because audio-only changes have zero pipeline risk and improve A/B test quality
 
 ### Pending Todos
 
@@ -75,5 +75,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-04-13
-Stopped at: Roadmap created for v2.0 TTS Humanism milestone
+Stopped at: Roadmap created for v1.9 TTS Humanism milestone
 Resume file: None

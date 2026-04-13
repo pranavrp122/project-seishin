@@ -57,7 +57,7 @@ Users hear the first audio within 500ms of submitting text, with no perceivable 
 | Skip speculative decoding | Audio codebook tokens have lower acceptance rates than text; 2-3 weeks engineering for 1.3-1.7x gain | — Pending |
 | Focus on chunk streaming first | Biggest TTFA improvement with least engineering risk | — Pending |
 
-## Current Milestone: v2.0 TTS Humanism
+## Current Milestone: v1.9 TTS Humanism
 
 **Goal:** Make Fish Speech TTS engine output sound as natural and human-like as possible through engine-side modifications only
 

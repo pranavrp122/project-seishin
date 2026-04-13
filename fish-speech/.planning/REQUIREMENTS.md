@@ -1,9 +1,9 @@
-# Requirements: TTS Humanism (v2.0)
+# Requirements: TTS Humanism (v1.9)
 
 **Defined:** 2026-04-13
 **Core Value:** TTS output sounds as natural and human-like as possible for AI companion use
 
-## v2.0 Requirements
+## v1.9 Requirements
 
 ### Baseline Measurement
 
@@ -116,7 +116,7 @@
 | VALD-06 | Phase 5 | Pending |
 
 **Coverage:**
-- v2.0 requirements: 30 total
+- v1.9 requirements: 30 total
 - Mapped to phases: 30
 - Unmapped: 0
 

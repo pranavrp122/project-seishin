@@ -295,3 +295,63 @@ All voice filter test clips are organized under `voice_filter_test/`:
 Previous A/B filter tests remain at:
 - `model_comparison/s2pro_filter_harsh/` — aggressive 5-stage chain
 - `model_comparison/s2pro_filter_tuned/` — research-tuned 5-stage chain
+
+---
+
+## Step 11: Streaming pipeline + sub-chunk audio ✅ STABLE (v1.8-streaming-stable)
+
+**Date**: 2026-04-12 — 2026-04-13
+**Tag**: `v1.8-streaming-stable`
+**Status**: Streaming pipeline complete, sub-chunk decode working. Robustness phase (Phase 4) deferred to later.
+
+### Changes
+
+**Phase 1 — Text Splitting & Emotion Propagation:**
+- `inference.py`: `split_text_into_chunks()` — regex-based clause/sentence boundary splitting
+- First chunk targets 30-80 bytes (fast TTFA), subsequent chunks 100-200 bytes
+- Emotion tags (`[angry]`, `[warm]`, etc.) extracted and propagated to every chunk
+- Mid-text emotion transitions tracked per chunk
+
+**Phase 2 — Streaming Pipeline & Audio Quality:**
+- `inference_engine/crossfader.py`: `StreamingCrossfader` — equal-power sin²/cos² crossfade at chunk boundaries (1764 samples overlap at 44.1kHz)
+- `inference_engine/utils.py`: `wav_chunk_header()` — WAV header with 0xFFFFFFFF sizes for streaming
+- `inference_engine/__init__.py`: wired crossfader into inference loop, per-chunk PeakFilter post-FX
+- Consistent int16 PCM encoding throughout streaming path
+
+**Phase 3 — Sub-Chunk Audio Streaming:**
+- `models/text2semantic/inference.py`: `generate_long()` / `generate()` / `decode_n_tokens()` converted to yield partial VQ code tensors every N tokens (`sub_chunk_tokens` parameter)
+- `inference_engine/__init__.py`: grow-and-redecode consumer — DAC decoder re-decodes full accumulated VQ tokens each partial, emits only new samples
+- Text-chunk boundary crossfade via manual prev_batch_tail buffer (bypasses StreamingCrossfader for sub-chunk mode)
+- `utils/schema.py`: `sub_chunk_tokens` parameter added to `ServeTTSRequest`
+
+### Performance (streaming, sub_chunk_tokens=10, chunk_length=200)
+| Clip | Audio | TTFA | Total | RTF |
+|------|-------|------|-------|-----|
+| 01_warm | 5.5s | ~250ms | 2.1s | 0.38x |
+| 02_exhausted | 10.6s | ~250ms | 3.0s | 0.28x |
+| 03_angry | 3.4s | ~250ms | 1.4s | 0.41x |
+| 04_tender | 6.7s | ~250ms | 2.0s | 0.30x |
+| 05_professional | 10.0s | ~250ms | 2.8s | 0.28x |
+
+**TTFA**: ~250ms (down from ~1.5s baseline)
+**RTF**: ~0.33x mean (slightly higher than non-streaming due to sub-chunk re-decode overhead)
+**VRAM**: ~9.2-9.9 GB (same as Step 10 — streaming adds negligible overhead)
+
+### Architecture
+```
+Text → split_text_into_chunks() → [chunk₁, chunk₂, ...]
+  ↓
+Per chunk: DualAR generate → yield partial VQ codes every N tokens
+  ↓
+grow-and-redecode: DAC(all_codes_so_far) → emit new_samples only
+  ↓
+Text-chunk boundary: prev_batch_tail crossfade (sin²/cos² 1764 samples)
+  ↓
+WAV header (0xFFFFFFFF) + int16 PCM segments → HTTP chunked response
+```
+
+### Known limitations
+- CUDA graph recompilation from variable prompt lengths may cause 100-500ms latency spikes (deferred)
+- Context overflow at ~3000-3500 tokens for long texts (deferred)
+- Non-streaming backward compatibility not yet validated (Phase 4 deferred)
+- Sub-chunk RTF slightly higher than batch mode due to repeated DAC decode

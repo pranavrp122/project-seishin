@@ -92,7 +92,7 @@ class ServeTTSRequest(BaseModel):
     # Just pass 7f92f8afb8ec43bf81429cc1c9199cb1
     reference_id: str | None = None
     seed: int | None = None
-    use_memory_cache: Literal["on", "off"] = "off"
+    use_memory_cache: Literal["on", "off"] = "on"
     # Normalize text for en & zh, this increase stability for numbers
     normalize: bool = True
     # not usually used below

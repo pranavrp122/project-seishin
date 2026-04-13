@@ -1,4 +1,3 @@
-import gc
 import queue
 from typing import Generator
 
@@ -7,6 +6,7 @@ import torch
 from loguru import logger
 from pedalboard import Pedalboard, PeakFilter
 
+from fish_speech.inference_engine.crossfader import StreamingCrossfader
 from fish_speech.inference_engine.reference_loader import ReferenceLoader
 from fish_speech.inference_engine.utils import InferenceResult, wav_chunk_header
 from fish_speech.inference_engine.vq_manager import VQManager
@@ -81,12 +81,13 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 code="header",
                 audio=(
                     sample_rate,
-                    np.array(wav_chunk_header(sample_rate=sample_rate)),
+                    wav_chunk_header(sample_rate=sample_rate),
                 ),
                 error=None,
             )
 
         segments = []
+        crossfader = StreamingCrossfader(overlap_samples=1764) if req.streaming else None
 
         while True:
             # Get the response from the LLAMA model
@@ -113,15 +114,28 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             if result.action != "next":
                 segment = self.get_audio_segment(result)
 
-                if req.streaming:  # Used only by the API server
-                    yield InferenceResult(
-                        code="segment",
-                        audio=(sample_rate, segment),
-                        error=None,
-                    )
+                if crossfader is not None:
+                    emittable = crossfader.process(segment)
+                    if emittable is not None and len(emittable) > 0:
+                        yield InferenceResult(
+                            code="segment",
+                            audio=(sample_rate, emittable),
+                            error=None,
+                        )
+
                 segments.append(segment)
             else:
                 break
+
+        # Flush remaining crossfader tail for streaming (per D-07)
+        if crossfader is not None:
+            tail = crossfader.flush()
+            if tail is not None and len(tail) > 0:
+                yield InferenceResult(
+                    code="segment",
+                    audio=(sample_rate, tail),
+                    error=None,
+                )
 
         # Skip per-request memory cleanup — on a dedicated TTS server with stable
         # VRAM, empty_cache + gc.collect adds ~200-400ms overhead per request by

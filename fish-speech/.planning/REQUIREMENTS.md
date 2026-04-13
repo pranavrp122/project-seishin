@@ -7,32 +7,41 @@
 
 ### Text Splitting
 
-- [ ] **SPLIT-01**: System splits single-speaker text at clause/sentence boundaries (`.!?,;:--`)
-- [ ] **SPLIT-02**: First chunk targets 30-80 bytes for fast TTFA
-- [ ] **SPLIT-03**: Subsequent chunks target 100-200 bytes for quality
-- [ ] **SPLIT-04**: Minimum chunk size of 50 bytes enforced (below this, prosody degrades)
-- [ ] **SPLIT-05**: Force-split at max byte limit when no natural boundary exists
+- [x] **SPLIT-01**: System splits single-speaker text at clause/sentence boundaries (`.!?,;:--`)
+- [x] **SPLIT-02**: First chunk targets 30-80 bytes for fast TTFA
+- [x] **SPLIT-03**: Subsequent chunks target 100-200 bytes for quality
+- [x] **SPLIT-04**: Minimum chunk size of 50 bytes enforced (below this, prosody degrades)
+- [x] **SPLIT-05**: Force-split at max byte limit when no natural boundary exists
 
 ### Emotion Consistency
 
-- [ ] **EMOT-01**: Leading emotion tag (e.g., `[angry]`) extracted from input text
-- [ ] **EMOT-02**: Active emotion tag prepended to every chunk before generation
-- [ ] **EMOT-03**: Mid-text emotion transitions tracked and applied to correct chunks
+- [x] **EMOT-01**: Leading emotion tag (e.g., `[angry]`) extracted from input text
+- [x] **EMOT-02**: Active emotion tag prepended to every chunk before generation
+- [x] **EMOT-03**: Mid-text emotion transitions tracked and applied to correct chunks
 
 ### Audio Quality
 
-- [ ] **QUAL-01**: Equal-power crossfade at chunk boundaries eliminates clicks/pops/discontinuities
-- [ ] **QUAL-02**: Crossfade duration tuned to ~10-20ms (441-882 samples at 44.1kHz)
-- [ ] **QUAL-03**: Audio quality subjectively matches non-streaming output across all emotions
-- [ ] **QUAL-04**: PeakFilter post-FX applied consistently (per-chunk for streaming, full audio for non-streaming)
+- [x] **QUAL-01**: Equal-power crossfade at chunk boundaries eliminates clicks/pops/discontinuities
+- [x] **QUAL-02**: Crossfade duration tuned to ~10-20ms (441-882 samples at 44.1kHz)
+- [x] **QUAL-03**: Audio quality subjectively matches non-streaming output across all emotions
+- [x] **QUAL-04**: PeakFilter post-FX applied consistently (per-chunk for streaming, full audio for non-streaming)
 
 ### Streaming Pipeline
 
-- [ ] **STRM-01**: TTFA < 500ms for typical dialogue lines (50-200 chars)
-- [ ] **STRM-02**: Audio segments yielded to client as each chunk completes
-- [ ] **STRM-03**: StreamingCrossfader buffers tail of previous chunk and blends with head of next
-- [ ] **STRM-04**: WAV header uses 0xFFFFFFFF sizes for streaming unknown length
-- [ ] **STRM-05**: Streaming encoding consistent (int16 PCM throughout, no float32 mismatch)
+- [x] **STRM-01**: TTFA < 500ms for typical dialogue lines (50-200 chars)
+- [x] **STRM-02**: Audio segments yielded to client as each chunk completes
+- [x] **STRM-03**: StreamingCrossfader buffers tail of previous chunk and blends with head of next
+- [x] **STRM-04**: WAV header uses 0xFFFFFFFF sizes for streaming unknown length
+- [x] **STRM-05**: Streaming encoding consistent (int16 PCM throughout, no float32 mismatch)
+
+### Sub-Chunk Audio Streaming
+
+- [ ] **SUBCHK-01**: generate_long yields partial VQ code tensors every N tokens during generation (not after full chunk)
+- [ ] **SUBCHK-02**: DAC decoder produces valid audio from partial VQ token sequences (minimum 10 tokens)
+- [ ] **SUBCHK-03**: DAC decoder state managed correctly across partial decode calls (no boundary artifacts)
+- [ ] **SUBCHK-04**: TTFA < 200ms for typical dialogue lines (50-200 chars) with cached reference
+- [ ] **SUBCHK-05**: Sub-chunk decode boundaries produce no audible artifacts within a text chunk
+- [ ] **SUBCHK-06**: Existing between-chunk crossfader integrates correctly with sub-chunk streaming
 
 ### Robustness
 
@@ -69,31 +78,37 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SPLIT-01 | Phase 1 | Pending |
-| SPLIT-02 | Phase 1 | Pending |
-| SPLIT-03 | Phase 1 | Pending |
-| SPLIT-04 | Phase 1 | Pending |
-| SPLIT-05 | Phase 1 | Pending |
-| EMOT-01 | Phase 1 | Pending |
-| EMOT-02 | Phase 1 | Pending |
-| EMOT-03 | Phase 1 | Pending |
-| QUAL-01 | Phase 2 | Pending |
-| QUAL-02 | Phase 2 | Pending |
-| QUAL-03 | Phase 2 | Pending |
-| QUAL-04 | Phase 2 | Pending |
-| STRM-01 | Phase 2 | Pending |
-| STRM-02 | Phase 2 | Pending |
-| STRM-03 | Phase 2 | Pending |
-| STRM-04 | Phase 2 | Pending |
-| STRM-05 | Phase 2 | Pending |
-| RBST-01 | Phase 3 | Pending |
-| RBST-02 | Phase 3 | Pending |
-| RBST-03 | Phase 3 | Pending |
-| RBST-04 | Phase 3 | Pending |
+| SPLIT-01 | Phase 1 | Complete |
+| SPLIT-02 | Phase 1 | Complete |
+| SPLIT-03 | Phase 1 | Complete |
+| SPLIT-04 | Phase 1 | Complete |
+| SPLIT-05 | Phase 1 | Complete |
+| EMOT-01 | Phase 1 | Complete |
+| EMOT-02 | Phase 1 | Complete |
+| EMOT-03 | Phase 1 | Complete |
+| QUAL-01 | Phase 2 | Complete |
+| QUAL-02 | Phase 2 | Complete |
+| QUAL-03 | Phase 2 | Complete |
+| QUAL-04 | Phase 2 | Complete |
+| STRM-01 | Phase 2 | Complete |
+| STRM-02 | Phase 2 | Complete |
+| STRM-03 | Phase 2 | Complete |
+| STRM-04 | Phase 2 | Complete |
+| STRM-05 | Phase 2 | Complete |
+| SUBCHK-01 | Phase 3 | Pending |
+| SUBCHK-02 | Phase 3 | Pending |
+| SUBCHK-03 | Phase 3 | Pending |
+| SUBCHK-04 | Phase 3 | Pending |
+| SUBCHK-05 | Phase 3 | Pending |
+| SUBCHK-06 | Phase 3 | Pending |
+| RBST-01 | Phase 4 | Pending |
+| RBST-02 | Phase 4 | Pending |
+| RBST-03 | Phase 4 | Pending |
+| RBST-04 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 21 total
-- Mapped to phases: 21
+- v1 requirements: 27 total
+- Mapped to phases: 27
 - Unmapped: 0
 
 ---

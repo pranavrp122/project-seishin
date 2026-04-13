@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-04-12T20:52:24.822Z"
-last_activity: 2026-04-12 -- Roadmap created
+status: executing
+stopped_at: Phase 2 complete, verification pending
+last_updated: "2026-04-12T23:00:00.000Z"
+last_activity: 2026-04-12 -- Phase 2 execution complete
 progress:
-  total_phases: 3
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 4
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 4
+  percent: 50
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-12)
 
 **Core value:** Users hear first audio within 500ms with no perceivable quality loss or choppiness
-**Current focus:** Phase 1 - Text Splitting & Emotion Propagation
+**Current focus:** Phase 03 — Sub-Chunk Audio Streaming
 
 ## Current Position
 
-Phase: 1 of 3 (Text Splitting & Emotion Propagation)
-Plan: 0 of 0 in current phase
-Status: Ready to plan
-Last activity: 2026-04-12 -- Roadmap created
+Phase: 03 (Sub-Chunk Audio Streaming) — RESEARCHING
+Plan: 0 of TBD
+Status: Research phase — investigating DAC incremental decoding feasibility
+Last activity: 2026-04-12 -- Phase 3 added to roadmap, requirements defined
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -52,6 +52,10 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: N/A
 
 *Updated after each plan completion*
+| Phase 01 P01 | 6min | 2 tasks | 3 files |
+| Phase 01 P02 | 2min | 1 tasks | 2 files |
+| Phase 02 P01 | 2min | 2 tasks | 2 files |
+| Phase 02 P02 | 2min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -62,6 +66,13 @@ Recent decisions affecting current work:
 
 - Skip speculative decoding (low acceptance rates for audio codebooks, 2-3 weeks for uncertain 1.3-1.7x gain)
 - Focus on chunk streaming first (biggest TTFA improvement with least engineering risk)
+- [Phase 01]: Used abbreviation set filtering instead of variable-width lookbehind (Python re limitation)
+- [Phase 01]: Track chunk offsets from _split_at_boundaries for accurate emotion tag position mapping
+- [Phase 01]: chunk_length maps to subsequent_chunk_bytes with fixed first_chunk_bytes=80 for fast TTFA
+- [Phase 02]: Precompute sin^2/cos^2 fade curves in constructor for zero-cost per-segment blending
+- [Phase 02]: Short segments (< overlap) concatenated with tail buffer rather than partial crossfade
+- [Phase 02]: Crossfader instantiated only when req.streaming is True -- zero overhead for non-streaming
+- [Phase 02]: struct.pack replaces wave module for WAV header -- explicit byte control, 0xFFFFFFFF streaming sizes
 
 ### Pending Todos
 
@@ -74,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T20:52:24.821Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-text-splitting-emotion-propagation/01-CONTEXT.md
+Last session: 2026-04-12T22:32:21.134Z
+Stopped at: Completed 02-02-PLAN.md
+Resume file: None

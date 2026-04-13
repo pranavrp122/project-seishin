@@ -39,6 +39,25 @@ from fish_speech.models.text2semantic.llama import (
     NaiveTransformer,
 )
 
+# --- Text splitting constants ---
+# Sentence boundary: .!? (Latin) and CJK equivalents
+# Abbreviation filtering is done in _find_last_boundary() instead of lookbehind
+# because Python re doesn't support variable-width lookbehinds.
+_SENTENCE_END = re.compile(r"[.!?\u3002\uff01\uff1f]+(?:\s|$)")
+
+# Common abbreviations that should NOT trigger sentence splits
+_ABBREVIATIONS = frozenset(
+    {"Dr", "Mr", "Mrs", "Ms", "Prof", "Jr", "Sr", "St", "vs", "etc",
+     "Rev", "Gen", "Sgt", "Cpl", "Inc", "Ltd", "Corp", "Ave", "Blvd",
+     "Dept", "Fig", "Vol", "No", "Capt", "Lt", "Col", "Maj"}
+)
+
+# Clause boundary: comma, semicolon, colon, em-dash followed by space
+_CLAUSE_BOUNDARY = re.compile(r"[,;:]\s+|(?:--|—)\s*")
+
+# Emotion tag: [word] optionally followed by whitespace
+_EMOTION_TAG = re.compile(r"\[([a-zA-Z]{2,12})\]\s*")
+
 
 def multinomial_sample_one_no_sync(probs_sort):
     q = torch.rand_like(probs_sort)
@@ -538,6 +557,244 @@ def group_turns_into_batches(
     return batches
 
 
+def _char_position_at_byte_limit(text: str, max_bytes: int) -> int:
+    """Return the character index where cumulative UTF-8 bytes exceed max_bytes.
+
+    This is the safe alternative to slicing bytes directly -- avoids
+    mid-codepoint splits on multi-byte UTF-8 characters.
+    """
+    byte_count = 0
+    for i, ch in enumerate(text):
+        byte_count += len(ch.encode("utf-8"))
+        if byte_count > max_bytes:
+            return i
+    return len(text)
+
+
+def _find_last_boundary(
+    text: str, pattern: re.Pattern, filter_abbreviations: bool = False
+) -> Optional[int]:
+    """Find the last match of pattern in text, return split position after the match.
+
+    When filter_abbreviations is True, skips matches preceded by a common
+    abbreviation (Dr., Mr., etc.) to avoid false sentence splits.
+
+    Returns None if no match found.
+    """
+    last_match = None
+    for match in pattern.finditer(text):
+        if filter_abbreviations:
+            # Check if the period is preceded by an abbreviation
+            start = match.start()
+            # Extract the word before the punctuation
+            preceding = text[:start].rstrip()
+            last_word = preceding.rsplit(None, 1)[-1] if preceding else ""
+            if last_word in _ABBREVIATIONS:
+                continue
+        last_match = match
+    if last_match is not None:
+        return last_match.end()
+    return None
+
+
+def _find_best_split(text: str, max_bytes: int) -> int:
+    """Find the best character position to split text within max_bytes budget.
+
+    Priority: sentence boundary > clause boundary > word boundary > force-split.
+    When no sentence/clause boundary exists within budget, looks ahead up to 50%
+    beyond the budget for the next sentence boundary to avoid mid-phrase splits.
+    Returns character index for the split point.
+    """
+    text_bytes = text.encode("utf-8")
+    if len(text_bytes) <= max_bytes:
+        return len(text)
+
+    # Find character position at byte limit
+    char_pos = _char_position_at_byte_limit(text, max_bytes)
+    search_region = text[:char_pos]
+
+    # Priority 1: Sentence boundaries (with abbreviation filtering)
+    best = _find_last_boundary(search_region, _SENTENCE_END, filter_abbreviations=True)
+    if best is not None:
+        return best
+
+    # Priority 2: Clause boundaries
+    best = _find_last_boundary(search_region, _CLAUSE_BOUNDARY)
+    if best is not None:
+        return best
+
+    # Priority 3: Lookahead — search beyond budget for the next sentence or clause
+    # boundary (up to 50% overshoot) to avoid splitting mid-phrase
+    lookahead_bytes = int(max_bytes * 1.5)
+    lookahead_char_pos = _char_position_at_byte_limit(text, lookahead_bytes)
+    lookahead_region = text[char_pos:lookahead_char_pos]
+
+    # Check for next sentence boundary in the lookahead zone
+    match = _SENTENCE_END.search(lookahead_region)
+    if match is not None:
+        return char_pos + match.end()
+
+    # Check for next clause boundary in the lookahead zone
+    match = _CLAUSE_BOUNDARY.search(lookahead_region)
+    if match is not None:
+        return char_pos + match.end()
+
+    # Priority 4: Last space (word boundary) within original budget
+    last_space = search_region.rfind(" ")
+    if last_space > 0:
+        return last_space + 1  # Split after the space
+
+    # Priority 5: Force-split at byte limit (no word boundary found)
+    return char_pos
+
+
+def _split_at_boundaries(
+    text: str,
+    first_chunk_bytes: int,
+    subsequent_chunk_bytes: int,
+    min_chunk_bytes: int,
+) -> tuple[list[str], list[int]]:
+    """Split text into chunks using boundary-priority splitting.
+
+    First iteration uses first_chunk_bytes as budget, subsequent iterations
+    use subsequent_chunk_bytes. Sub-minimum final chunks are merged back.
+
+    Returns:
+        Tuple of (chunks, offsets) where offsets[i] is the start position
+        of chunks[i] in the original text.
+    """
+    chunks: list[str] = []
+    offsets: list[int] = []
+    pos = 0  # Current position in original text
+    is_first = True
+
+    while pos < len(text):
+        # Skip leading whitespace, tracking position
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+        if pos >= len(text):
+            break
+
+        remaining = text[pos:]
+        budget = first_chunk_bytes if is_first else subsequent_chunk_bytes
+        remaining_bytes = len(remaining.encode("utf-8"))
+
+        if remaining_bytes <= budget:
+            # Everything fits in this chunk
+            if chunks and remaining_bytes < min_chunk_bytes:
+                # Merge sub-minimum remainder into previous chunk
+                chunks[-1] = chunks[-1] + " " + remaining
+            else:
+                chunks.append(remaining)
+                offsets.append(pos)
+            break
+
+        split_pos = _find_best_split(remaining, budget)
+        if split_pos <= 0:
+            # Safety: shouldn't happen, but avoid infinite loop
+            chunks.append(remaining)
+            offsets.append(pos)
+            break
+
+        chunk = remaining[:split_pos].rstrip()
+        is_first = False
+
+        if chunk:
+            chunks.append(chunk)
+            offsets.append(pos)
+
+        pos += split_pos
+
+    return chunks, offsets
+
+
+def _propagate_emotions(
+    chunks: list[str],
+    chunk_offsets: list[int],
+    tag_positions: list[tuple[int, str]],
+) -> list[str]:
+    """Prepend the active emotion tag to each chunk based on character position.
+
+    Args:
+        chunks: List of text chunks (clean text, no emotion tags).
+        chunk_offsets: Start position of each chunk in the original clean text.
+        tag_positions: List of (char_position_in_clean_text, tag_name).
+    """
+    if not tag_positions:
+        return chunks
+
+    result = []
+    tag_idx = 0
+    active_tag: Optional[str] = None
+
+    for i, chunk in enumerate(chunks):
+        offset = chunk_offsets[i] if i < len(chunk_offsets) else 0
+
+        # Advance tag state to this chunk's position
+        while tag_idx < len(tag_positions) and tag_positions[tag_idx][0] <= offset:
+            active_tag = tag_positions[tag_idx][1]
+            tag_idx += 1
+
+        # Prepend tag if active and chunk doesn't already start with one
+        if active_tag and not re.match(r"^\[\w+\]", chunk):
+            result.append(f"[{active_tag}] {chunk}")
+        else:
+            result.append(chunk)
+
+    return result
+
+
+def split_text_into_chunks(
+    text: str,
+    first_chunk_bytes: int = 80,
+    subsequent_chunk_bytes: int = 200,
+    min_chunk_bytes: int = 50,
+) -> list[str]:
+    """Split single-speaker text into byte-budgeted chunks with emotion tag propagation.
+
+    Three phases:
+    1. Strip emotion tags, record their positions in the clean text
+    2. Split the clean text at natural boundaries (sentence > clause > word > force)
+    3. Propagate the correct emotion tag to each chunk
+
+    Args:
+        text: Input text, may contain emotion tags like [angry]
+        first_chunk_bytes: Byte budget for the first chunk (smaller for fast TTFA)
+        subsequent_chunk_bytes: Byte budget for subsequent chunks
+        min_chunk_bytes: Minimum chunk size; smaller remainders merge into previous
+
+    Returns:
+        List of text chunks, each with the appropriate emotion tag prepended
+    """
+    # Phase 1: Extract and strip emotion tags, recording positions
+    text = text.strip()
+    tag_positions: list[tuple[int, str]] = []
+    clean_text = ""
+    last_end = 0
+
+    for match in _EMOTION_TAG.finditer(text):
+        clean_text += text[last_end : match.start()]
+        tag_name = match.group(1)
+        tag_positions.append((len(clean_text), tag_name))
+        last_end = match.end()
+    clean_text += text[last_end:]
+    clean_text = clean_text.strip()
+
+    if not clean_text:
+        return []
+
+    # Phase 2: Split clean text at boundaries
+    chunks, chunk_offsets = _split_at_boundaries(
+        clean_text, first_chunk_bytes, subsequent_chunk_bytes, min_chunk_bytes
+    )
+
+    if not chunks:
+        return []
+
+    # Phase 3: Propagate emotion tags to chunks
+    return _propagate_emotions(chunks, chunk_offsets, tag_positions)
+
+
 def generate_long(
     *,
     model,
@@ -621,10 +878,20 @@ def generate_long(
         batches = group_turns_into_batches(
             turns, max_speakers=5, max_bytes=chunk_length
         )
+        logger.info(f"Split into {len(turns)} turns, grouped into {len(batches)} batches")
     else:
-        batches = [text]
-
-    logger.info(f"Split into {len(turns)} turns, grouped into {len(batches)} batches")
+        text = text.strip()
+        if not text:
+            return
+        batches = split_text_into_chunks(
+            text,
+            first_chunk_bytes=80,
+            subsequent_chunk_bytes=chunk_length,
+            min_chunk_bytes=50,
+        )
+        if not batches:
+            batches = [text]
+        logger.info(f"Single-speaker: split text into {len(batches)} chunks")
 
     for sample_idx in range(num_samples):
         if torch.cuda.is_available():

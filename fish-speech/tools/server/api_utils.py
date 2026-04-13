@@ -70,10 +70,26 @@ class MsgPackRequest(HttpRequest):
 
 
 async def inference_async(req: ServeTTSRequest, engine: TTSInferenceEngine):
-    for chunk in inference(req, engine):
-        print("Got chunk")
-        if isinstance(chunk, bytes):
-            yield chunk
+    import asyncio
+
+    q: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def _produce():
+        try:
+            for chunk in inference(req, engine):
+                if isinstance(chunk, bytes):
+                    loop.call_soon_threadsafe(q.put_nowait, chunk)
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, None)
+
+    loop.run_in_executor(None, _produce)
+
+    while True:
+        chunk = await q.get()
+        if chunk is None:
+            break
+        yield chunk
 
 
 async def buffer_to_async_generator(buffer):

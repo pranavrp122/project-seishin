@@ -4,7 +4,7 @@ from typing import Generator
 import numpy as np
 import torch
 from loguru import logger
-from fish_speech.utils.post_fx import HumanismPostFX, PostFXConfig
+from fish_speech.utils.audio_processor import HumanismAudioProcessor, AudioProcessorConfig
 from fish_speech.utils.text_preprocessor import TextPreprocessor, PreprocessorConfig
 
 from fish_speech.inference_engine.crossfader import StreamingCrossfader
@@ -67,7 +67,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
         preprocessor = TextPreprocessor(PreprocessorConfig())
         preprocessed_text, humanism_hints = preprocessor.preprocess(req.text)
         req.text = preprocessed_text  # Modified text flows to generate_long -> split_text_into_chunks
-        # humanism_hints stored for Phase 4 consumption (breathing, volume dynamics)
+        text_length = len(preprocessed_text)  # For proportional char-to-sample mapping (D-14)
 
         if humanism_hints.original_text != preprocessed_text:
             logger.debug(f"Text preprocessed: {len(humanism_hints.pause_hints)} pause hints, "
@@ -96,9 +96,15 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
         segments = []
         crossfader = StreamingCrossfader(overlap_samples=1764) if req.streaming else None
-        # Post-FX disabled: A/B testing showed quality degradation (EQ/compression/saturation hurting clarity)
-        # Revisit with tuned parameters in Phase 5 validation
-        post_fx = None  # was: HumanismPostFX(PostFXConfig())
+        # Audio processor: breathing silences + volume dynamics (Phase 4)
+        # Replaces disabled FX chain (D-02: previous approach degraded clarity)
+        audio_processor = HumanismAudioProcessor(
+            config=AudioProcessorConfig(),
+            humanism_hints=humanism_hints,
+            text_length=text_length,
+            sample_rate=sample_rate,
+        )
+        cumulative_audio_samples = 0  # Track position for volume dynamics mapping
 
         # Grow-and-redecode state for sub-chunk streaming
         prev_audio_samples = 0
@@ -136,8 +142,8 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 prev_audio_samples = len(segment)
 
                 if len(new_audio) > 0:
-                    if post_fx is not None:
-                        new_audio = post_fx.process(new_audio, sample_rate)
+                    new_audio = audio_processor.process_volume(new_audio, cumulative_audio_samples)
+                    cumulative_audio_samples += len(new_audio)
                     # Apply text-chunk boundary crossfade if tail from previous batch exists
                     if prev_batch_tail is not None:
                         if len(new_audio) >= len(prev_batch_tail):
@@ -168,8 +174,8 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                     is_sub_chunk_mode = False
 
                     if len(new_audio) > 0:
-                        if post_fx is not None:
-                            new_audio = post_fx.process(new_audio, sample_rate)
+                        new_audio = audio_processor.process_volume(new_audio, cumulative_audio_samples)
+                        cumulative_audio_samples += len(new_audio)
                         overlap = 1764
                         if len(new_audio) > overlap:
                             body = new_audio[:-overlap]
@@ -186,8 +192,8 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                 else:
                     # No sub-chunking -- use crossfader as before (backward compat)
                     segment = self.get_audio_segment(result)
-                    if post_fx is not None:
-                        segment = post_fx.process(segment, sample_rate)
+                    segment = audio_processor.process_volume(segment, cumulative_audio_samples)
+                    cumulative_audio_samples += len(segment)
                     if crossfader is not None:
                         emittable = crossfader.process(segment)
                         if emittable is not None and len(emittable) > 0:
@@ -231,6 +237,10 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
         else:
             # Streaming or not, return the final audio
             audio = np.concatenate(segments, axis=0)
+            # Apply breathing silences to final concatenated audio (D-04, BRVL-01)
+            # Done on final audio only -- silence insertion changes array length,
+            # unsafe during streaming (Pitfall 2)
+            audio = audio_processor.process_breathing(audio)
             yield InferenceResult(
                 code="final",
                 audio=(sample_rate, audio),

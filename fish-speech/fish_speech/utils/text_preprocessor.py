@@ -43,6 +43,15 @@ _PUNCT_POSITIONS = re.compile(r"[,;:.!?\u2014]|(?:--)")
 # Sentence boundary for splitting (lookbehind after .!?)
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 
+# Parenthetical aside: (text inside parentheses)
+_PAREN_ASIDE = re.compile(r'\(([^)]+)\)')
+
+# Em-dash aside: -- text -- or unicode em-dash pairs
+_EM_DASH_ASIDE = re.compile(r'(?:\u2014|--)\s*([^\u2014\-]+?)\s*(?:\u2014|--)')
+
+# Exclamation sentences (full sentence ending with !)
+_EXCLAMATION_SENTENCE = re.compile(r'[^.!?]*![^.!?]*')
+
 # Common abbreviations -- periods after these are NOT sentence ends
 _ABBREVIATIONS = frozenset(
     {
@@ -82,6 +91,7 @@ class PreprocessorConfig:
     enable_pause_hints: bool = True
     pause_jitter_pct: float = 0.175
     enable_breathing_cues: bool = True
+    enable_volume_hints: bool = True
 
 
 @dataclass
@@ -110,6 +120,16 @@ class BreathingCue:
 
 
 @dataclass
+class VolumeHint:
+    """Metadata for a volume adjustment region."""
+
+    char_offset: int  # Start of the region in preprocessed text
+    char_length: int  # Length of the region in characters
+    gain: float  # Gain multiplier (0.85 for aside, 1.1 for emphasis)
+    reason: str  # "aside_parenthetical", "aside_em_dash", "emphasis_exclamation"
+
+
+@dataclass
 class HumanismHints:
     """Paired metadata returned alongside preprocessed text.
 
@@ -121,6 +141,7 @@ class HumanismHints:
     pause_hints: list[PauseHint] = field(default_factory=list)
     rate_hints: list[RateHint] = field(default_factory=list)
     breathing_cues: list[BreathingCue] = field(default_factory=list)
+    volume_hints: list[VolumeHint] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +172,7 @@ class TextPreprocessor:
             3. Insert [slow] tags before emotion-tagged sentences (if enabled)
             4. Generate pause hints at punctuation positions (if enabled)
             5. Generate breathing cues for long phrases (if enabled)
+            6. Generate volume hints for asides and emphasis (if enabled)
 
         Returns:
             Tuple of (preprocessed_text, HumanismHints).
@@ -179,11 +201,17 @@ class TextPreprocessor:
         if self._config.enable_breathing_cues:
             breathing_cues = self._generate_breathing_cues(text)
 
+        # Step 5: Volume hints (Phase 4)
+        volume_hints: list[VolumeHint] = []
+        if self._config.enable_volume_hints:
+            volume_hints = self._generate_volume_hints(text)
+
         hints = HumanismHints(
             original_text=original_text,
             pause_hints=pause_hints,
             rate_hints=[],
             breathing_cues=breathing_cues,
+            volume_hints=volume_hints,
         )
 
         return (text, hints)
@@ -369,6 +397,51 @@ class TextPreprocessor:
         lo = 0.5 * base_ms
         hi = 1.5 * base_ms
         return max(lo, min(hi, jittered))
+
+    # -------------------------------------------------------------------
+    # Volume hint generation
+    # -------------------------------------------------------------------
+
+    def _generate_volume_hints(self, text: str) -> list[VolumeHint]:
+        """Detect aside and emphasis regions for volume adjustment (D-09).
+
+        Asides (0.85x gain): parentheses, em-dash pairs.
+        Emphasis (1.1x gain): exclamation sentences.
+        """
+        hints: list[VolumeHint] = []
+
+        # Asides: parenthetical (0.85x)
+        for m in _PAREN_ASIDE.finditer(text):
+            hints.append(VolumeHint(
+                char_offset=m.start(),
+                char_length=m.end() - m.start(),
+                gain=0.85,
+                reason="aside_parenthetical",
+            ))
+
+        # Asides: em-dash pairs (0.85x)
+        for m in _EM_DASH_ASIDE.finditer(text):
+            hints.append(VolumeHint(
+                char_offset=m.start(),
+                char_length=m.end() - m.start(),
+                gain=0.85,
+                reason="aside_em_dash",
+            ))
+
+        # Emphasis: exclamation sentences (1.1x)
+        for m in _EXCLAMATION_SENTENCE.finditer(text):
+            content = m.group().strip()
+            if len(content) > 3:  # Skip very short matches
+                hints.append(VolumeHint(
+                    char_offset=m.start(),
+                    char_length=m.end() - m.start(),
+                    gain=1.1,
+                    reason="emphasis_exclamation",
+                ))
+
+        # Sort by char_offset for consistent processing order
+        hints.sort(key=lambda h: h.char_offset)
+        return hints
 
     # -------------------------------------------------------------------
     # Breathing cue generation

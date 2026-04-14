@@ -78,11 +78,11 @@ Plans:
   2. Breathing injection never exceeds 1 per 3-5 sentences across any test corpus utterance
   3. Asides and parentheticals are quieter, emphasis points are louder, producing audible dynamic range
   4. Each breathing/volume sub-feature independently A/B tested against unmodified baseline and documented as pass/fail
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [x] 04-01-PLAN.md — VolumeHint detection in TextPreprocessor + HumanismAudioProcessor class (BRVL-01, BRVL-02, BRVL-03, BRVL-04)
+- [x] 04-02-PLAN.md — Integrate into inference engine + A/B testing script (BRVL-01, BRVL-02, BRVL-03, BRVL-04, BRVL-05)
 
 ### Phase 5: Validation & Tuning
 **Goal**: The complete humanism stack is validated end-to-end on diverse inputs, parameters are tuned to optimal settings, and a regression baseline is locked for future changes
@@ -110,5 +110,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 1. Baseline Measurement | 3/3 | Complete | 2026-04-13 |
 | 2. Post-FX Chain | 2/2 | Complete | 2026-04-13 |
 | 3. Text Preprocessor & Pauses | 2/2 | Complete | 2026-04-13 |
-| 4. Breathing & Volume Dynamics | 0/0 | Not started | - |
+| 4. Breathing & Volume Dynamics | 0/2 | Planned | - |
 | 5. Validation & Tuning | 0/0 | Not started | - |

@@ -740,3 +740,90 @@ record (record a video vs play that record)
 the clear tag messes them up - dont generate
 
 also dont be afraid to not generate any tags, it works pretty well for monotone lines, things like professional and analytical
+
+---
+
+## Connected Speech Contractions
+
+> **Status**: Tested 2026-04-14. Use these contractions when generating training prompts
+> to produce more natural, casual speech. The LLM generating training sentences should use
+> these in place of formal phrasing where appropriate for the emotion/register.
+
+In natural human speech, common word pairs get contracted. TTS output that always uses the
+formal phrasing ("want to", "going to") sounds over-enunciated. The model responds to
+real-word contractions but NOT to invented phonetic spellings.
+
+### Confirmed Working Contractions
+
+Use these in training prompts. The model produces audibly more natural/casual speech.
+**Context matters** — never blindly replace every standard phrase with its contraction.
+Use contractions only when the sentence register, emotion, and flow call for it.
+
+| Standard | Contraction | Status | Context Notes |
+|----------|-------------|--------|---------------|
+| got to | gotta | WORKS | General casual use |
+| want to | wanna | WORKS | General casual use |
+| let me | lemme | WORKS | General casual use |
+| going to | gonna | WORKS | General casual use |
+| got a | gotta | WORKS | General casual use |
+| sort of | sorta | WORKS | General casual use |
+| forgot to | forgotta | WORKS | General casual use |
+| need to | needa | WORKS | General casual use |
+| kind of | kinda | WORKS | General casual use |
+| have to | hafta | WORKS | General casual use |
+| out of | outta | WORKS | Context-sensitive — fits "get outta here" but not every "out of" |
+| give me | gimme | WORKS | General casual use |
+| got you | gotcha | WORKS | Context-sensitive — use for acknowledgment ("gotcha, I'll handle it"), not every "got you" |
+| don't know | dunno | WORKS | Context-sensitive — fits casual uncertainty, not formal "I don't know the answer" |
+| come on | c'mon | WORKS | Context-sensitive — fits urgency/exasperation, not every "come on" |
+| a lot of | alotta | WORKS | General casual use |
+| supposed to | supposta | WORKS | General casual use |
+| used to | useta | WORKS | General casual use |
+
+### Confirmed NOT Working
+
+Do not use these — model either ignores them or mispronounces them.
+
+| Attempted | Result |
+|-----------|--------|
+| jus', forgo', wha', le' me | Ignored entirely (apostrophe hints) |
+| forgoto | Mispronounced |
+| pudit (put it) | Mispronounced |
+| gedout (get out) | Mispronounced |
+| whatdya (what do you) | Worse than standard |
+| putitaway (put it away) | No difference from standard |
+
+### Usage Guidelines
+
+1. **Only use in casual/emotional registers** — Category A (casual/affection) and Category C
+   (heavy acting). Never in Category B (professional/technical).
+2. **Match to emotion**: contractions fit [exhausted], [angry], [warm], [playful], [nervous],
+   [happy], [excited]. Avoid in [professional], [calm], [confident], [analytical].
+3. **Don't overuse**: ~20-30% of eligible phrases should be contracted. Too many
+   contractions in one sentence sounds forced. Max 2 contractions per sentence.
+4. **Context is everything**: don't blindly replace every standard phrase. Each contraction
+   must sound natural in that specific sentence. If it feels forced, keep the standard form.
+5. **The rule**: if a real English contraction exists (gotta, wanna, lemme, gonna, sorta,
+   forgotta, needa, kinda, hafta, outta, gimme, gotcha, dunno, c'mon, alotta, supposta,
+   useta), the model handles it. If you have to invent a spelling, it won't work.
+
+### Context-Sensitive Usage Rules
+
+Some contractions sound natural in specific phrasings but forced in others. The LLM
+generating prompts should evaluate whether the contraction fits the specific sentence:
+
+- **outta**: Natural in idioms ("get outta here", "outta time") but awkward in formal constructions
+- **gotcha**: Natural for acknowledgment/understanding ("gotcha, I'll do it") but not as a literal "I got you"
+- **dunno**: Natural for casual shrugs ("I dunno, maybe") but not for serious uncertainty
+- **c'mon**: Natural for urgency/exasperation ("c'mon, let's go!") but not every instance of "come on"
+
+General rule: if the contraction sounds like something you'd actually say out loud in
+that specific sentence, use it. If it feels forced, keep the standard form.
+
+### What Doesn't Work (Approaches Ruled Out)
+
+- **Apostrophe hints** (jus', forgo', wha'): model ignores them entirely
+- **Invented phonetic merges** (pudit, gedout, whatdya): model mispronounces
+- **Multi-word smashing** (putitaway): no effect vs standard spacing
+- **Audio post-processing**: cutting /t/ bursts sounds unnatural (wrong formant transitions)
+- **Real human speech in LoRA data**: proper long-term fix but requires non-TTS recordings

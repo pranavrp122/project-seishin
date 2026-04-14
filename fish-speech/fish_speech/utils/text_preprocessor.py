@@ -472,11 +472,11 @@ class TextPreprocessor:
             if word_count >= 15:
                 # Determine probability based on word count
                 if word_count >= 30:
-                    prob = 0.9
+                    prob = 0.45
                 elif word_count >= 20:
-                    prob = 0.6
-                else:
                     prob = 0.3
+                else:
+                    prob = 0.15
 
                 # Find actual offset in original text
                 pos = text.find(stripped, char_offset)

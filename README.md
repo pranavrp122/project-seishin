@@ -3,7 +3,7 @@
 A zero-latency, voice-driven conversational AI framework splitting Auto Speech Recognition (ASR) and Large Language Model (LLM) inference across dual Docker containers, optimizing an NVIDIA RTX 5090's 32GB VRAM.
 
 ## Architecture
-- **🎙️ The Ears (`seishin-ears`)**: Runs NVIDIA's `Parakeet-tdt-1.1b` for fast ASR, listening to host microphone input.
+- **🎙️ The Ears (`seishin-ears`)**: Runs NVIDIA's `Parakeet-tdt-0.6b-v2` for fast ASR, listening to host microphone input.
 - **🧠 The Brain (`seishin-brain`)**: Runs `Qwen3.5-9B` FP8 served on a `vLLM` HTTP instance, responding to Parakeet's parsed transcripts.
 - **🗣️ The Mouth (`seishin-mouth`)**: Runs `Qwen3-TTS 1.7B` BF16 with Hybrid Triton mode for streaming text-to-speech via Bluetooth headphones.
 

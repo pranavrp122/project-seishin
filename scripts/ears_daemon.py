@@ -1,5 +1,5 @@
 import torch
-torch.cuda.set_per_process_memory_fraction(0.12, 0)  # Hard VRAM cap: ~3.9 GB (Parakeet FP16 uses ~2 GB)
+torch.cuda.set_per_process_memory_fraction(0.12, 0)  # Hard VRAM cap: ~3.9 GB (Parakeet 0.6b v2 FP16 uses ~3.1 GB)
 
 import nemo.collections.asr as nemo_asr
 import numpy as np
@@ -32,7 +32,7 @@ audio_queue = queue.Queue()
 
 # --- MODEL LOADING ---
 # Load on CPU first, convert to FP16, then move to GPU (avoids 8GB FP32 peak on GPU)
-model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-1.1b", map_location='cpu')
+model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-0.6b-v2", map_location='cpu')
 model = model.half().cuda()
 model.eval()
 print('Parakeet live')

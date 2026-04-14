@@ -11,7 +11,7 @@ Nexus Engine is a zero-latency, voice-driven conversational AI using a client-da
 ```
 [ Mic (host PulseAudio via WSLg) ]
         │
-[ ears_daemon.py ] ─── Silero VAD (CPU) + Parakeet TDT 1.1B (GPU)
+[ ears_daemon.py ] ─── Silero VAD (CPU) + Parakeet TDT 0.6B v2 (GPU)
         │  HTTP POST to localhost:5050
         │  /prefill (fire-and-forget during speech)
         │  /flush   (blocking, after silence detected)
@@ -36,7 +36,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 1. `ears_daemon.py` captures mic audio at 16kHz via `sounddevice.InputStream`
 2. Silero VAD (CPU) classifies 512-sample chunks as speech/silence
 3. VAD state machine: IDLE → SPEAKING → TRAILING → FLUSH
-4. During SPEAKING/TRAILING, Parakeet runs live transcription and sends it via `POST /stream` to nexus engine
+4. During SPEAKING/TRAILING, Parakeet 0.6B v2 runs live transcription and sends it via `POST /stream` to nexus engine
 5. Every 4 new words, ears daemon sends `POST /prefill` to warm vLLM's KV cache
 6. On FLUSH (480ms silence), ears daemon sends `POST /flush` to nexus engine
 7. `nexus_engine.py` displays live transcription via `/stream`, receives flush, calls `ask_brain()` which streams the Qwen response to stdout
@@ -68,7 +68,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 | Model | Container | Precision | VRAM Cap Mechanism | VRAM Budget |
 |---|---|---|---|---|
 | Qwen3.5-9B | seishin-brain | FP8 (`--quantization fp8`) | `--gpu-memory-utilization 0.55` | ~20.3 GB |
-| Parakeet TDT 1.1B | seishin-ears | FP16 (CPU→FP16→CUDA) | `torch.cuda.set_per_process_memory_fraction(0.12)` | ~3.9 GB cap (~2.1 GB actual) |
+| Parakeet TDT 0.6B v2 | seishin-ears | FP16 (CPU→FP16→CUDA) | `torch.cuda.set_per_process_memory_fraction(0.12)` | ~3.9 GB cap (~3.1 GB actual) |
 | Qwen3-TTS 1.7B | seishin-mouth | BF16 | `torch.cuda.set_per_process_memory_fraction(0.18)` | ~5.9 GB cap (~4.3 GB actual) |
 | **Total** | | | | **~27.7 GB actual / 32 GB** |
 
@@ -80,7 +80,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 
 | Path | Purpose |
 |---|---|
-| `scripts/ears_daemon.py` | Heavy daemon: Mic → Silero VAD → Parakeet ASR → HTTP to nexus engine; fires /stop on interrupt |
+| `scripts/ears_daemon.py` | Heavy daemon: Mic → Silero VAD → Parakeet TDT 0.6B v2 ASR → HTTP to nexus engine; fires /stop on interrupt |
 | `scripts/nexus_engine.py` | Lightweight engine: HTTP server (port 5050) → conversation history → vLLM → sentence buffer → mouth |
 | `scripts/mouth_daemon.py` | TTS daemon: HTTP server (port 5051) → Qwen3-TTS GPU → resample 48kHz → sounddevice → Bluetooth |
 | `scripts/system_prompts.py` | System prompt (voice-optimized), seed history, dodge phrases |
@@ -107,7 +107,7 @@ Both `ears_daemon.py` and `nexus_engine.py` run inside `seishin-ears`. The daemo
 
 ## ASR Configuration
 
-- Model: `nvidia/parakeet-tdt-1.1b` loaded via `nemo_asr.models.ASRModel.from_pretrained()`
+- Model: `nvidia/parakeet-tdt-0.6b-v2` loaded via `nemo_asr.models.ASRModel.from_pretrained()`
 - Inference: `model.transcribe([buffer], batch_size=1, verbose=False)`
 - tqdm progress bar suppressed via `contextlib.redirect_stderr(io.StringIO())`
 - Sample rate: 16000 Hz, blocksize: 800

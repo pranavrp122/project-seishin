@@ -3,15 +3,19 @@
 
 Offline tests (no vLLM): auth, session gating, protocol validation.
 Online tests (vLLM required): LLM streaming, sentence dispatch, conversation memory.
+TTS tests (vLLM + Fish Speech required): binary audio frames, PCM format, incremental streaming, latency.
 
 Usage:
     python scripts/test_sei_engine.py            # offline tests only
-    python scripts/test_sei_engine.py --online    # all tests (vLLM must be running)
+    python scripts/test_sei_engine.py --online    # + LLM tests (vLLM required)
+    python scripts/test_sei_engine.py --tts       # + TTS tests (vLLM + Fish Speech required)
 """
 import asyncio
 import json
 import os
+import struct
 import sys
+import time
 
 import websockets
 from websockets.exceptions import InvalidStatus
@@ -225,6 +229,158 @@ async def test_conversation_memory():
             await ws.close()
 
 
+async def test_tts_binary_frames():
+    """Send message, expect sentence text frames AND binary audio frames. (Requires vLLM + Fish Speech)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+        await ws.send(json.dumps({"type": "message", "text": "Say hello in one sentence."}))
+
+        text_frames = []
+        binary_frames = []
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                binary_frames.append(raw)
+            else:
+                frame = json.loads(raw)
+                text_frames.append(frame)
+                if frame.get("type") in ("done", "error"):
+                    break
+
+        has_sentence = any(f.get("type") == "sentence" for f in text_frames)
+        has_done = any(f.get("type") == "done" for f in text_frames)
+        has_audio = len(binary_frames) > 0
+        # Verify audio is PCM int16 (even number of bytes)
+        audio_aligned = all(len(b) % 2 == 0 for b in binary_frames)
+
+        report(10, "TTS binary frames received", has_sentence and has_done and has_audio and audio_aligned,
+               f"sentences={sum(1 for f in text_frames if f.get('type')=='sentence')}, "
+               f"audio_chunks={len(binary_frames)}, "
+               f"total_audio_bytes={sum(len(b) for b in binary_frames)}, "
+               f"int16_aligned={audio_aligned}")
+    except Exception as e:
+        report(10, "TTS binary frames received", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
+async def test_tts_audio_format():
+    """Verify audio is PCM int16 44.1kHz mono (reasonable sample values). (Requires vLLM + Fish Speech)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+        await ws.send(json.dumps({"type": "message", "text": "Say the word hello."}))
+
+        audio_bytes = bytearray()
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                audio_bytes.extend(raw)
+            else:
+                frame = json.loads(raw)
+                if frame.get("type") in ("done", "error"):
+                    break
+
+        # Verify: got audio, int16-aligned, reasonable sample values
+        has_audio = len(audio_bytes) > 0
+        is_aligned = len(audio_bytes) % 2 == 0
+        # Check samples are in int16 range (not garbled by WAV header)
+        if is_aligned and has_audio:
+            samples = struct.unpack(f'<{len(audio_bytes)//2}h', audio_bytes)
+            max_sample = max(abs(s) for s in samples[:1000])  # Check first 1000 samples
+            reasonable_range = max_sample < 32768  # int16 max
+            no_wav_header = audio_bytes[:4] != b'RIFF'  # WAV header stripped
+        else:
+            reasonable_range = False
+            no_wav_header = False
+
+        # Estimate duration: bytes / 2 (int16) / 44100 (sample rate)
+        duration_sec = len(audio_bytes) / 2 / 44100 if has_audio else 0
+
+        report(11, "Audio format PCM int16 44.1kHz", has_audio and is_aligned and reasonable_range and no_wav_header,
+               f"bytes={len(audio_bytes)}, duration={duration_sec:.1f}s, "
+               f"max_sample={max_sample if has_audio and is_aligned else 'N/A'}, "
+               f"no_wav_header={no_wav_header}")
+    except Exception as e:
+        report(11, "Audio format PCM int16 44.1kHz", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
+async def test_tts_incremental_streaming():
+    """Verify audio arrives incrementally (multiple chunks, not one blob). (Requires vLLM + Fish Speech)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+        await ws.send(json.dumps({"type": "message", "text": "Tell me something interesting about space."}))
+
+        binary_count = 0
+        first_binary_time = None
+        last_binary_time = None
+        t0 = time.perf_counter()
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                now = time.perf_counter()
+                if first_binary_time is None:
+                    first_binary_time = now
+                last_binary_time = now
+                binary_count += 1
+            else:
+                frame = json.loads(raw)
+                if frame.get("type") in ("done", "error"):
+                    break
+
+        is_incremental = binary_count > 1
+        span_ms = ((last_binary_time - first_binary_time) * 1000) if binary_count > 1 else 0
+
+        report(12, "TTS incremental streaming (not single blob)", is_incremental,
+               f"chunks={binary_count}, span={span_ms:.0f}ms")
+    except Exception as e:
+        report(12, "TTS incremental streaming (not single blob)", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
+async def test_tts_latency():
+    """First audio chunk within 1.5s of message send. (Requires vLLM + Fish Speech)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+        t0 = time.perf_counter()
+        await ws.send(json.dumps({"type": "message", "text": "Hi there."}))
+
+        first_audio_time = None
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                if first_audio_time is None:
+                    first_audio_time = time.perf_counter()
+            else:
+                frame = json.loads(raw)
+                if frame.get("type") in ("done", "error"):
+                    break
+
+        if first_audio_time:
+            ttfa_ms = (first_audio_time - t0) * 1000
+            within_budget = ttfa_ms < 1500
+        else:
+            ttfa_ms = -1
+            within_budget = False
+
+        report(13, "First audio within 1.5s (TTS-03)", within_budget,
+               f"TTFA={ttfa_ms:.0f}ms (budget: 1500ms)")
+    except Exception as e:
+        report(13, "First audio within 1.5s (TTS-03)", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
 async def main():
     print("=== Sei Engine Tests ===\n")
 
@@ -236,13 +392,24 @@ async def main():
     await test_invalid_message_format()
     await test_session_cleanup_on_disconnect()
 
-    if "--online" in sys.argv:
+    if "--online" in sys.argv or "--tts" in sys.argv:
         print("\n--- Online Tests (vLLM required) ---")
         await test_message_protocol()
         await test_sentence_buffering()
         await test_conversation_memory()
     else:
         print("\nSkipping online tests (pass --online to enable, requires vLLM)")
+
+    if "--tts" in sys.argv:
+        print("\n--- TTS Tests (vLLM + Fish Speech required) ---")
+        await test_tts_binary_frames()
+        await test_tts_audio_format()
+        await test_tts_incremental_streaming()
+        await test_tts_latency()
+    else:
+        if "--online" not in sys.argv:
+            print("\nSkipping online tests (pass --online to enable)")
+        print("Skipping TTS tests (pass --tts to enable, requires vLLM + Fish Speech API)")
 
     print(f"\nResults: {passed}/{total} passed")
 

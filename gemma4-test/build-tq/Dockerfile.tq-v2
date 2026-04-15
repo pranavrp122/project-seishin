@@ -1,0 +1,49 @@
+ARG BASE_IMAGE=vllm/vllm-openai:gemma4-cu130
+FROM ${BASE_IMAGE}
+
+ENV VLLM_PATH=/usr/local/lib/python3.12/dist-packages/vllm
+
+# TQ centroid computation needs scipy
+RUN pip install --no-cache-dir scipy
+
+# --- New TQ files (safe to copy directly) ---
+
+# TurboQuant quantization module
+COPY vllm-tq/vllm/model_executor/layers/quantization/turboquant/ \
+     ${VLLM_PATH}/model_executor/layers/quantization/turboquant/
+
+# TQ attention backend
+COPY vllm-tq/vllm/v1/attention/backends/turboquant_attn.py \
+     ${VLLM_PATH}/v1/attention/backends/turboquant_attn.py
+
+# TQ Triton kernels
+COPY vllm-tq/vllm/v1/attention/ops/triton_tq_decode.py \
+     ${VLLM_PATH}/v1/attention/ops/triton_tq_decode.py
+COPY vllm-tq/vllm/v1/attention/ops/triton_tq_store.py \
+     ${VLLM_PATH}/v1/attention/ops/triton_tq_store.py
+
+# --- Modified files with TQ hooks (safe to replace — TQ-heavy changes) ---
+
+COPY vllm-tq/vllm/v1/attention/backends/registry.py \
+     ${VLLM_PATH}/v1/attention/backends/registry.py
+COPY vllm-tq/vllm/v1/core/kv_cache_utils.py \
+     ${VLLM_PATH}/v1/core/kv_cache_utils.py
+COPY vllm-tq/vllm/v1/core/single_type_kv_cache_manager.py \
+     ${VLLM_PATH}/v1/core/single_type_kv_cache_manager.py
+COPY vllm-tq/vllm/v1/kv_cache_interface.py \
+     ${VLLM_PATH}/v1/kv_cache_interface.py
+COPY vllm-tq/vllm/config/cache.py \
+     ${VLLM_PATH}/config/cache.py
+COPY vllm-tq/vllm/model_executor/layers/attention/attention.py \
+     ${VLLM_PATH}/model_executor/layers/attention/attention.py
+COPY vllm-tq/vllm/model_executor/models/config.py \
+     ${VLLM_PATH}/model_executor/models/config.py
+
+# --- Version-sensitive files: patch instead of replace ---
+# These files have version-specific imports that break if replaced
+# wholesale. Only add TQ-specific lines via Python patcher.
+# Patched: torch_utils.py, cuda.py, arg_utils.py
+# Skipped: gpu_model_runner.py (no TQ-specific changes)
+
+COPY patch-tq.py /tmp/patch-tq.py
+RUN python3 /tmp/patch-tq.py && rm /tmp/patch-tq.py

@@ -58,10 +58,10 @@ setup_model() {
 setup_baseline_image() {
     info "--- Stage 1: Baseline image (NVFP4 + FP8 KV) ---"
 
-    # Try gemma4-cu130 first (Gemma 4 specific, CUDA 13.0)
-    # Fallback to generic v0.19.0 cu130 image
+    # Try v0.19.0-cu130 first (latest stable + CUDA 13.0 for SM120)
+    # Fallback to gemma4-cu130 then nightly
     local IMAGE=""
-    for tag in "gemma4-cu130" "latest-cu130" "v0.19.0-x86_64-cu130-ubuntu2404"; do
+    for tag in "v0.19.0-cu130" "gemma4-cu130" "latest-cu130" "cu130-nightly"; do
         info "Trying vllm/vllm-openai:$tag ..."
         if docker pull "vllm/vllm-openai:$tag" 2>/dev/null; then
             IMAGE="vllm/vllm-openai:$tag"

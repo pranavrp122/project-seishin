@@ -1,0 +1,7 @@
+ARG BASE_IMAGE=vllm/vllm-openai:gemma4-cu130
+FROM ${BASE_IMAGE}
+
+# Install TurboQuant pip plugin (v1.5.0+)
+# Uses HF DynamicCache path — no vLLM file overlay needed
+RUN pip install --no-cache-dir "turboquant-vllm[vllm]>=1.5.0" && \
+    pip install --no-cache-dir "transformers>=5.5.0"

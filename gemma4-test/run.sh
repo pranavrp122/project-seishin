@@ -81,7 +81,7 @@ run_baseline() {
         --name "$CONTAINER_NAME" \
         --gpus all \
         --ipc=host \
-        --network host \
+        -p "${PORT}:${PORT}" \
         --shm-size=8gb \
         --ulimit memlock=-1 \
         --ulimit stack=67108864 \
@@ -92,19 +92,18 @@ run_baseline() {
         -v "$HF_CACHE":/root/.cache/huggingface:ro \
         -v "$MODEL_DIR/gemma4_patched.py":/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/gemma4.py:ro \
         "$IMAGE" \
-        vllm serve /model \
+        /model \
             --served-model-name gemma-4 \
             --host 0.0.0.0 \
             --port "$PORT" \
             --quantization modelopt \
             --dtype auto \
             --kv-cache-dtype fp8 \
-            --gpu-memory-utilization 0.92 \
-            --max-model-len 32768 \
+            --gpu-memory-utilization 0.55 \
+            --max-model-len 16384 \
             --max-num-seqs 1 \
             --moe-backend marlin \
-            --trust-remote-code \
-            --limit-mm-per-prompt image=0,audio=0
+            --trust-remote-code
 
     info "Container started: $CONTAINER_NAME"
     info "Waiting for server to be ready..."
@@ -131,7 +130,7 @@ run_tq() {
     info "=== Stage 2: NVFP4 + TurboQuant KV cache ==="
     info "Image: $IMAGE"
     info "Model: $MODEL_DIR"
-    info "KV cache: turboquant_k8v4 (FP8 keys + 4-bit values)"
+    info "KV cache: tq-t4nc (4-bit keys + 4-bit values)"
     info "Skip layers: sliding_window (only compress 5 global layers)"
 
     # Notes on the flags:
@@ -157,7 +156,7 @@ run_tq() {
         --name "$CONTAINER_NAME" \
         --gpus all \
         --ipc=host \
-        --network host \
+        -p "${PORT}:${PORT}" \
         --shm-size=8gb \
         --ulimit memlock=-1 \
         --ulimit stack=67108864 \
@@ -169,19 +168,18 @@ run_tq() {
         -v "$HF_CACHE":/root/.cache/huggingface:ro \
         -v "$MODEL_DIR/gemma4_patched.py":/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/gemma4.py:ro \
         "$IMAGE" \
-        vllm serve /model \
+        /model \
             --served-model-name gemma-4 \
             --host 0.0.0.0 \
             --port "$PORT" \
             --quantization modelopt \
             --dtype auto \
-            --kv-cache-dtype turboquant_k8v4 \
-            --gpu-memory-utilization 0.92 \
-            --max-model-len 32768 \
+            --kv-cache-dtype tq-t4nc \
+            --gpu-memory-utilization 0.55 \
+            --max-model-len 16384 \
             --max-num-seqs 1 \
             --moe-backend marlin \
-            --trust-remote-code \
-            --limit-mm-per-prompt image=0,audio=0
+            --trust-remote-code
 
     info "Container started: $CONTAINER_NAME"
     info "Waiting for server to be ready..."

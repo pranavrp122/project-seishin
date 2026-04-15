@@ -1,0 +1,47 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# TurboQuant files from Alberto-Codes/vllm feat/gemma4-heterogeneous-tq
+# These overlay on top of the base vLLM installation.
+
+# Find the vLLM site-packages path
+# In the official Docker images this is /usr/local/lib/python3.12/dist-packages/vllm
+ENV VLLM_PATH=/usr/local/lib/python3.12/dist-packages/vllm
+
+# Copy TurboQuant quantization module (new directory)
+COPY vllm-tq/vllm/model_executor/layers/quantization/turboquant/ \
+     ${VLLM_PATH}/model_executor/layers/quantization/turboquant/
+
+# Copy TurboQuant attention backend (new file)
+COPY vllm-tq/vllm/v1/attention/backends/turboquant_attn.py \
+     ${VLLM_PATH}/v1/attention/backends/turboquant_attn.py
+
+# Copy TurboQuant Triton kernels (new files)
+COPY vllm-tq/vllm/v1/attention/ops/triton_tq_decode.py \
+     ${VLLM_PATH}/v1/attention/ops/triton_tq_decode.py
+COPY vllm-tq/vllm/v1/attention/ops/triton_tq_store.py \
+     ${VLLM_PATH}/v1/attention/ops/triton_tq_store.py
+
+# Overlay modified files (these have TQ hooks added to existing code)
+COPY vllm-tq/vllm/v1/attention/backends/registry.py \
+     ${VLLM_PATH}/v1/attention/backends/registry.py
+COPY vllm-tq/vllm/v1/core/kv_cache_utils.py \
+     ${VLLM_PATH}/v1/core/kv_cache_utils.py
+COPY vllm-tq/vllm/v1/core/single_type_kv_cache_manager.py \
+     ${VLLM_PATH}/v1/core/single_type_kv_cache_manager.py
+COPY vllm-tq/vllm/v1/kv_cache_interface.py \
+     ${VLLM_PATH}/v1/kv_cache_interface.py
+COPY vllm-tq/vllm/v1/worker/gpu_model_runner.py \
+     ${VLLM_PATH}/v1/worker/gpu_model_runner.py
+COPY vllm-tq/vllm/config/cache.py \
+     ${VLLM_PATH}/config/cache.py
+COPY vllm-tq/vllm/engine/arg_utils.py \
+     ${VLLM_PATH}/engine/arg_utils.py
+COPY vllm-tq/vllm/model_executor/layers/attention/attention.py \
+     ${VLLM_PATH}/model_executor/layers/attention/attention.py
+COPY vllm-tq/vllm/model_executor/models/config.py \
+     ${VLLM_PATH}/model_executor/models/config.py
+COPY vllm-tq/vllm/platforms/cuda.py \
+     ${VLLM_PATH}/platforms/cuda.py
+COPY vllm-tq/vllm/utils/torch_utils.py \
+     ${VLLM_PATH}/utils/torch_utils.py

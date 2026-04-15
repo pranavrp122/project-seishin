@@ -246,9 +246,14 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
             break
         sentence_buffer += token
 
-        if SENTENCE_END.search(sentence_buffer):
-            await sentence_queue.put(sentence_buffer.strip())
-            sentence_buffer = ""
+        # Split at sentence boundary, keeping remainder in buffer
+        m = SENTENCE_END.search(sentence_buffer)
+        if m:
+            end_pos = m.end()
+            sentence = sentence_buffer[:end_pos].strip()
+            sentence_buffer = sentence_buffer[end_pos:]
+            if sentence:
+                await sentence_queue.put(sentence)
 
     if cancel_event.is_set():
         drain_queue(sentence_queue)

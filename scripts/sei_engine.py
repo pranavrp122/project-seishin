@@ -16,6 +16,7 @@ from http import HTTPStatus
 from collections.abc import AsyncGenerator
 
 from websockets.asyncio.server import serve
+from websockets.exceptions import ConnectionClosed
 import httpx
 import ormsgpack
 
@@ -265,19 +266,30 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
 
 
 async def handler(websocket):
-    """Handle a single WebSocket client session."""
+    """Handle a single WebSocket client session with barge-in support."""
     global active_ws
     history = build_initial_messages()
     print(f"Client connected: {websocket.remote_address}")
 
     try:
         async with httpx.AsyncClient() as tts_client:
-            async for raw in websocket:
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError:
-                    await websocket.send(json.dumps({"type": "error", "message": "Invalid JSON"}))
-                    continue
+            pending_msg = None  # Buffered message from stop-listener
+
+            while True:
+                # --- Phase A: Wait for user message ---
+                if pending_msg:
+                    msg = pending_msg
+                    pending_msg = None
+                else:
+                    try:
+                        raw = await websocket.recv()
+                    except ConnectionClosed:
+                        break
+                    try:
+                        msg = json.loads(raw)
+                    except json.JSONDecodeError:
+                        await websocket.send(json.dumps({"type": "error", "message": "Invalid JSON"}))
+                        continue
 
                 if msg.get("type") != "message" or not msg.get("text"):
                     await websocket.send(json.dumps({"type": "error", "message": "Expected {type: message, text: ...}"}))
@@ -290,18 +302,77 @@ async def handler(websocket):
                 history.append({"role": "user", "content": user_text})
                 print(f"  User: {user_text}")
 
+                # --- Phase B: Concurrent generation + stop listener ---
+                cancel_event = asyncio.Event()
+
+                gen_task = asyncio.create_task(
+                    handle_llm_response(websocket, history, tts_client, cancel_event)
+                )
+
+                stop_result = {"new_msg": None}
+
+                async def listen_for_stop():
+                    """Listen for stop or new message during generation. Owns recv()."""
+                    while True:
+                        try:
+                            raw = await websocket.recv()
+                        except ConnectionClosed:
+                            cancel_event.set()
+                            return
+                        try:
+                            parsed = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue  # Ignore malformed messages during generation
+                        if parsed.get("type") == "stop":
+                            cancel_event.set()
+                            return
+                        elif parsed.get("type") == "message" and parsed.get("text"):
+                            # New message = implicit interrupt
+                            cancel_event.set()
+                            stop_result["new_msg"] = parsed
+                            return
+
+                listener_task = asyncio.create_task(listen_for_stop())
+
+                # Wait for generation to finish OR stop signal
+                done, pending = await asyncio.wait(
+                    {gen_task, listener_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                # --- Phase C: Cleanup ---
+                # Cancel whichever task didn't finish
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+
+                # Get generation result
                 try:
-                    reply = await handle_llm_response(websocket, history, tts_client)
+                    reply = gen_task.result() if gen_task in done else ""
                 except Exception as e:
                     print(f"  LLM error: {e}")
                     await websocket.send(json.dumps({"type": "error", "message": str(e)}))
-                    history.pop()
+                    history.pop()  # Remove the user message that caused the error
                     continue
 
-                if is_quality_response(reply):
-                    history.append({"role": "assistant", "content": reply})
+                # --- Phase D: Update history ---
+                interrupted = cancel_event.is_set()
+                if interrupted:
+                    if reply:
+                        history.append({"role": "assistant", "content": reply})
+                    print(f"  Interrupted. Partial reply: {reply[:80]}..." if reply else "  Interrupted. No partial reply.")
                 else:
-                    history.pop()
+                    if is_quality_response(reply):
+                        history.append({"role": "assistant", "content": reply})
+                    else:
+                        history.pop()  # Remove user message if response was low quality
+
+                # Buffer new message from listener if one arrived
+                if stop_result["new_msg"]:
+                    pending_msg = stop_result["new_msg"]
     finally:
         active_ws = None
         print(f"Client disconnected: {websocket.remote_address}")

@@ -1,0 +1,23 @@
+{
+  "name": "seishin-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@ricky0123/vad-web": "^0.0.30",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@tauri-apps/plugin-websocket": "^2.4.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1",
+    "typescript": "~5.8.0",
+    "vite": "^6.0.0"
+  }
+}

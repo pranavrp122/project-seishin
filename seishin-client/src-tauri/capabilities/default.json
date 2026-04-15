@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for Seishin client",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "websocket:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "binaries/whisper-server", "sidecar": true, "args": true }]
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 import { MicVAD } from '@ricky0123/vad-web';
-import { transcribe } from '../asr/whisper';
-import { sendMessage, sendStop } from '../net/websocket';
-import { updateState, addMessage, appState, resetLatency } from '../state';
+import { transcribe } from '../asr/whisper.ts';
+import { sendMessage, sendStop } from '../net/websocket.ts';
+import { updateState, addMessage, appState, resetLatency } from '../state.ts';
+import { setMessageSentTimestamp } from '../orchestrator.ts';
 
 let vad: MicVAD | null = null;
 
@@ -68,6 +69,8 @@ export async function startVAD(): Promise<void> {
         });
         if (text && text.length > 0) {
           addMessage({ role: 'user', text });
+          // Set TTFT baseline timestamp before sending (enables latency tracking per D-14)
+          setMessageSentTimestamp(performance.now());
           const sendStart = performance.now();
           await sendMessage(text);
           updateState({

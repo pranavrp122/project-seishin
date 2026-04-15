@@ -46,8 +46,32 @@ TTS_TOP_P = float(os.environ.get("TTS_TOP_P", "0.8"))
 TTS_TEMPERATURE = float(os.environ.get("TTS_TEMPERATURE", "0.8"))
 TTS_REPETITION_PENALTY_TTS = float(os.environ.get("TTS_REPETITION_PENALTY", "1.1"))
 TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
-WAV_HEADER_SIZE = 44
+WAV_HEADER_SIZE = 44  # Fallback if data chunk parsing fails
 EMOTION_RE = re.compile(r'^\((\w[\w\s]*)\)\s*')
+
+
+def find_wav_data_offset(buf: bytes) -> int | None:
+    """Find byte offset where PCM audio data starts in a WAV buffer.
+
+    Parses RIFF/WAV subchunks to locate the 'data' chunk instead of
+    assuming a fixed 44-byte header (Fish Speech may add extra chunks).
+    Returns offset into buf, or None if not enough data accumulated yet.
+    Returns 0 if the buffer is not a WAV file (stream as-is).
+    """
+    if len(buf) < 12:
+        return None
+    if buf[:4] != b'RIFF' or buf[8:12] != b'WAVE':
+        return 0
+    pos = 12
+    while pos + 8 <= len(buf):
+        chunk_id = buf[pos:pos + 4]
+        chunk_size = int.from_bytes(buf[pos + 4:pos + 8], 'little')
+        if chunk_id == b'data':
+            return pos + 8
+        pos += 8 + chunk_size
+        if chunk_size % 2 != 0:
+            pos += 1  # WAV chunks are word-aligned
+    return None
 
 SENTENCE_END = re.compile(r'[.!?]["\')\]]?(?:\s|$)')
 
@@ -137,22 +161,24 @@ async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient, cancel_even
                 return
 
             header_buf = bytearray()
-            header_stripped = False
+            data_offset = None
             async for chunk in response.aiter_bytes():
                 if cancel_event.is_set():
                     return
-                if not header_stripped:
+                if data_offset is None:
                     header_buf.extend(chunk)
-                    if len(header_buf) < WAV_HEADER_SIZE:
+                    data_offset = find_wav_data_offset(header_buf)
+                    if data_offset is None:
+                        if len(header_buf) > 1024:
+                            # Safety bail: assume standard 44-byte header
+                            data_offset = WAV_HEADER_SIZE
+                            remainder = bytes(header_buf[data_offset:])
+                            if remainder:
+                                await ws.send(remainder)
                         continue
-                    if header_buf[:4] != b'RIFF':
-                        print(f"  Warning: TTS response missing WAV header, streaming raw")
-                        await ws.send(bytes(header_buf))
-                    else:
-                        remainder = bytes(header_buf[WAV_HEADER_SIZE:])
-                        if remainder:
-                            await ws.send(remainder)
-                    header_stripped = True
+                    remainder = bytes(header_buf[data_offset:])
+                    if remainder:
+                        await ws.send(remainder)
                     continue
                 await ws.send(chunk)  # Binary WebSocket frame
     except httpx.ConnectError:

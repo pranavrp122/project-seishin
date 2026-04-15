@@ -10,6 +10,12 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
     this.buffer = new Float32Array(this.capacity);
     this.writeIdx = 0;
     this.readIdx = 0;
+    // Micro-fade for click-free silence/audio transitions (~1.5ms at 44.1kHz)
+    this.fadeLen = 64;
+    this.fadeIn = 0;
+    this.fadeOut = 0;
+    this.lastOut = 0;
+    this.playing = false;
 
     this.port.onmessage = (e) => {
       if (e.data.type === 'audio') {
@@ -17,6 +23,10 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
       } else if (e.data.type === 'clear') {
         this.writeIdx = 0;
         this.readIdx = 0;
+        this.playing = false;
+        this.fadeIn = 0;
+        this.fadeOut = 0;
+        this.lastOut = 0;
       } else if (e.data.type === 'query-position') {
         this.port.postMessage({ type: 'position', readIdx: this.readIdx, writeIdx: this.writeIdx });
       }
@@ -40,10 +50,32 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
     const output = outputs[0][0];
     for (let i = 0; i < output.length; i++) {
       if (this.readIdx < this.writeIdx) {
-        output[i] = this.buffer[this.readIdx % this.capacity];
+        let sample = this.buffer[this.readIdx % this.capacity];
         this.readIdx++;
+        // Fade in when transitioning from silence to audio
+        if (!this.playing) {
+          this.playing = true;
+          this.fadeIn = 0;
+          this.fadeOut = 0;
+        }
+        if (this.fadeIn < this.fadeLen) {
+          sample *= this.fadeIn / this.fadeLen;
+          this.fadeIn++;
+        }
+        output[i] = sample;
+        this.lastOut = sample;
       } else {
-        output[i] = 0; // Silence when buffer is empty
+        // Fade out from last sample value to zero
+        if (this.playing) {
+          this.playing = false;
+          this.fadeOut = this.fadeLen;
+        }
+        if (this.fadeOut > 0) {
+          output[i] = this.lastOut * (this.fadeOut / this.fadeLen);
+          this.fadeOut--;
+        } else {
+          output[i] = 0;
+        }
       }
     }
     return true; // Keep processor alive

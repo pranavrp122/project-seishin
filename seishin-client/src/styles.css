@@ -180,6 +180,50 @@ html, body {
   padding: 32px;
 }
 
+/* --- Text Input Bar --- */
+.input-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 12px;
+  border-top: 1px solid #1e1e2a;
+  flex-shrink: 0;
+}
+
+.text-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: #1a1a24;
+  border: 1px solid #2a2a3a;
+  border-radius: 20px;
+  color: #e0e0e6;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.text-input:focus {
+  border-color: #2563eb;
+}
+
+.text-input::placeholder {
+  color: #4a4a5a;
+}
+
+.send-btn {
+  padding: 10px 20px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.send-btn:hover {
+  background: #1d4ed8;
+}
+
 /* --- Status Pulse Animation --- */
 @keyframes status-pulse {
   0%, 100% { opacity: 1; }

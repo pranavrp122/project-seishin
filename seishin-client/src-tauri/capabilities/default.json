@@ -5,6 +5,8 @@
   "permissions": [
     "core:default",
     "websocket:default",
+    "shell:allow-spawn",
+    "shell:allow-execute",
     {
       "identifier": "shell:allow-execute",
       "allow": [{ "name": "binaries/whisper-server", "sidecar": true, "args": true }]

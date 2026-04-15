@@ -88,12 +88,17 @@ export class ConnectionManager {
   private startHeartbeat(): void {
     this.missedHeartbeats = 0;
     this.heartbeatTimer = setInterval(() => {
-      this.missedHeartbeats++;
-      if (this.missedHeartbeats >= HEARTBEAT_MISS_THRESHOLD) {
-        // No server activity for 2 intervals (30s) -- mark degraded
-        if (appState.connection === 'connected') {
-          setStatus('degraded');
+      // Only count missed heartbeats when actively generating (expecting server traffic)
+      if (appState.isGenerating) {
+        this.missedHeartbeats++;
+        if (this.missedHeartbeats >= HEARTBEAT_MISS_THRESHOLD) {
+          if (appState.connection === 'connected') {
+            setStatus('degraded');
+          }
         }
+      } else {
+        // Idle connection — reset counter, don't mark degraded
+        this.missedHeartbeats = 0;
       }
     }, HEARTBEAT_INTERVAL);
   }

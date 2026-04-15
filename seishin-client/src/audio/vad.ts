@@ -43,6 +43,8 @@ function writeStr(view: DataView, offset: number, str: string): void {
 
 export async function startVAD(): Promise<void> {
   vad = await MicVAD.new({
+    baseAssetPath: '/',
+    onnxWASMBasePath: '/',
     positiveSpeechThreshold: 0.8,
     negativeSpeechThreshold: 0.15,
     minSpeechMs: 90,

@@ -58,5 +58,41 @@ export function renderLayout(parent: HTMLElement): HTMLCanvasElement {
   // Initialize waveform visualization on the canvas
   initWaveform(canvas);
 
+  // Text input bar (fallback for when whisper-server sidecar is not available)
+  const inputBar = document.createElement('div');
+  inputBar.className = 'input-bar';
+
+  const textInput = document.createElement('input');
+  textInput.type = 'text';
+  textInput.className = 'text-input';
+  textInput.placeholder = 'Type a message...';
+
+  const sendBtn = document.createElement('button');
+  sendBtn.className = 'send-btn';
+  sendBtn.textContent = 'Send';
+
+  const sendHandler = async () => {
+    const text = textInput.value.trim();
+    if (!text) return;
+    textInput.value = '';
+    const { addMessage, updateState, appState, resetLatency } = await import('../state.ts');
+    const { setMessageSentTimestamp } = await import('../orchestrator.ts');
+    const { sendMessage } = await import('../net/websocket.ts');
+    resetLatency();
+    addMessage({ role: 'user', text });
+    setMessageSentTimestamp(performance.now());
+    await sendMessage(text);
+    updateState({ isGenerating: true });
+  };
+
+  sendBtn.addEventListener('click', sendHandler);
+  textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendHandler();
+  });
+
+  inputBar.appendChild(textInput);
+  inputBar.appendChild(sendBtn);
+  parent.appendChild(inputBar);
+
   return canvas;
 }

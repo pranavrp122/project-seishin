@@ -22,7 +22,14 @@ import ormsgpack
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, DODGE_PHRASES
 
 # --- Configuration ---
-AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "test-token-change-me")
+AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
+if not AUTH_TOKEN:
+    if os.environ.get("SEI_DEV_MODE") == "1":
+        AUTH_TOKEN = "test-token-change-me"
+    else:
+        import sys
+        print("FATAL: SEI_AUTH_TOKEN not set. Export it or set SEI_DEV_MODE=1 for dev.", file=sys.stderr)
+        sys.exit(1)
 BIND_ADDR = os.environ.get("SEI_BIND", "127.0.0.1")
 PORT = int(os.environ.get("SEI_PORT", "5052"))
 LLM_URL = os.environ.get("SEI_LLM_URL", "http://127.0.0.1:8000")
@@ -41,7 +48,7 @@ TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
 WAV_HEADER_SIZE = 44
 EMOTION_RE = re.compile(r'^\((\w[\w\s]*)\)\s*')
 
-SENTENCE_END = re.compile(r'[.!?]["\')\]]?\s')
+SENTENCE_END = re.compile(r'[.!?]["\')\]]?(?:\s|$)')
 
 # --- Global state ---
 active_ws = None
@@ -55,6 +62,7 @@ async def process_request(connection, request):
         return connection.respond(HTTPStatus.UNAUTHORIZED, "Invalid token\n")
     if active_ws is not None:
         return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "Session already active\n")
+    active_ws = connection
 
 
 def build_initial_messages() -> list[dict]:
@@ -116,14 +124,22 @@ async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient):
                 await ws.send(json.dumps({"type": "error", "message": f"TTS error: {response.status_code}"}))
                 return
 
-            bytes_skipped = 0
+            header_buf = bytearray()
+            header_stripped = False
             async for chunk in response.aiter_bytes():
-                if bytes_skipped < WAV_HEADER_SIZE:
-                    skip = min(WAV_HEADER_SIZE - bytes_skipped, len(chunk))
-                    chunk = chunk[skip:]
-                    bytes_skipped += skip
-                    if not chunk:
+                if not header_stripped:
+                    header_buf.extend(chunk)
+                    if len(header_buf) < WAV_HEADER_SIZE:
                         continue
+                    if header_buf[:4] != b'RIFF':
+                        print(f"  Warning: TTS response missing WAV header, streaming raw")
+                        await ws.send(bytes(header_buf))
+                    else:
+                        remainder = bytes(header_buf[WAV_HEADER_SIZE:])
+                        if remainder:
+                            await ws.send(remainder)
+                    header_stripped = True
+                    continue
                 await ws.send(chunk)  # Binary WebSocket frame
     except httpx.ConnectError:
         print(f"  TTS connection failed: {TTS_URL}")
@@ -189,6 +205,8 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
     tts_task = asyncio.create_task(tts_consumer())
 
     async for token in stream_llm(messages):
+        if tts_task.done():
+            break
         if first_token:
             ttft = (time.perf_counter() - t0) * 1000
             print(f"  TTFT: {ttft:.0f}ms", flush=True)
@@ -201,7 +219,7 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
             await sentence_queue.put(sentence_buffer.strip())
             sentence_buffer = ""
 
-    if sentence_buffer.strip():
+    if sentence_buffer.strip() and not tts_task.done():
         await sentence_queue.put(sentence_buffer.strip())
 
     await sentence_queue.put(None)  # Poison pill
@@ -217,7 +235,6 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
 async def handler(websocket):
     """Handle a single WebSocket client session."""
     global active_ws
-    active_ws = websocket
     history = build_initial_messages()
     print(f"Client connected: {websocket.remote_address}")
 
@@ -262,7 +279,7 @@ async def main():
     print(f"Sei Engine listening on {BIND_ADDR}:{PORT}")
     print(f"LLM: {LLM_URL} (model: {MODEL_NAME})")
     print(f"TTS: {TTS_URL} (reference: {TTS_REFERENCE_ID})")
-    print(f"Auth: {'<from env>' if os.environ.get('SEI_AUTH_TOKEN') else 'test-token-change-me (DEFAULT)'}")
+    print(f"Auth: {'<from env>' if os.environ.get('SEI_AUTH_TOKEN') else '<dev mode>'}")
     async with serve(handler, BIND_ADDR, PORT, process_request=process_request) as server:
         await server.serve_forever()
 

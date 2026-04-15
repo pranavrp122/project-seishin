@@ -415,8 +415,6 @@ async def main():
         await test_tts_incremental_streaming()
         await test_tts_latency()
     else:
-        if "--online" not in sys.argv:
-            print("\nSkipping online tests (pass --online to enable)")
         print("Skipping TTS tests (pass --tts to enable, requires vLLM + Fish Speech API)")
 
     print(f"\nResults: {passed}/{total} passed")

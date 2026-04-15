@@ -63,7 +63,6 @@ async def process_request(connection, request):
         return connection.respond(HTTPStatus.UNAUTHORIZED, "Invalid token\n")
     if active_ws is not None:
         return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "Session already active\n")
-    active_ws = connection
 
 
 def build_initial_messages() -> list[dict]:
@@ -131,7 +130,10 @@ async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient, cancel_even
             if response.status_code != 200:
                 body = await response.aread()
                 print(f"  TTS error: {response.status_code}: {body.decode()}")
-                await ws.send(json.dumps({"type": "error", "message": f"TTS error: {response.status_code}"}))
+                try:
+                    await ws.send(json.dumps({"type": "error", "message": "TTS error"}))
+                except ConnectionClosed:
+                    pass
                 return
 
             header_buf = bytearray()
@@ -155,10 +157,16 @@ async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient, cancel_even
                 await ws.send(chunk)  # Binary WebSocket frame
     except httpx.ConnectError:
         print(f"  TTS connection failed: {TTS_URL}")
-        await ws.send(json.dumps({"type": "error", "message": "TTS service unavailable"}))
+        try:
+            await ws.send(json.dumps({"type": "error", "message": "TTS service unavailable"}))
+        except ConnectionClosed:
+            pass
     except Exception as e:
         print(f"  TTS error: {e}")
-        await ws.send(json.dumps({"type": "error", "message": f"TTS error: {e}"}))
+        try:
+            await ws.send(json.dumps({"type": "error", "message": "TTS error"}))
+        except ConnectionClosed:
+            pass
 
 
 async def stream_llm(messages: list[dict], cancel_event: asyncio.Event) -> AsyncGenerator[str, None]:
@@ -268,6 +276,7 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
 async def handler(websocket):
     """Handle a single WebSocket client session with barge-in support."""
     global active_ws
+    active_ws = websocket  # Set here where finally block guarantees cleanup
     history = build_initial_messages()
     print(f"Client connected: {websocket.remote_address}")
 
@@ -363,7 +372,7 @@ async def handler(websocket):
                     reply = gen_task.result()
                 except Exception as e:
                     print(f"  LLM error: {e}")
-                    await websocket.send(json.dumps({"type": "error", "message": str(e)}))
+                    await websocket.send(json.dumps({"type": "error", "message": "Generation failed"}))
                     history.pop()  # Remove the user message that caused the error
                     continue
 

@@ -17,6 +17,7 @@ from collections.abc import AsyncGenerator
 
 from websockets.asyncio.server import serve
 import httpx
+import ormsgpack
 
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, DODGE_PHRASES
 
@@ -29,6 +30,16 @@ MODEL_NAME = os.environ.get("SEI_MODEL_NAME", "gemma-4")
 MAX_TOKENS = int(os.environ.get("SEI_MAX_TOKENS", "300"))
 TEMPERATURE = float(os.environ.get("SEI_TEMPERATURE", "0.7"))
 REPETITION_PENALTY = float(os.environ.get("SEI_REPETITION_PENALTY", "1.15"))
+
+TTS_URL = os.environ.get("SEI_TTS_URL", "http://127.0.0.1:8080")
+TTS_REFERENCE_ID = os.environ.get("TTS_REFERENCE_ID", "archie")
+TTS_CHUNK_LENGTH = int(os.environ.get("TTS_CHUNK_LENGTH", "200"))
+TTS_TOP_P = float(os.environ.get("TTS_TOP_P", "0.8"))
+TTS_TEMPERATURE = float(os.environ.get("TTS_TEMPERATURE", "0.8"))
+TTS_REPETITION_PENALTY_TTS = float(os.environ.get("TTS_REPETITION_PENALTY", "1.1"))
+TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
+WAV_HEADER_SIZE = 44
+EMOTION_RE = re.compile(r'^\((\w[\w\s]*)\)\s*')
 
 SENTENCE_END = re.compile(r'[.!?]["\')\]]?\s')
 
@@ -62,6 +73,64 @@ def is_quality_response(reply: str) -> bool:
     return bool(reply) and len(reply) >= 10 and not any(
         p in reply.lower() for p in DODGE_PHRASES
     )
+
+
+def parse_emotion(text: str) -> str:
+    """Convert (emotion) prefix to [emotion] tag for Fish Speech."""
+    m = EMOTION_RE.match(text)
+    if m:
+        emotion = m.group(1).strip()
+        clean = text[m.end():]
+        return f"[{emotion}] {clean}"
+    return text
+
+
+async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient):
+    """Send sentence to Fish Speech TTS and stream PCM audio to WebSocket client."""
+    tts_text = parse_emotion(text)
+    if not tts_text.strip():
+        return
+
+    payload = ormsgpack.packb({
+        "text": tts_text,
+        "reference_id": TTS_REFERENCE_ID,
+        "format": "wav",
+        "streaming": True,
+        "chunk_length": TTS_CHUNK_LENGTH,
+        "top_p": TTS_TOP_P,
+        "temperature": TTS_TEMPERATURE,
+        "repetition_penalty": TTS_REPETITION_PENALTY_TTS,
+        "max_new_tokens": TTS_MAX_NEW_TOKENS,
+    })
+
+    try:
+        async with tts_client.stream(
+            "POST", f"{TTS_URL}/v1/tts",
+            content=payload,
+            headers={"Content-Type": "application/msgpack"},
+            timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
+        ) as response:
+            if response.status_code != 200:
+                body = await response.aread()
+                print(f"  TTS error: {response.status_code}: {body.decode()}")
+                await ws.send(json.dumps({"type": "error", "message": f"TTS error: {response.status_code}"}))
+                return
+
+            bytes_skipped = 0
+            async for chunk in response.aiter_bytes():
+                if bytes_skipped < WAV_HEADER_SIZE:
+                    skip = min(WAV_HEADER_SIZE - bytes_skipped, len(chunk))
+                    chunk = chunk[skip:]
+                    bytes_skipped += skip
+                    if not chunk:
+                        continue
+                await ws.send(chunk)  # Binary WebSocket frame
+    except httpx.ConnectError:
+        print(f"  TTS connection failed: {TTS_URL}")
+        await ws.send(json.dumps({"type": "error", "message": "TTS service unavailable"}))
+    except Exception as e:
+        print(f"  TTS error: {e}")
+        await ws.send(json.dumps({"type": "error", "message": f"TTS error: {e}"}))
 
 
 async def stream_llm(messages: list[dict]) -> AsyncGenerator[str, None]:
@@ -99,12 +168,25 @@ async def stream_llm(messages: list[dict]) -> AsyncGenerator[str, None]:
                     continue
 
 
-async def handle_llm_response(ws, messages: list[dict]) -> str:
-    """Stream LLM tokens, buffer into sentences, dispatch as JSON frames."""
+async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncClient) -> str:
+    """Stream LLM tokens, buffer sentences, dispatch to TTS, stream audio."""
     sentence_buffer = ""
     reply_parts = []
     t0 = time.perf_counter()
     first_token = True
+
+    sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    async def tts_consumer():
+        """Process sentences from queue and stream TTS audio to client."""
+        while True:
+            sentence = await sentence_queue.get()
+            if sentence is None:
+                break
+            await ws.send(json.dumps({"type": "sentence", "text": sentence}))
+            await tts_sentence(ws, sentence, tts_client)
+
+    tts_task = asyncio.create_task(tts_consumer())
 
     async for token in stream_llm(messages):
         if first_token:
@@ -116,15 +198,16 @@ async def handle_llm_response(ws, messages: list[dict]) -> str:
         sentence_buffer += token
 
         if SENTENCE_END.search(sentence_buffer):
-            await ws.send(json.dumps({"type": "sentence", "text": sentence_buffer.strip()}))
+            await sentence_queue.put(sentence_buffer.strip())
             sentence_buffer = ""
 
-    # Flush remaining buffer
     if sentence_buffer.strip():
-        await ws.send(json.dumps({"type": "sentence", "text": sentence_buffer.strip()}))
+        await sentence_queue.put(sentence_buffer.strip())
+
+    await sentence_queue.put(None)  # Poison pill
+    await tts_task
 
     await ws.send(json.dumps({"type": "done"}))
-
     elapsed = (time.perf_counter() - t0) * 1000
     print(f"  Total: {elapsed:.0f}ms", flush=True)
 
@@ -139,36 +222,37 @@ async def handler(websocket):
     print(f"Client connected: {websocket.remote_address}")
 
     try:
-        async for raw in websocket:
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                await websocket.send(json.dumps({"type": "error", "message": "Invalid JSON"}))
-                continue
+        async with httpx.AsyncClient() as tts_client:
+            async for raw in websocket:
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    await websocket.send(json.dumps({"type": "error", "message": "Invalid JSON"}))
+                    continue
 
-            if msg.get("type") != "message" or not msg.get("text"):
-                await websocket.send(json.dumps({"type": "error", "message": "Expected {type: message, text: ...}"}))
-                continue
+                if msg.get("type") != "message" or not msg.get("text"):
+                    await websocket.send(json.dumps({"type": "error", "message": "Expected {type: message, text: ...}"}))
+                    continue
 
-            user_text = msg["text"].strip()
-            if not user_text:
-                continue
+                user_text = msg["text"].strip()
+                if not user_text:
+                    continue
 
-            history.append({"role": "user", "content": user_text})
-            print(f"  User: {user_text}")
+                history.append({"role": "user", "content": user_text})
+                print(f"  User: {user_text}")
 
-            try:
-                reply = await handle_llm_response(websocket, history)
-            except Exception as e:
-                print(f"  LLM error: {e}")
-                await websocket.send(json.dumps({"type": "error", "message": str(e)}))
-                history.pop()
-                continue
+                try:
+                    reply = await handle_llm_response(websocket, history, tts_client)
+                except Exception as e:
+                    print(f"  LLM error: {e}")
+                    await websocket.send(json.dumps({"type": "error", "message": str(e)}))
+                    history.pop()
+                    continue
 
-            if is_quality_response(reply):
-                history.append({"role": "assistant", "content": reply})
-            else:
-                history.pop()
+                if is_quality_response(reply):
+                    history.append({"role": "assistant", "content": reply})
+                else:
+                    history.pop()
     finally:
         active_ws = None
         print(f"Client disconnected: {websocket.remote_address}")
@@ -177,6 +261,7 @@ async def handler(websocket):
 async def main():
     print(f"Sei Engine listening on {BIND_ADDR}:{PORT}")
     print(f"LLM: {LLM_URL} (model: {MODEL_NAME})")
+    print(f"TTS: {TTS_URL} (reference: {TTS_REFERENCE_ID})")
     print(f"Auth: {'<from env>' if os.environ.get('SEI_AUTH_TOKEN') else 'test-token-change-me (DEFAULT)'}")
     async with serve(handler, BIND_ADDR, PORT, process_request=process_request) as server:
         await server.serve_forever()

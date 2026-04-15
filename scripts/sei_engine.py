@@ -93,7 +93,16 @@ def parse_emotion(text: str) -> str:
     return text
 
 
-async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient):
+def drain_queue(q: asyncio.Queue) -> None:
+    """Remove all pending items from queue without blocking."""
+    while not q.empty():
+        try:
+            q.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+
+
+async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient, cancel_event: asyncio.Event):
     """Send sentence to Fish Speech TTS and stream PCM audio to WebSocket client."""
     tts_text = parse_emotion(text)
     if not tts_text.strip():
@@ -127,6 +136,8 @@ async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient):
             header_buf = bytearray()
             header_stripped = False
             async for chunk in response.aiter_bytes():
+                if cancel_event.is_set():
+                    return
                 if not header_stripped:
                     header_buf.extend(chunk)
                     if len(header_buf) < WAV_HEADER_SIZE:
@@ -149,7 +160,7 @@ async def tts_sentence(ws, text: str, tts_client: httpx.AsyncClient):
         await ws.send(json.dumps({"type": "error", "message": f"TTS error: {e}"}))
 
 
-async def stream_llm(messages: list[dict]) -> AsyncGenerator[str, None]:
+async def stream_llm(messages: list[dict], cancel_event: asyncio.Event) -> AsyncGenerator[str, None]:
     """Stream tokens from vLLM chat completions endpoint."""
     async with httpx.AsyncClient() as client:
         async with client.stream(
@@ -170,6 +181,8 @@ async def stream_llm(messages: list[dict]) -> AsyncGenerator[str, None]:
                 text = await response.aread()
                 raise RuntimeError(f"LLM returned {response.status_code}: {text.decode()}")
             async for line in response.aiter_lines():
+                if cancel_event.is_set():
+                    return
                 if not line.startswith("data: "):
                     continue
                 payload = line[6:]
@@ -184,7 +197,7 @@ async def stream_llm(messages: list[dict]) -> AsyncGenerator[str, None]:
                     continue
 
 
-async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncClient) -> str:
+async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncClient, cancel_event: asyncio.Event) -> str:
     """Stream LLM tokens, buffer sentences, dispatch to TTS, stream audio."""
     sentence_buffer = ""
     reply_parts = []
@@ -196,15 +209,22 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
     async def tts_consumer():
         """Process sentences from queue and stream TTS audio to client."""
         while True:
-            sentence = await sentence_queue.get()
+            if cancel_event.is_set():
+                break
+            try:
+                sentence = await asyncio.wait_for(sentence_queue.get(), timeout=0.1)
+            except asyncio.TimeoutError:
+                continue
             if sentence is None:
                 break
+            if cancel_event.is_set():
+                break
             await ws.send(json.dumps({"type": "sentence", "text": sentence}))
-            await tts_sentence(ws, sentence, tts_client)
+            await tts_sentence(ws, sentence, tts_client, cancel_event)
 
     tts_task = asyncio.create_task(tts_consumer())
 
-    async for token in stream_llm(messages):
+    async for token in stream_llm(messages, cancel_event):
         if tts_task.done():
             break
         if first_token:
@@ -213,19 +233,31 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
             first_token = False
 
         reply_parts.append(token)
+        if cancel_event.is_set():
+            break
         sentence_buffer += token
 
         if SENTENCE_END.search(sentence_buffer):
             await sentence_queue.put(sentence_buffer.strip())
             sentence_buffer = ""
 
-    if sentence_buffer.strip() and not tts_task.done():
-        await sentence_queue.put(sentence_buffer.strip())
+    if cancel_event.is_set():
+        drain_queue(sentence_queue)
+    else:
+        if sentence_buffer.strip():
+            await sentence_queue.put(sentence_buffer.strip())
+        await sentence_queue.put(None)  # Poison pill
 
-    await sentence_queue.put(None)  # Poison pill
+    # Always signal TTS consumer to stop if cancelled
+    if cancel_event.is_set():
+        await sentence_queue.put(None)  # Ensure consumer exits
+
     await tts_task
 
-    await ws.send(json.dumps({"type": "done"}))
+    if cancel_event.is_set():
+        await ws.send(json.dumps({"type": "interrupted"}))
+    else:
+        await ws.send(json.dumps({"type": "done"}))
     elapsed = (time.perf_counter() - t0) * 1000
     print(f"  Total: {elapsed:.0f}ms", flush=True)
 

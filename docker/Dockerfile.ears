@@ -1,0 +1,9 @@
+FROM nvcr.io/nvidia/nemo:26.02
+
+# System deps for audio capture
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends libportaudio2 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Python deps not in base image
+RUN pip install --no-cache-dir sounddevice

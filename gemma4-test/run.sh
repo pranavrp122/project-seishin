@@ -99,8 +99,8 @@ run_baseline() {
             --quantization modelopt \
             --dtype auto \
             --kv-cache-dtype fp8 \
-            --gpu-memory-utilization 0.55 \
-            --max-model-len 16384 \
+            --gpu-memory-utilization 0.70 \
+            --max-model-len 32768 \
             --max-num-seqs 1 \
             --moe-backend marlin \
             --trust-remote-code
@@ -175,8 +175,8 @@ run_tq() {
             --quantization modelopt \
             --dtype auto \
             --kv-cache-dtype tq-t4nc \
-            --gpu-memory-utilization 0.55 \
-            --max-model-len 16384 \
+            --gpu-memory-utilization 0.64 \
+            --max-model-len 65536 \
             --max-num-seqs 1 \
             --moe-backend marlin \
             --trust-remote-code

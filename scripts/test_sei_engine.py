@@ -150,6 +150,8 @@ async def test_message_protocol():
         frames = []
         while True:
             raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                continue  # skip binary audio frames
             frame = json.loads(raw)
             frames.append(frame)
             if frame.get("type") in ("done", "error"):
@@ -179,6 +181,8 @@ async def test_sentence_buffering():
         sentence_count = 0
         while True:
             raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                continue
             frame = json.loads(raw)
             if frame.get("type") == "sentence":
                 sentence_count += 1
@@ -204,6 +208,8 @@ async def test_conversation_memory():
         await ws.send(json.dumps({"type": "message", "text": "My favorite color is blue. Remember that."}))
         while True:
             raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                continue
             frame = json.loads(raw)
             if frame.get("type") in ("done", "error"):
                 break
@@ -213,6 +219,8 @@ async def test_conversation_memory():
         response_text = ""
         while True:
             raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                continue
             frame = json.loads(raw)
             if frame.get("type") == "sentence":
                 response_text += frame.get("text", "")

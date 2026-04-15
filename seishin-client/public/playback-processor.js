@@ -3,8 +3,10 @@
 class PCMPlaybackProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    // 5 seconds buffer at 44.1kHz -- enough for streaming without underrun
-    this.capacity = 44100 * 5;
+    // 30 seconds buffer at 44.1kHz -- Fish Speech generates ~3x real-time,
+    // so a 10s response fills 10s of audio in ~3.3s while only 3.3s plays back.
+    // 30s capacity prevents writeIdx from lapping readIdx on long responses.
+    this.capacity = 44100 * 30;
     this.buffer = new Float32Array(this.capacity);
     this.writeIdx = 0;
     this.readIdx = 0;
@@ -22,7 +24,11 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
   }
 
   enqueue(samples) {
-    for (let i = 0; i < samples.length; i++) {
+    const buffered = this.writeIdx - this.readIdx;
+    const available = this.capacity - buffered;
+    // Drop samples that would overwrite unplayed audio
+    const count = Math.min(samples.length, available);
+    for (let i = 0; i < count; i++) {
       this.buffer[this.writeIdx % this.capacity] = samples[i];
       this.writeIdx++;
     }

@@ -341,17 +341,26 @@ async def handler(websocket):
                 )
 
                 # --- Phase C: Cleanup ---
-                # Cancel whichever task didn't finish
-                for task in pending:
-                    task.cancel()
+                # Only cancel listener (safe: just blocking on recv).
+                # NEVER cancel gen_task — it uses cooperative cancellation
+                # via cancel_event and must finish sending interrupted/done frame.
+                if listener_task not in done:
+                    listener_task.cancel()
                     try:
-                        await task
+                        await listener_task
+                    except asyncio.CancelledError:
+                        pass
+
+                # Wait for gen_task to finish (fast: cancel_event is set)
+                if gen_task not in done:
+                    try:
+                        await gen_task
                     except asyncio.CancelledError:
                         pass
 
                 # Get generation result
                 try:
-                    reply = gen_task.result() if gen_task in done else ""
+                    reply = gen_task.result()
                 except Exception as e:
                     print(f"  LLM error: {e}")
                     await websocket.send(json.dumps({"type": "error", "message": str(e)}))

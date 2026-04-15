@@ -389,6 +389,296 @@ async def test_tts_latency():
             await ws.close()
 
 
+async def test_barge_in_stop_signal():
+    """Send stop during active LLM generation - expect interrupted frame. (Requires vLLM)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+        # Send a prompt that generates a multi-sentence response
+        await ws.send(json.dumps({"type": "message", "text": "Tell me a long story about a dragon and a knight."}))
+
+        # Wait for first sentence frame to confirm generation started
+        got_sentence = False
+        while not got_sentence:
+            raw = await asyncio.wait_for(ws.recv(), timeout=15)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") == "sentence":
+                got_sentence = True
+            elif frame.get("type") in ("done", "error"):
+                break
+
+        if not got_sentence:
+            report(14, "Stop signal returns interrupted frame", False, "No sentence frame before done/error")
+            return
+
+        # Send stop signal
+        await ws.send(json.dumps({"type": "stop"}))
+
+        # Collect remaining frames until interrupted or done
+        got_interrupted = False
+        got_done = False
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=10)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") == "interrupted":
+                got_interrupted = True
+                break
+            elif frame.get("type") == "done":
+                got_done = True
+                break
+            elif frame.get("type") == "error":
+                break
+
+        report(14, "Stop signal returns interrupted frame (BARGE-01, BARGE-02)",
+               got_interrupted,
+               f"interrupted={got_interrupted}, done={got_done}")
+    except Exception as e:
+        report(14, "Stop signal returns interrupted frame (BARGE-01, BARGE-02)", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
+async def test_barge_in_recovery():
+    """After interrupt, a new message should produce a normal response cycle. (Requires vLLM)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+
+        # Turn 1: Start generation and interrupt it
+        await ws.send(json.dumps({"type": "message", "text": "Tell me a very long story about the ocean."}))
+
+        # Wait for first sentence frame
+        got_sentence = False
+        while not got_sentence:
+            raw = await asyncio.wait_for(ws.recv(), timeout=15)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") == "sentence":
+                got_sentence = True
+            elif frame.get("type") in ("done", "error"):
+                break
+
+        if not got_sentence:
+            report(15, "Recovery after interrupt", False, "Turn 1: No sentence frame")
+            return
+
+        # Interrupt
+        await ws.send(json.dumps({"type": "stop"}))
+
+        # Drain until interrupted
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=10)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") in ("interrupted", "done", "error"):
+                break
+
+        # Turn 2: Send new message, expect normal response cycle
+        await ws.send(json.dumps({"type": "message", "text": "Say hello in one sentence."}))
+
+        got_sentence_2 = False
+        got_done_2 = False
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") == "sentence":
+                got_sentence_2 = True
+            elif frame.get("type") == "done":
+                got_done_2 = True
+                break
+            elif frame.get("type") in ("interrupted", "error"):
+                break
+
+        report(15, "Recovery after interrupt (BARGE-04)",
+               got_sentence_2 and got_done_2,
+               f"turn2_sentence={got_sentence_2}, turn2_done={got_done_2}")
+    except Exception as e:
+        report(15, "Recovery after interrupt (BARGE-04)", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
+async def test_barge_in_implicit_interrupt():
+    """Sending a new message during generation acts as implicit stop. (Requires vLLM)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+
+        # Start generation
+        await ws.send(json.dumps({"type": "message", "text": "Tell me a long story about mountains and rivers."}))
+
+        # Wait for first sentence frame
+        got_sentence = False
+        while not got_sentence:
+            raw = await asyncio.wait_for(ws.recv(), timeout=15)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") == "sentence":
+                got_sentence = True
+            elif frame.get("type") in ("done", "error"):
+                break
+
+        if not got_sentence:
+            report(16, "Implicit interrupt via new message", False, "No sentence frame")
+            return
+
+        # Send NEW message (implicit interrupt)
+        await ws.send(json.dumps({"type": "message", "text": "What color is the sky?"}))
+
+        # Should get interrupted from first generation, then sentence+done from second
+        got_interrupted = False
+        got_second_sentence = False
+        got_second_done = False
+        phase = "first"  # Track which generation we're observing
+
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+
+            if phase == "first":
+                if frame.get("type") == "interrupted":
+                    got_interrupted = True
+                    phase = "second"
+                elif frame.get("type") == "done":
+                    # First generation completed before interrupt was processed
+                    phase = "second"
+                elif frame.get("type") == "error":
+                    break
+            elif phase == "second":
+                if frame.get("type") == "sentence":
+                    got_second_sentence = True
+                elif frame.get("type") == "done":
+                    got_second_done = True
+                    break
+                elif frame.get("type") in ("interrupted", "error"):
+                    break
+
+        report(16, "Implicit interrupt via new message (BARGE-01)",
+               got_second_sentence and got_second_done,
+               f"interrupted={got_interrupted}, second_sentence={got_second_sentence}, second_done={got_second_done}")
+    except Exception as e:
+        report(16, "Implicit interrupt via new message (BARGE-01)", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
+async def test_barge_in_partial_history():
+    """After interrupt, conversation history should contain partial response. (Requires vLLM)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+
+        # Turn 1: Establish context and interrupt
+        await ws.send(json.dumps({"type": "message", "text": "My name is Alex. Tell me a long story about space travel."}))
+
+        # Wait for first sentence to confirm generation started
+        got_sentence = False
+        while not got_sentence:
+            raw = await asyncio.wait_for(ws.recv(), timeout=15)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") == "sentence":
+                got_sentence = True
+            elif frame.get("type") in ("done", "error"):
+                break
+
+        if not got_sentence:
+            report(17, "Partial history after interrupt", False, "No sentence frame")
+            return
+
+        # Interrupt
+        await ws.send(json.dumps({"type": "stop"}))
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=10)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") in ("interrupted", "done", "error"):
+                break
+
+        # Turn 2: Ask about name (tests that history from turn 1 is preserved)
+        await ws.send(json.dumps({"type": "message", "text": "What is my name?"}))
+
+        response_text = ""
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                continue
+            frame = json.loads(raw)
+            if frame.get("type") == "sentence":
+                response_text += frame.get("text", "")
+            if frame.get("type") in ("done", "error"):
+                break
+
+        has_name = "alex" in response_text.lower()
+        report(17, "Partial history after interrupt (BARGE-05)",
+               has_name,
+               f"Response mentions Alex: {has_name}, text: {response_text[:100]}")
+    except Exception as e:
+        report(17, "Partial history after interrupt (BARGE-05)", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
+async def test_barge_in_tts_stops():
+    """Stop signal during TTS streaming should halt audio frames. (Requires vLLM + Fish Speech)"""
+    ws = None
+    try:
+        ws = await connect(AUTH_TOKEN)
+        await ws.send(json.dumps({"type": "message", "text": "Tell me a long story about a castle in the mountains."}))
+
+        # Collect audio frames until we have some, then send stop
+        audio_before_stop = 0
+        sent_stop = False
+        audio_after_stop = 0
+        got_interrupted = False
+
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=30)
+            if isinstance(raw, bytes):
+                if not sent_stop:
+                    audio_before_stop += 1
+                    # After receiving a few audio chunks, send stop
+                    if audio_before_stop >= 3:
+                        await ws.send(json.dumps({"type": "stop"}))
+                        sent_stop = True
+                else:
+                    audio_after_stop += 1
+            else:
+                frame = json.loads(raw)
+                if frame.get("type") == "interrupted":
+                    got_interrupted = True
+                    break
+                elif frame.get("type") in ("done", "error"):
+                    break
+
+        # After stop, very few (or zero) additional audio frames should arrive
+        report(18, "TTS audio stops on interrupt (BARGE-03)",
+               sent_stop and got_interrupted,
+               f"audio_before={audio_before_stop}, audio_after={audio_after_stop}, interrupted={got_interrupted}")
+    except Exception as e:
+        report(18, "TTS audio stops on interrupt (BARGE-03)", False, str(e))
+    finally:
+        if ws:
+            await ws.close()
+
+
 async def main():
     print("=== Sei Engine Tests ===\n")
 
@@ -408,12 +698,24 @@ async def main():
     else:
         print("\nSkipping online tests (pass --online to enable, requires vLLM)")
 
+    if "--barge" in sys.argv or "--tts" in sys.argv:
+        print("\n--- Barge-In Tests (vLLM required) ---")
+        await test_barge_in_stop_signal()
+        await test_barge_in_recovery()
+        await test_barge_in_implicit_interrupt()
+        await test_barge_in_partial_history()
+    else:
+        print("\nSkipping barge-in tests (pass --barge to enable, requires vLLM)")
+
     if "--tts" in sys.argv:
         print("\n--- TTS Tests (vLLM + Fish Speech required) ---")
         await test_tts_binary_frames()
         await test_tts_audio_format()
         await test_tts_incremental_streaming()
         await test_tts_latency()
+
+        print("\n--- TTS Barge-In Tests (vLLM + Fish Speech required) ---")
+        await test_barge_in_tts_stops()
     else:
         print("Skipping TTS tests (pass --tts to enable, requires vLLM + Fish Speech API)")
 

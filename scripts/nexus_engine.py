@@ -180,7 +180,7 @@ class NexusHandler(BaseHTTPRequestHandler):
         pass  # Suppress default HTTP access logs
 
 def main():
-    server = HTTPServer(('0.0.0.0', LISTEN_PORT), NexusHandler)
+    server = HTTPServer(('127.0.0.1', LISTEN_PORT), NexusHandler)
     print(f'NEXUS ENGINE ONLINE — listening on port {LISTEN_PORT}')
     print(f'Brain: {BRAIN_URL}')
     print(f'Model: {MODEL_NAME}')

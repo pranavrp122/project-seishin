@@ -81,7 +81,7 @@ run_baseline() {
         --name "$CONTAINER_NAME" \
         --gpus all \
         --ipc=host \
-        -p "${PORT}:${PORT}" \
+        -p "127.0.0.1:${PORT}:${PORT}" \
         --shm-size=8gb \
         --ulimit memlock=-1 \
         --ulimit stack=67108864 \
@@ -156,7 +156,7 @@ run_tq() {
         --name "$CONTAINER_NAME" \
         --gpus all \
         --ipc=host \
-        -p "${PORT}:${PORT}" \
+        -p "127.0.0.1:${PORT}:${PORT}" \
         --shm-size=8gb \
         --ulimit memlock=-1 \
         --ulimit stack=67108864 \

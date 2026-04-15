@@ -1,10 +1,11 @@
 import torch
-torch.cuda.set_per_process_memory_fraction(0.18, 0)  # Hard VRAM cap: ~5.9 GB
+torch.cuda.set_per_process_memory_fraction(0.35, 0)  # ~11.2 GB cap for Fish Speech S2 Pro
 
-"""Mouth Daemon — Hybrid Qwen3-TTS (CUDA Graph + Triton fusion) with PulseAudio playback.
+"""Mouth Daemon — Fish Speech S2 Pro with PulseAudio playback.
 
-Uses qwen3-tts-triton TritonFasterRunner for ~4.7x speedup over baseline.
+Direct import of Fish Speech inference engine for lowest latency.
 Architecture: Main thread (HTTP server :5051) + TTS worker thread + blocking audio writes.
+Fish Speech repo stays independent — this daemon is a consumer, not a fork.
 """
 
 import gc
@@ -15,48 +16,45 @@ import queue
 import threading
 import numpy as np
 import sounddevice as sd
-from math import gcd
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from scipy.signal import resample_poly, firwin, upfirdn
 
-from qwen3_tts_triton import TritonFasterRunner
+from fish_speech.inference_engine import TTSInferenceEngine
+from fish_speech.models.dac.inference import load_model as load_decoder_model
+from fish_speech.models.text2semantic.inference import launch_thread_safe_queue
+from fish_speech.utils.schema import ServeTTSRequest
 
 # --- CONFIGURATION ---
 LISTEN_PORT = 5051
-PLAYBACK_SR = 48000
-BLOCKSIZE = 4800  # 100ms at 48kHz
-RUNNER_RELOAD_INTERVAL = 5  # Reload runner every N generations to reset CUDA graph state
+PLAYBACK_SR = 44100  # Fish Speech S2 Pro native rate — no resampling needed
+BLOCKSIZE = 4410  # 100ms at 44.1kHz
 
-# --- PRE-COMPUTED RESAMPLER (24kHz → 48kHz) ---
-_RESAMPLE_UP = 2
-_RESAMPLE_DOWN = 1
-_RESAMPLE_TAPS = firwin(20 * _RESAMPLE_UP + 1, 1.0 / _RESAMPLE_UP, window=('kaiser', 5.0))
+# Fish Speech config (override via env vars)
+LLAMA_CHECKPOINT = os.environ.get("LLAMA_CHECKPOINT", "checkpoints/s2-pro")
+DECODER_CHECKPOINT = os.environ.get("DECODER_CHECKPOINT", "checkpoints/s2-pro/codec.pth")
+DECODER_CONFIG = os.environ.get("DECODER_CONFIG", "modded_dac_vq")
+REFERENCE_ID = os.environ.get("TTS_REFERENCE_ID", "archie")
+COMPILE = os.environ.get("COMPILE", "1") in ("1", "true", "True")
+
+# TTS generation params
+TTS_TOP_P = float(os.environ.get("TTS_TOP_P", "0.8"))
+TTS_TEMPERATURE = float(os.environ.get("TTS_TEMPERATURE", "0.8"))
+TTS_REPETITION_PENALTY = float(os.environ.get("TTS_REPETITION_PENALTY", "1.1"))
+TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
+TTS_CHUNK_LENGTH = int(os.environ.get("TTS_CHUNK_LENGTH", "300"))
 
 # --- EMOTION PARSER ---
-DEFAULT_INSTRUCT = "Speak in a warm, friendly voice"
+# LLM emits (emotion) prefix — convert to Fish Speech [emotion] tag
 EMOTION_RE = re.compile(r'^\((\w[\w\s]*)\)\s*')
 
 
 def parse_emotion(text):
-    """Extract (emotion) prefix -> instruct string. Return (instruct, clean_text)."""
+    """Convert (emotion) prefix to [emotion] tag for Fish Speech."""
     m = EMOTION_RE.match(text)
     if m:
         emotion = m.group(1).strip()
         clean = text[m.end():]
-        return f"Speak in a {emotion} voice", clean
-    return DEFAULT_INSTRUCT, text
-
-
-# --- RESAMPLER ---
-def resample_to_48k(pcm, src_rate):
-    """Resample PCM audio from src_rate to 48000 Hz."""
-    if src_rate == PLAYBACK_SR:
-        return pcm
-    if src_rate == 24000:
-        return upfirdn(_RESAMPLE_TAPS, pcm, _RESAMPLE_UP, _RESAMPLE_DOWN).astype(pcm.dtype)
-    g = gcd(PLAYBACK_SR, src_rate)
-    up, down = PLAYBACK_SR // g, src_rate // g
-    return resample_poly(pcm, up, down).astype(pcm.dtype)
+        return f"[{emotion}] {clean}"
+    return text
 
 
 def float32_to_int16(audio):
@@ -71,13 +69,11 @@ stop_event = threading.Event()
 worker_idle = threading.Event()
 worker_idle.set()
 stream = None  # Initialized in main(); used by tts_worker (write) and /stop (abort)
-_generation_count = 0
 
 
 # --- TTS WORKER ---
-def tts_worker(runner, speaker):
-    """Consume text_queue, synthesize via Hybrid streaming, write audio to output stream."""
-    global _generation_count
+def tts_worker(engine):
+    """Consume text_queue, synthesize via Fish Speech streaming, write audio to output stream."""
     while True:
         worker_idle.set()
         text = text_queue.get()
@@ -87,43 +83,57 @@ def tts_worker(runner, speaker):
         worker_idle.clear()
         stop_event.clear()
 
-        instruct, clean_text = parse_emotion(text)
+        # Convert (emotion) prefix to [emotion] tag
+        clean_text = parse_emotion(text)
         if not clean_text.strip():
             continue
 
+        req = ServeTTSRequest(
+            text=clean_text,
+            references=[],
+            reference_id=REFERENCE_ID,
+            max_new_tokens=TTS_MAX_NEW_TOKENS,
+            chunk_length=TTS_CHUNK_LENGTH,
+            top_p=TTS_TOP_P,
+            repetition_penalty=TTS_REPETITION_PENALTY,
+            temperature=TTS_TEMPERATURE,
+            streaming=True,
+            use_memory_cache="on",
+        )
+
         try:
-            for audio_chunk, sr, timing in runner.generate_streaming(
-                text=clean_text,
-                language="English",
-                speaker=speaker,
-                instruct=instruct,
-                chunk_size=4,
-            ):
+            for result in engine.inference(req):
                 if stop_event.is_set():
                     break
-                audio_int16 = float32_to_int16(audio_chunk)
-                resampled = resample_to_48k(audio_int16, sr)
-                try:
-                    stream.write(resampled.tobytes())
-                except Exception:
-                    break  # Stream aborted by /stop
+
+                if result.code == "header":
+                    continue  # Skip WAV header — raw PCM to sounddevice
+                elif result.code == "error":
+                    print(f"[mouth] TTS error: {result.error}")
+                    break
+                elif result.code in ("segment", "final"):
+                    if result.audio is None:
+                        continue
+                    sr, audio_data = result.audio
+                    if not isinstance(audio_data, np.ndarray) or len(audio_data) == 0:
+                        continue
+                    # Engine yields float32 segments; final may also be float32
+                    if audio_data.dtype in (np.float32, np.float64):
+                        audio_int16 = float32_to_int16(audio_data)
+                    else:
+                        audio_int16 = audio_data.astype(np.int16)
+                    try:
+                        stream.write(audio_int16.tobytes())
+                    except Exception:
+                        break  # Stream aborted by /stop
         except Exception as e:
             print(f"[mouth] TTS error: {e}")
         finally:
-            _generation_count += 1
             gc.collect()
             torch.cuda.empty_cache()
             alloc = torch.cuda.memory_allocated() / 1024**2
             reserved = torch.cuda.memory_reserved() / 1024**2
-            print(f"[mouth] gen #{_generation_count} | VRAM: {alloc:.0f}MB alloc / {reserved:.0f}MB reserved")
-
-            if _generation_count % RUNNER_RELOAD_INTERVAL == 0:
-                print(f"[mouth] Reloading runner to reset CUDA graph state...")
-                runner.unload_model()
-                gc.collect()
-                torch.cuda.empty_cache()
-                runner.load_model()
-                print(f"[mouth] Runner reloaded.")
+            print(f"[mouth] VRAM: {alloc:.0f}MB alloc / {reserved:.0f}MB reserved")
 
 
 # --- DRAIN HELPER ---
@@ -172,12 +182,51 @@ class MouthHandler(BaseHTTPRequestHandler):
 # --- MAIN ---
 def main():
     global stream
-    print("Loading Hybrid Qwen3-TTS (CUDA Graph + Triton)...")
-    runner = TritonFasterRunner(dtype="bf16")
-    runner.load_model()
-    print("Hybrid Qwen3-TTS loaded")
 
-    speaker = os.environ.get("TTS_SPEAKER", "Aiden")
+    print("Loading Fish Speech S2 Pro (INT8 + TF32 + torch.compile)...")
+
+    precision = torch.bfloat16
+    device = "cuda"
+
+    # Load LLaMA text-to-semantic model (INT8 quant + TF32 + compile applied inside)
+    llama_queue = launch_thread_safe_queue(
+        checkpoint_path=LLAMA_CHECKPOINT,
+        device=device,
+        precision=precision,
+        compile=COMPILE,
+    )
+
+    # Load DAC decoder model
+    decoder_model = load_decoder_model(
+        config_name=DECODER_CONFIG,
+        checkpoint_path=DECODER_CHECKPOINT,
+        device=device,
+    )
+
+    # Create inference engine
+    engine = TTSInferenceEngine(
+        llama_queue=llama_queue,
+        decoder_model=decoder_model,
+        precision=precision,
+        compile=COMPILE,
+    )
+
+    # Warm up models + reference cache
+    print("Warming up...")
+    warmup_req = ServeTTSRequest(
+        text="Hello.",
+        references=[],
+        reference_id=REFERENCE_ID,
+        max_new_tokens=TTS_MAX_NEW_TOKENS,
+        chunk_length=200,
+        top_p=0.7,
+        repetition_penalty=1.2,
+        temperature=0.7,
+        format="wav",
+        use_memory_cache="on",
+    )
+    list(engine.inference(warmup_req))
+    print("Fish Speech S2 Pro loaded and warmed up")
 
     # Start audio output stream (blocking write mode — no callback)
     stream = sd.RawOutputStream(
@@ -192,13 +241,13 @@ def main():
     # Start TTS worker thread
     worker = threading.Thread(
         target=tts_worker,
-        args=(runner, speaker),
+        args=(engine,),
         daemon=True,
     )
     worker.start()
 
     # Start HTTP server
-    server = HTTPServer(('0.0.0.0', LISTEN_PORT), MouthHandler)
+    server = HTTPServer(('127.0.0.1', LISTEN_PORT), MouthHandler)
     print(f"Listening on :{LISTEN_PORT}")
     try:
         server.serve_forever()
@@ -208,7 +257,6 @@ def main():
         text_queue.put(None)  # Unblock worker
         stream.stop()
         stream.close()
-        runner.unload_model()
         server.server_close()
 
 

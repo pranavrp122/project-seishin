@@ -6,7 +6,7 @@ docker rm -f seishin-brain 2>/dev/null
 docker run -d \
   --name seishin-brain \
   --gpus all \
-  -p 8001:8000 \
+  -p 127.0.0.1:8001:8000 \
   --ipc=host \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
   vllm/vllm-openai:latest \

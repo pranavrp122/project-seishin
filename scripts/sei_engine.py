@@ -52,6 +52,19 @@ EMOTION_RE = re.compile(r'^\((\w[\w\s]*)\)\s*')
 ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
 
 
+def pcm16_to_wav(pcm_data: bytes, sample_rate: int = 16000) -> bytes:
+    """Wrap raw PCM16 mono data in a WAV header."""
+    import struct
+    data_size = len(pcm_data)
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF', 36 + data_size, b'WAVE',
+        b'fmt ', 16, 1, 1, sample_rate, sample_rate * 2, 2, 16,
+        b'data', data_size,
+    )
+    return header + pcm_data
+
+
 def find_wav_data_offset(buf: bytes) -> int | None:
     """Find byte offset where PCM audio data starts in a WAV buffer.
 
@@ -337,6 +350,8 @@ async def handler(websocket):
     try:
         async with httpx.AsyncClient() as tts_client:
             pending_msg = None  # Buffered message from stop-listener
+            audio_buf = bytearray()  # Streaming PCM accumulation buffer
+            is_accumulating = False
 
             while True:
                 # --- Phase A: Wait for user message ---
@@ -349,12 +364,15 @@ async def handler(websocket):
                     except ConnectionClosed:
                         break
 
-                    # Binary frame = VAD audio for server-side ASR
+                    # Binary frame: streaming PCM chunk or legacy full WAV
                     if isinstance(raw, bytes):
+                        if is_accumulating:
+                            audio_buf.extend(raw)
+                            continue
+                        # Legacy: full WAV sent in one frame
                         text = await transcribe_audio(raw, tts_client)
                         if text:
                             msg = {"type": "message", "text": text}
-                            # Echo transcription back so client can display it
                             await websocket.send(json.dumps({"type": "transcript", "text": text}))
                         else:
                             continue
@@ -365,8 +383,28 @@ async def handler(websocket):
                             await websocket.send(json.dumps({"type": "error", "message": "Invalid JSON"}))
                             continue
 
+                    # Handle streaming audio control messages
+                    if msg.get("type") == "speech_start":
+                        audio_buf.clear()
+                        is_accumulating = True
+                        continue
+                    if msg.get("type") == "speech_end":
+                        is_accumulating = False
+                        if audio_buf:
+                            wav = pcm16_to_wav(bytes(audio_buf))
+                            audio_buf.clear()
+                            text = await transcribe_audio(wav, tts_client)
+                            if text:
+                                msg = {"type": "message", "text": text}
+                                await websocket.send(json.dumps({"type": "transcript", "text": text}))
+                            else:
+                                continue
+                        else:
+                            continue
+
                 if msg.get("type") != "message" or not msg.get("text"):
-                    await websocket.send(json.dumps({"type": "error", "message": "Expected {type: message, text: ...}"}))
+                    if msg.get("type") not in ("speech_start", "speech_end", "stop"):
+                        await websocket.send(json.dumps({"type": "error", "message": "Expected {type: message, text: ...}"}))
                     continue
 
                 user_text = msg["text"].strip()
@@ -387,29 +425,48 @@ async def handler(websocket):
 
                 async def listen_for_stop():
                     """Listen for stop or new message during generation. Owns recv()."""
+                    bargein_buf = bytearray()
+                    bargein_accumulating = False
                     while True:
                         try:
                             raw = await websocket.recv()
                         except ConnectionClosed:
                             cancel_event.set()
                             return
-                        # Binary frame during generation = voice barge-in
+                        # Binary frame during generation = streaming barge-in audio
                         if isinstance(raw, bytes):
-                            text = await transcribe_audio(raw, tts_client)
-                            if text:
-                                cancel_event.set()
-                                await websocket.send(json.dumps({"type": "transcript", "text": text}))
-                                stop_result["new_msg"] = {"type": "message", "text": text}
-                            return
+                            if bargein_accumulating:
+                                bargein_buf.extend(raw)
+                            # Legacy: full WAV barge-in
+                            else:
+                                text = await transcribe_audio(raw, tts_client)
+                                if text:
+                                    cancel_event.set()
+                                    await websocket.send(json.dumps({"type": "transcript", "text": text}))
+                                    stop_result["new_msg"] = {"type": "message", "text": text}
+                                return
+                            continue
                         try:
                             parsed = json.loads(raw)
                         except json.JSONDecodeError:
-                            continue  # Ignore malformed messages during generation
+                            continue
                         if parsed.get("type") == "stop":
                             cancel_event.set()
                             return
+                        elif parsed.get("type") == "speech_start":
+                            cancel_event.set()  # Interrupt immediately on speech
+                            bargein_buf.clear()
+                            bargein_accumulating = True
+                        elif parsed.get("type") == "speech_end":
+                            bargein_accumulating = False
+                            if bargein_buf:
+                                wav = pcm16_to_wav(bytes(bargein_buf))
+                                text = await transcribe_audio(wav, tts_client)
+                                if text:
+                                    await websocket.send(json.dumps({"type": "transcript", "text": text}))
+                                    stop_result["new_msg"] = {"type": "message", "text": text}
+                            return
                         elif parsed.get("type") == "message" and parsed.get("text"):
-                            # New message = implicit interrupt
                             cancel_event.set()
                             stop_result["new_msg"] = parsed
                             return

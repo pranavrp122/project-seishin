@@ -1,5 +1,5 @@
 import { MicVAD } from '@ricky0123/vad-web';
-import { sendAudio, sendStop } from '../net/websocket.ts';
+import { sendStop, sendSpeechStart, sendSpeechEnd, sendPCMChunk } from '../net/websocket.ts';
 import { updateState, appState, resetLatency } from '../state.ts';
 import { setMessageSentTimestamp } from '../orchestrator.ts';
 
@@ -7,40 +7,49 @@ let vad: MicVAD | null = null;
 let micStream: MediaStream | null = null;
 let micAudioCtx: AudioContext | null = null;
 let micAnalyser: AnalyserNode | null = null;
+let micProcessor: ScriptProcessorNode | null = null;
+let isStreamingAudio = false;
 
-// Float32 to WAV blob conversion (16kHz mono PCM16)
-function float32ToWav(samples: Float32Array, sampleRate: number): Blob {
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-  const blockAlign = numChannels * (bitsPerSample / 8);
-  const dataSize = samples.length * (bitsPerSample / 8);
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  // RIFF header
-  writeStr(view, 0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeStr(view, 8, 'WAVE');
-  writeStr(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-  writeStr(view, 36, 'data');
-  view.setUint32(40, dataSize, true);
-  const off = 44;
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(off + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-  }
-  return new Blob([buffer], { type: 'audio/wav' });
+// Ring buffer: 500ms at 16kHz = 8000 samples of Int16
+const RING_SIZE = 8000;
+const ringBuf = new Int16Array(RING_SIZE);
+let ringPos = 0;
+let ringWrapped = false;
+
+function downsample(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (fromRate === toRate) return input;
+  const ratio = fromRate / toRate;
+  const len = Math.round(input.length / ratio);
+  const out = new Float32Array(len);
+  for (let i = 0; i < len; i++) out[i] = input[Math.round(i * ratio)];
+  return out;
 }
 
-function writeStr(view: DataView, offset: number, str: string): void {
-  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+function float32ToInt16(samples: Float32Array): Int16Array {
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return out;
+}
+
+function writeRing(pcm: Int16Array): void {
+  for (let i = 0; i < pcm.length; i++) {
+    ringBuf[ringPos] = pcm[i];
+    ringPos = (ringPos + 1) % RING_SIZE;
+    if (ringPos === 0) ringWrapped = true;
+  }
+}
+
+function flushRing(): ArrayBuffer {
+  const count = ringWrapped ? RING_SIZE : ringPos;
+  const start = ringWrapped ? ringPos : 0;
+  const out = new Int16Array(count);
+  for (let i = 0; i < count; i++) out[i] = ringBuf[(start + i) % RING_SIZE];
+  ringPos = 0;
+  ringWrapped = false;
+  return out.buffer;
 }
 
 export function getMicAnalyser(): AnalyserNode | null {
@@ -56,6 +65,19 @@ export async function startVAD(): Promise<void> {
   micAnalyser.fftSize = 256;
   source.connect(micAnalyser);
 
+  // Continuous PCM capture: downsample to 16kHz, write to ring buffer, stream when speaking
+  micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
+  micProcessor.onaudioprocess = (e) => {
+    const raw = e.inputBuffer.getChannelData(0);
+    const pcm16 = float32ToInt16(downsample(raw, micAudioCtx!.sampleRate, 16000));
+    writeRing(pcm16);
+    if (isStreamingAudio) {
+      sendPCMChunk(pcm16.buffer);
+    }
+  };
+  source.connect(micProcessor);
+  micProcessor.connect(micAudioCtx.destination); // output is silent (zeros)
+
   vad = await MicVAD.new({
     baseAssetPath: '/',
     onnxWASMBasePath: '/',
@@ -66,25 +88,24 @@ export async function startVAD(): Promise<void> {
     redemptionMs: 240,
     onSpeechStart: () => {
       updateState({ isSpeaking: true, interimTranscript: 'Listening...' });
-      // If companion is generating, send barge-in stop
       if (appState.isGenerating) {
         sendStop();
+      } else {
+        // Flush pre-speech ring buffer and start live streaming
+        sendSpeechStart();
+        const catchUp = flushRing();
+        if (catchUp.byteLength > 0) sendPCMChunk(catchUp);
+        isStreamingAudio = true;
       }
     },
-    onSpeechEnd: async (audio: Float32Array) => {
+    onSpeechEnd: async (_audio: Float32Array) => {
       updateState({ isSpeaking: false });
-      resetLatency();
-      setMessageSentTimestamp(performance.now());
-      try {
-        const wavBlob = float32ToWav(audio, 16000);
-        const wavBuffer = await wavBlob.arrayBuffer();
+      isStreamingAudio = false;
+      if (!appState.isGenerating) {
+        resetLatency();
+        setMessageSentTimestamp(performance.now());
         updateState({ interimTranscript: 'Transcribing...' });
-        await sendAudio(wavBuffer);
-        // Server handles ASR + LLM + TTS; transcript message will arrive
-        // via orchestrator which adds the user message and sets isGenerating
-      } catch (err) {
-        console.error('Audio send error:', err);
-        updateState({ interimTranscript: '' });
+        sendSpeechEnd();
       }
     },
   });
@@ -93,7 +114,9 @@ export async function startVAD(): Promise<void> {
 }
 
 export async function stopVAD(): Promise<void> {
+  isStreamingAudio = false;
   if (vad) { await vad.destroy(); vad = null; }
+  if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
   if (micStream) {
     micStream.getTracks().forEach(t => t.stop());
     micStream = null;

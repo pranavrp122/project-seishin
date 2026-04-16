@@ -44,8 +44,13 @@ def _md_to_plain(text: str) -> str:
 
     result = '\n'.join(lines)
 
+    # Remove code fences (``` blocks)
+    result = re.sub(r'```[^\n]*\n', '', result)
+    result = re.sub(r'```', '', result)
+
     # Remove backticks (inline code)
     result = re.sub(r'`([^`]+)`', r'\1', result)
+    result = result.replace('`', '')
 
     # Remove **bold**
     result = re.sub(r'\*\*([^*]+)\*\*', r'\1', result)

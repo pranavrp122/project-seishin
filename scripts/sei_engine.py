@@ -86,6 +86,22 @@ def find_wav_data_offset(buf: bytes) -> int | None:
             pos += 1  # WAV chunks are word-aligned
     return None
 
+def fade_out_pcm(pcm: bytes, fade_ms: int = 80, sample_rate: int = 44100) -> bytes:
+    """Apply linear fade-out to the last fade_ms ms of PCM16 mono audio."""
+    import struct
+    if len(pcm) < 4:
+        return pcm
+    fade_samples = sample_rate * fade_ms // 1000
+    n = len(pcm) // 2
+    samples = list(struct.unpack(f'<{n}h', pcm[:n * 2]))
+    start = max(0, n - fade_samples)
+    total = n - start
+    for i in range(start, n):
+        factor = 1.0 - (i - start) / total
+        samples[i] = int(samples[i] * factor)
+    return struct.pack(f'<{n}h', *samples) + pcm[n * 2:]
+
+
 # --- Global state ---
 active_ws = None
 
@@ -155,6 +171,7 @@ async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel
 
             header_buf = bytearray()
             data_offset = None
+            prev_chunk = None
             async for chunk in response.aiter_bytes():
                 if cancel_event.is_set():
                     return
@@ -163,23 +180,24 @@ async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel
                     data_offset = find_wav_data_offset(header_buf)
                     if data_offset is None:
                         if len(header_buf) > 1024:
-                            # Safety bail: assume standard 44-byte header
                             data_offset = WAV_HEADER_SIZE
                             remainder = bytes(header_buf[data_offset:])
                             if remainder:
-                                await ws.send(remainder)
+                                prev_chunk = remainder
                         continue
                     remainder = bytes(header_buf[data_offset:])
                     if remainder:
-                        await ws.send(remainder)
+                        prev_chunk = remainder
                     continue
-                await ws.send(chunk)  # Binary WebSocket frame
+                # Send previous chunk, buffer current
+                if prev_chunk:
+                    await ws.send(prev_chunk)
+                prev_chunk = bytes(chunk)
 
-            # Append silence padding to prevent end-of-clip click/beep artifact.
-            # 150ms of silence at 44100 Hz, 16-bit mono = 13230 zero bytes.
-            if not cancel_event.is_set() and data_offset is not None:
-                silence = bytes(44100 * 150 // 1000 * 2)
-                await ws.send(silence)
+            # Send final chunk with fade-out applied, then silence padding
+            if not cancel_event.is_set() and prev_chunk:
+                await ws.send(fade_out_pcm(prev_chunk))
+                await ws.send(bytes(44100 * 150 // 1000 * 2))
     except httpx.ConnectError:
         print(f"  TTS connection failed: {TTS_URL}")
         try:

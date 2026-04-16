@@ -47,7 +47,7 @@ TTS_TEMPERATURE = float(os.environ.get("TTS_TEMPERATURE", "0.8"))
 TTS_REPETITION_PENALTY_TTS = float(os.environ.get("TTS_REPETITION_PENALTY", "1.1"))
 TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
 WAV_HEADER_SIZE = 44  # Fallback if data chunk parsing fails
-EMOTION_RE = re.compile(r'^\((\w[\w\s]*)\)\s*')
+EMOTION_RE = re.compile(r'\((\w[\w\s]*)\)\s*')
 
 ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
 
@@ -122,35 +122,21 @@ def is_quality_response(reply: str) -> bool:
     )
 
 
-def extract_emotion(text: str) -> tuple[str, str]:
-    """Extract (emotion) prefix, return (emotion_tag, clean_text).
+def convert_emotions(text: str) -> str:
+    """Convert all (emotion) tags to [emotion] tags for Fish Speech.
 
-    Returns e.g. ("[happy]", "That sounds great!") or ("", "No emotion here.").
+    E.g. "(warm) Hey! (excited) That's great!" -> "[warm] Hey! [excited] That's great!"
     """
-    m = EMOTION_RE.match(text)
-    if m:
-        emotion = m.group(1).strip()
-        clean = text[m.end():]
-        return f"[{emotion}]", clean
-    return "", text
-
-
-def apply_emotion(text: str, emotion_tag: str) -> str:
-    """Prepend emotion tag to text for Fish Speech if tag is set."""
-    if emotion_tag:
-        return f"{emotion_tag} {text}"
-    return text
+    return EMOTION_RE.sub(lambda m: f"[{m.group(1).strip()}] ", text)
 
 
 async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel_event: asyncio.Event):
     """Send full LLM response to Fish Speech TTS and stream PCM audio back.
 
-    Emotion tag at the start of the response naturally covers the entire output.
+    Converts all (emotion) tags to [emotion] for Fish Speech.
     Fish Speech streams audio chunks back via streaming=True.
     """
-    # Convert (emotion) prefix to [emotion] tag for Fish Speech
-    emotion_tag, clean = extract_emotion(text)
-    tts_text = apply_emotion(clean, emotion_tag) if emotion_tag else text
+    tts_text = convert_emotions(text)
     if not tts_text.strip():
         return
 

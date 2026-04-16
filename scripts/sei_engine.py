@@ -19,7 +19,7 @@ from websockets.exceptions import ConnectionClosed
 import httpx
 import ormsgpack
 
-from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, DODGE_PHRASES
+from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -113,9 +113,7 @@ def build_initial_messages() -> list[dict]:
 
 def is_quality_response(reply: str) -> bool:
     """Check if LLM reply meets minimum quality bar."""
-    return bool(reply) and len(reply) >= 10 and not any(
-        p in reply.lower() for p in DODGE_PHRASES
-    )
+    return bool(reply) and len(reply) >= 10
 
 
 async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel_event: asyncio.Event):

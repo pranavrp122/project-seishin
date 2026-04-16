@@ -403,7 +403,13 @@ async def transcribe_audio(wav_bytes: bytes, asr_client: httpx.AsyncClient, labe
         resp = await asr_client.post(
             f"{ASR_URL}/inference",
             files={"file": ("audio.wav", wav_bytes, "audio/wav")},
-            data={"response_format": "json", "language": "en"},
+            data={
+                "response_format": "json",
+                "language": "en",
+                "temperature": "0.2",           # small stochasticity helps short clips
+                "no_speech_thold": "0.3",       # default 0.6; lower = more forgiving
+                "logprob_thold": "-1.5",        # default -1.0; lower = keep weaker tokens
+            },
             timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
         )
         if resp.status_code != 200:

@@ -81,11 +81,11 @@ export async function startVAD(): Promise<void> {
   vad = await MicVAD.new({
     baseAssetPath: '/',
     onnxWASMBasePath: '/',
-    positiveSpeechThreshold: 0.8,
-    negativeSpeechThreshold: 0.15,
-    minSpeechMs: 90,
-    preSpeechPadMs: 300,
-    redemptionMs: 240,
+    positiveSpeechThreshold: 0.6,
+    negativeSpeechThreshold: 0.10,
+    minSpeechMs: 60,
+    preSpeechPadMs: 400,
+    redemptionMs: 400,
     onSpeechStart: () => {
       updateState({ isSpeaking: true, interimTranscript: 'Listening...' });
       if (appState.isGenerating) {

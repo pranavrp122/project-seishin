@@ -90,6 +90,40 @@ def _is_affirmative(text: str) -> bool:
     return bool(_AFFIRMATIVE.match((text or "").strip()))
 
 
+async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient) -> None:
+    """Wrap a finished report result in Miyako's voice and deliver via TTS."""
+    try:
+        res = report_task.result()
+        raw_summary = res.get("summary") or "The report came back but there wasn't much to show."
+    except Exception as _e:
+        print(f"  Report API error: {_e}")
+        raw_summary = None
+
+    if raw_summary:
+        _wrap_messages = list(history) + [{
+            "role": "user",
+            "content": (
+                "[INTERNAL: Your background report just finished. Present the result naturally in your voice — "
+                "start by letting the user know it came back (e.g. 'your report's done' or 'alright I got your results'), "
+                "then share what you found conversationally. Follow all tag and style rules. Keep it brief.]\n\n"
+                f"Report result: {raw_summary}"
+            ),
+        }]
+    else:
+        _wrap_messages = list(history) + [{
+            "role": "user",
+            "content": (
+                "[INTERNAL: The background report you were running hit an error. "
+                "Let the user know naturally and offer to try again. Follow all tag and style rules.]"
+            ),
+        }]
+
+    _ce = asyncio.Event()
+    llm_reply = await handle_llm_response(websocket, _wrap_messages, tts_client, _ce)
+    if llm_reply:
+        history.append({"role": "assistant", "content": llm_reply})
+
+
 async def call_report_api(user_request: str) -> dict:
     """POST user request to the report generator and return the response dict."""
     headers = {"X-API-Key": REPORT_API_KEY} if REPORT_API_KEY else {}
@@ -423,18 +457,8 @@ async def handler(websocket):
                     except asyncio.TimeoutError:
                         # Silence while report is running — deliver result or send update
                         if active_report_task.done():
-                            try:
-                                res = active_report_task.result()
-                                report_summary = res.get("summary") or "Your report is ready."
-                            except Exception as _e:
-                                print(f"  Report API error: {_e}")
-                                report_summary = "Sorry, I ran into an issue with that report. You can ask me to try again."
+                            await deliver_report_result(websocket, active_report_task, history, tts_client)
                             active_report_task = None
-                            history.append({"role": "assistant", "content": report_summary})
-                            await websocket.send(json.dumps({"type": "sentence", "text": report_summary}))
-                            _ce = asyncio.Event()
-                            await tts_full_response(websocket, report_summary, tts_client, _ce)
-                            await websocket.send(json.dumps({"type": "done"}))
                         else:
                             update = _REPORT_PROGRESS_MSGS[_report_progress_idx] \
                                 if _report_progress_idx < len(_REPORT_PROGRESS_MSGS) \
@@ -669,18 +693,8 @@ async def handler(websocket):
                 # Deliver report result only when the current turn finished cleanly (not interrupted).
                 # If interrupted, the result will surface on next silence or next clean turn.
                 if active_report_task is not None and active_report_task.done() and not interrupted:
-                    try:
-                        res = active_report_task.result()
-                        report_summary = res.get("summary") or "Your report is ready."
-                    except Exception as _e:
-                        print(f"  Report API error: {_e}")
-                        report_summary = "Hey, just so you know — I ran into an issue generating that report. You can ask me to try again."
+                    await deliver_report_result(websocket, active_report_task, history, tts_client)
                     active_report_task = None
-                    history.append({"role": "assistant", "content": report_summary})
-                    await websocket.send(json.dumps({"type": "sentence", "text": report_summary}))
-                    _ce = asyncio.Event()
-                    await tts_full_response(websocket, report_summary, tts_client, _ce)
-                    await websocket.send(json.dumps({"type": "done"}))
     finally:
         active_ws = None
         print(f"Client disconnected: {websocket.remote_address}")

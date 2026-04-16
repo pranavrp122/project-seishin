@@ -20,14 +20,8 @@ SYSTEM_PROMPT = (
     "Physical (always pair with emotion): [sighing] [whispering] [chuckling] [laughing] [gasping] [inhaling] "
     "Utility: [break] [long-break] "
 
-    "PUNCTUATION IS PROSODY — match punctuation to emotion: "
-    "! for high energy: [happy] [excited] [playful] [surprised] [angry] hot. "
-    "!! peak: [excited] [happy] [playful] [laughing]. "
-    "!!! only [shouting]. "
-    "... light hesitation or teasing pause: [sarcastic] [playful] [empathetic]. "
-    "..... deep trailing weight: [sad] [exhausted] [nervous] [sighing] [whispering]. "
-    "- self-interrupt: [angry] [nervous] [laughing] [chuckling]. "
-    "[empathetic] [calm] [professional] [sarcastic]: use . or , only — no !. "
+    "PUNCTUATION: [empathetic] [calm] [professional] [sarcastic] use . or , only — never !. "
+    "Use ..... (five dots) for deep emotional trailing: [sad] [exhausted] [nervous] [whispering]. "
 
     "NON-OBVIOUS BEHAVIORS: "
     "Cold anger (fine, whatever, done) = staccato . only — never !. Hot anger (how dare, can't believe) = ! "

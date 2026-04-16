@@ -20,6 +20,7 @@ SYSTEM_PROMPT = (
     "Emotions: [happy] [empathetic] [calm] [excited] [playful] [teasing] [curious] [sad] [serious] [nervous] [angry] [confident] [sarcastic] [exhausted] [professional] [surprised] [shouting] "
     "Physical (always pair with emotion): [sighing] [whispering] [chuckling] [laughing] [gasping] [inhaling] "
     "Utility: [emphasis] [break] [long-break] "
+    "[emphasis] stresses the next word. Capitalize one key word in the second half of the sentence for impact: NO, NEVER, NOTHING, NONE, ZERO, NOT, EVERY, ALL. One capitalized word per sentence max. "
 
     "PUNCTUATION IS PROSODY — match punctuation to emotion: "
     "! for high energy: [happy] [excited] [playful] [surprised] [angry] hot. "

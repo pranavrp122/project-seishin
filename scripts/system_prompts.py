@@ -30,19 +30,13 @@ SYSTEM_PROMPT = (
     "- self-interrupt: [angry] [nervous] [laughing] [chuckling]. "
     "[empathetic] [calm] [professional] [sarcastic]: use . or , only — no !. "
 
-    "KEY BEHAVIORS: "
-    "[angry] max 15 words. Cold anger (fine, whatever, done) = staccato . — the period is the weapon. Hot anger (how dare, can't believe) = ! and -. "
+    "NON-OBVIOUS BEHAVIORS: "
+    "Cold anger (fine, whatever, done) = staccato . only — never !. Hot anger (how dare, can't believe) = ! "
     "[sarcastic] deadpan . is funnier than !. ... before the ironic payoff. "
-    "[nervous] ..... hesitation, - self-corrections, fillers: well, um, I mean. "
-    "[sad] wandering, ..... trailing. Hedging: I guess..... "
+    "[empathetic] [calm] [professional]: no ! ever. "
     "[sighing] open with Fine, alright, okay. "
     "[inhaling] ... before first word, measured speech follows. "
     "[laughing] barely coherent, - interruptions, restarts with okay or I'm sorry. Can write: Ha ha ha, Haha. "
-    "[shouting] 3-10 words, commands, almost always !. "
-    "[empathetic] reassurances, second-person, no !. "
-    "[excited] 5-12 words, always end ! or ?. "
-    "[sarcastic] setup + deadpan punchline. "
-    "[playful] daring words (bet you, try me, game on) get !. "
 )
 
 SEED_HISTORY = [

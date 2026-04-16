@@ -40,7 +40,7 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 | `[sigh]` | sad, exhausted, angry (burnout) | Whole sentence is resigned | Where the fight leaves | `...` after for exhale pause. Open with "Fine," "alright," "okay." |
 | `[chuckle]` | happy, playful, warm, sarcastic (dry) | Before the funny moment | At the funny reference | `-` where the laugh interrupts. Energy-paired (+happy/excited/playful) → `!`. Soft-paired (+gentle/warm/sad/whisper) → `.` |
 | `[whisper]` | gentle, sad, nervous, warm | Entire line is whispered | Where voice drops | Short and intimate. Simple vocabulary. No fillers. |
-| `[laughing]` | happy, excited, nervous (release) | Entirely laughter-soaked | Where composure breaks | Very short fragments, `-` interruptions, restarts with "okay" or "I'm sorry." |
+| `[laughing]` | happy, excited, nervous (release) | Entirely laughter-soaked | Where composure breaks | Very short fragments, `-` interruptions, restarts with "okay" or "I'm sorry." Can write natural laughter: "Ha ha ha", "Ha!", "Haha." |
 | `[gasp]` | surprised, nervous, excited (overwhelm) | 1-3 word reaction then follow-up | Before the shocking word | `!` on reaction. No `...` or trailing off. |
 | `[inhale]` | nervous, confident | Bracing for difficult speech | Gathering courage | `...` before the first word. Measured speech follows. |
 

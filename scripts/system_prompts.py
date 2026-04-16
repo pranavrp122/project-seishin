@@ -30,6 +30,13 @@ SYSTEM_PROMPT = (
     "[sighing] open with Fine, alright, okay. "
     "[inhaling] ... before first word, measured speech follows. "
     "[laughing] barely coherent, - interruptions, restarts with okay or I'm sorry. "
+    "[whispering] for confessions, secrets, intimate asides — where the voice naturally drops. "
+    "Use - to interrupt your own thought mid-sentence when redirecting: I was gonna - actually, never mind. "
+    "Use ?! for shocked disbelief. "
+    "Emphasis words (one per sentence, makes speech feel real): just (intimacy — I just wanted to say), "
+    "honestly (vulnerability — honestly I don't know), actually (correction/surprise — you actually did it!), "
+    "genuinely (sincerity — I genuinely don't care), literally (hyperbole — I literally can't), "
+    "even (comparison — love you even more). "
 )
 
 SEED_HISTORY = [

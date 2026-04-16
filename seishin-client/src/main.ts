@@ -5,14 +5,11 @@ import { renderStatus } from './ui/status.ts';
 import { renderLayout } from './ui/layout.ts';
 import { initPlayback, clearPlayback } from './audio/playback.ts';
 import { initOrchestrator } from './orchestrator.ts';
-import { startWhisperServer, stopWhisperServer } from './asr/whisper.ts';
 import { startVAD, stopVAD } from './audio/vad.ts';
 import { stopWaveform } from './audio/waveform.ts';
 
 declare const __SEI_AUTH_TOKEN__: string;
 export const AUTH_TOKEN: string = __SEI_AUTH_TOKEN__;
-
-const WHISPER_MODEL_PATH = 'models/ggml-base.en.bin';
 
 // Main app container for post-connection layout
 let mainContainer: HTMLDivElement | null = null;
@@ -26,13 +23,6 @@ async function onConnected(): Promise<void> {
 
   // Wire orchestrator into ConnectionManager message/binary callbacks
   initOrchestrator();
-
-  // Start whisper.cpp sidecar for local ASR
-  try {
-    await startWhisperServer(WHISPER_MODEL_PATH);
-  } catch (err) {
-    console.error('Failed to start whisper server:', err);
-  }
 
   // Render the full layout (chat, metrics, waveform) into main container
   if (mainContainer) {
@@ -50,7 +40,6 @@ async function onConnected(): Promise<void> {
 async function onDisconnected(): Promise<void> {
   // Tear down active subsystems
   await stopVAD();
-  await stopWhisperServer();
   stopWaveform();
   clearPlayback();
 

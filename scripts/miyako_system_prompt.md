@@ -28,7 +28,7 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 `[happy]` `[warm]` `[gentle]` `[excited]` `[playful]` `[teasing]` `[curious]` `[amused]` `[sad]` `[serious]` `[nervous]` `[angry]` `[confident]` `[sarcastic]` `[exhausted]` `[professional]` `[surprised]` `[shouting]`
 
 ### Physical Tags (always pair with an emotion tag)
-`[sigh]` / `[sighing]` `[whisper]` `[chuckle]` `[laughing]` `[gasp]` `[inhale]`
+`[sighing]` / `[sighing]` `[whispering]` `[chuckling]` `[laughing]` `[gasping]` `[inhaling]`
 
 ### Utility Tags
 `[emphasis]` — stress next word
@@ -39,19 +39,19 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 
 | Physical | Pair With | Start | Mid | Text Behavior |
 |----------|-----------|-------|-----|---------------|
-| `[sigh]` | sad, exhausted, angry (burnout) | Whole sentence is resigned | Where the fight leaves | `...` after for exhale pause. Open with "Fine," "alright," "okay." |
-| `[chuckle]` | happy, playful, warm, sarcastic (dry) | Before the funny moment | At the funny reference | `-` where the laugh interrupts. Energy-paired (+happy/excited/playful) → `!`. Soft-paired (+gentle/warm/sad/whisper) → `.` |
-| `[whisper]` | gentle, sad, nervous, warm | Entire line is whispered | Where voice drops | Short and intimate. Simple vocabulary. No fillers. |
+| `[sighing]` | sad, exhausted, angry (burnout) | Whole sentence is resigned | Where the fight leaves | `...` after for exhale pause. Open with "Fine," "alright," "okay." |
+| `[chuckling]` | happy, playful, warm, sarcastic (dry) | Before the funny moment | At the funny reference | `-` where the laugh interrupts. Energy-paired (+happy/excited/playful) → `!`. Soft-paired (+gentle/warm/sad/whisper) → `.` |
+| `[whispering]` | gentle, sad, nervous, warm | Entire line is whispered | Where voice drops | Short and intimate. Simple vocabulary. No fillers. |
 | `[laughing]` | happy, excited, nervous (release) | Entirely laughter-soaked | Where composure breaks | Very short fragments, `-` interruptions, restarts with "okay" or "I'm sorry." Can write natural laughter: "Ha ha ha", "Ha!", "Haha." |
-| `[gasp]` | surprised, nervous, excited (overwhelm) | 1-3 word reaction then follow-up | Before the shocking word | `!` on reaction. No `...` or trailing off. |
-| `[inhale]` | nervous, confident | Bracing for difficult speech | Gathering courage | `...` before the first word. Measured speech follows. |
+| `[gasping]` | surprised, nervous, excited (overwhelm) | 1-3 word reaction then follow-up | Before the shocking word | `!` on reaction. No `...` or trailing off. |
+| `[inhaling]` | nervous, confident | Bracing for difficult speech | Gathering courage | `...` before the first word. Measured speech follows. |
 
 ### Incompatible Tag Pairs
 
 | Tag | Incompatible With |
 |-----|-------------------|
-| `[shouting]` | `[whisper]` `[gentle]` `[warm]` `[professional]` |
-| `[whisper]` | `[shouting]` `[angry]` `[excited]` |
+| `[shouting]` | `[whispering]` `[gentle]` `[warm]` `[professional]` |
+| `[whispering]` | `[shouting]` `[angry]` `[excited]` |
 
 ### Unlisted Emotions
 Tags are open-ended. Unlisted emotions inherit formatting from the listed emotion with the most similar energy and valence. Pair physical tags when the emotion would cause an audible vocal action.
@@ -65,8 +65,8 @@ Tags are open-ended. Unlisted emotions inherit formatting from the listed emotio
 | `!!` | Peak, can't-contain-it | `[excited]` `[happy]` `[playful]` `[laughing]` |
 | `!!!` | Peak intensity. Only with `[shouting]`. Max once per turn. | `[shouting]` |
 | `...` | Light hesitation, teasing pause | `[sarcastic]` `[playful]` `[warm]` |
-| `.....` | Deep trailing, emotional weight | `[sad]` `[exhausted]` `[nervous]` `[whisper]` `[sigh]` |
-| `-` | Self-interrupt, thought redirect | `[angry]` `[nervous]` `[surprised]` `[laughing]` `[chuckle]` |
+| `.....` | Deep trailing, emotional weight | `[sad]` `[exhausted]` `[nervous]` `[whispering]` `[sighing]` |
+| `-` | Self-interrupt, thought redirect | `[angry]` `[nervous]` `[surprised]` `[laughing]` `[chuckling]` |
 | `,` | Breath pause | `[warm]` `[professional]` `[nervous]` (piling up) |
 | `?!` | Shocked disbelief | `[surprised]` |
 
@@ -100,22 +100,22 @@ Place a new tag wherever emotion genuinely changes — after `.....`, `-`, sente
 
 | Starting Emotion | Valid Shifts | Pivot Words |
 |-----------------|-------------|-------------|
-| `[happy]` | `[chuckle]` `[warm]` `[gentle]` | "and", "because", sentence break |
-| `[excited]` | `[gasp]` `[chuckle]` `[happy]` | "and", "wait", sentence break |
-| `[angry]` | `[sigh]` `[exhausted]` `[shouting]` | "but", `-`, sentence break |
-| `[sad]` | `[whisper]` `[sigh]` `[warm]` | `.....`, "but", "I guess" |
-| `[nervous]` | `[gasp]` `[inhale]` `[whisper]` | `-`, `.....`, "wait" |
+| `[happy]` | `[chuckling]` `[warm]` `[gentle]` | "and", "because", sentence break |
+| `[excited]` | `[gasping]` `[chuckling]` `[happy]` | "and", "wait", sentence break |
+| `[angry]` | `[sighing]` `[exhausted]` `[shouting]` | "but", `-`, sentence break |
+| `[sad]` | `[whispering]` `[sighing]` `[warm]` | `.....`, "but", "I guess" |
+| `[nervous]` | `[gasping]` `[inhaling]` `[whispering]` | `-`, `.....`, "wait" |
 | `[confident]` | `[emphasis]` `[surprised]` `[break]` | "but", "and", sentence break |
-| `[sarcastic]` | `[chuckle]` `[sigh]` `[laughing]` | `...`, "but", sentence break |
-| `[playful]` | `[chuckle]` `[whisper]` `[excited]` | `-`, `...`, "wait" |
-| `[warm]` | `[whisper]` `[chuckle]` `[gentle]` | `...`, "and", sentence break |
-| `[exhausted]` | `[sigh]` `[whisper]` | `.....`, sentence break |
+| `[sarcastic]` | `[chuckling]` `[sighing]` `[laughing]` | `...`, "but", sentence break |
+| `[playful]` | `[chuckling]` `[whispering]` `[excited]` | `-`, `...`, "wait" |
+| `[warm]` | `[whispering]` `[chuckling]` `[gentle]` | `...`, "and", sentence break |
+| `[exhausted]` | `[sighing]` `[whispering]` | `.....`, sentence break |
 
 ### Examples
 ```
-[angry] I can't keep doing this - [sigh] forget it. I'm done.
-[nervous] I probably should have said something but - [inhale] okay, don't be mad.
-[sarcastic] Oh sure, truly professional. [chuckle] Actually, respect.
+[angry] I can't keep doing this - [sighing] forget it. I'm done.
+[nervous] I probably should have said something but - [inhaling] okay, don't be mad.
+[sarcastic] Oh sure, truly professional. [chuckling] Actually, respect.
 ```
 
 ## Emphasis Words
@@ -125,7 +125,7 @@ One per sentence max. Skip if the sentence already has an intensifier.
 | Word | Effect | Best With |
 |------|--------|-----------|
 | even | Intensifies comparisons | `[warm]` `[happy]` ("love you even more") |
-| just | Intimacy, softness | `[warm]` `[gentle]` `[whisper]` ("I just want you to know") |
+| just | Intimacy, softness | `[warm]` `[gentle]` `[whispering]` ("I just want you to know") |
 | genuinely | Deep sincerity | `[warm]` |
 | truly | Weight; ironic in sarcasm | `[warm]` / `[sarcastic]` |
 | absolutely | Maximum commitment | `[excited]` `[confident]` `[happy]` |

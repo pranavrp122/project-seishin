@@ -87,7 +87,7 @@ def find_wav_data_offset(buf: bytes) -> int | None:
             pos += 1  # WAV chunks are word-aligned
     return None
 
-SENTENCE_END = re.compile(r'[.!?]["\')\]]?(?:\s|$)')
+SENTENCE_END = re.compile(r'(?:(?<!\.)\.(?!\.)|[!?])["\'\)\]]?(?:\s|$)')
 
 # --- Global state ---
 active_ws = None

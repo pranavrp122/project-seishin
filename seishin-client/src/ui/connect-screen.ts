@@ -1,6 +1,8 @@
 import { connectionManager } from '../net/connection.ts';
 import { onStateChange } from '../state.ts';
 
+const SERVER_URL_KEY = 'seishin.serverUrl';
+
 let connectEl: HTMLDivElement | null = null;
 let urlInput: HTMLInputElement | null = null;
 let connectBtn: HTMLButtonElement | null = null;
@@ -35,6 +37,10 @@ export function renderConnectScreen(parent: HTMLElement): void {
   urlInput = document.createElement('input');
   urlInput.type = 'text';
   urlInput.placeholder = 'wss://your-server.ngrok-free.app/';
+  try {
+    const saved = localStorage.getItem(SERVER_URL_KEY);
+    if (saved) urlInput.value = saved;
+  } catch { /* localStorage unavailable — fall through */ }
   urlInput.style.cssText = `
     flex: 1;
     padding: 10px 14px;
@@ -121,6 +127,7 @@ async function handleConnect(): Promise<void> {
 
   try {
     await connectionManager.connect(url);
+    try { localStorage.setItem(SERVER_URL_KEY, url); } catch { /* ignore */ }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Connection failed';
     showError(message);
@@ -146,7 +153,12 @@ export function hideConnectScreen(): void {
 
 export function showConnectScreen(): void {
   if (connectEl) connectEl.style.display = 'flex';
-  // Clear URL field on re-show per D-07 (no persistence)
-  if (urlInput) urlInput.value = '';
+  // Keep the last-used URL visible across reconnects.
+  if (urlInput && !urlInput.value) {
+    try {
+      const saved = localStorage.getItem(SERVER_URL_KEY);
+      if (saved) urlInput.value = saved;
+    } catch { /* ignore */ }
+  }
   hideError();
 }

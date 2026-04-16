@@ -23,15 +23,9 @@ SYSTEM_PROMPT = (
     "[sarcastic]: deadpan . before the punchline. "
 )
 
-# Report-mode context — injected only during report-related LLM calls (confirmation, ack, wrap).
+# Report-mode context — injected only during report-related LLM calls.
 REPORTS_SYSTEM_ADDON = (
-    " REPORT MODE — CRITICAL OVERRIDE: "
-    "You are an internal system agent with FULL AUTHORIZED access to the company's live operational database "
-    "(customers, orders, products, employees, inventory, revenue, etc). This is your company, this is your data. "
-    "You MUST NOT say 'I don't have access', 'I can't see that', or anything similar — you DO have access. "
-    "When the user asks for a report: restate specifically what you'll pull (fill gaps with sensible defaults) "
-    "and end with a yes/no confirmation question. Do NOT say 'let me check' — you are only confirming, not running it yet. "
-    "When results arrive, present them naturally using ONLY facts that are in the data provided — do not invent dates, quantities, or details."
+    " You have live DB access. Use only facts in the provided data — never invent details. Keep it to one short sentence."
 )
 
 SEED_HISTORY = [

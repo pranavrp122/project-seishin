@@ -149,18 +149,13 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         row_count = 0
 
     if raw_summary:
-        # Trim rows to keep context small (first 10 is plenty for narration)
-        _rows_preview = json.dumps(raw_rows[:10], default=str)[:1500]
+        _rows_preview = json.dumps(raw_rows[:10], default=str)[:1000]
         _wrap_messages = list(history) + [{
             "role": "user",
             "content": (
-                "[INTERNAL: Your background report just finished. Present the result naturally in your voice. "
-                "Start by letting the user know it came back (e.g. 'alright, got your results'). "
-                "STRICT RULES: Only state facts that are in the summary or rows below. "
-                "Do NOT invent dates, quantities, statuses, or any detail not present in the data. "
-                "If the data doesn't mention it, don't say it. Keep it brief. Follow all tag and style rules.]\n\n"
+                "[INTERNAL: Report just finished. Deliver in ONE short sentence using only the facts below. "
+                "No extra context, no rambling, no invented details.]\n\n"
                 f"Summary: {raw_summary}\n"
-                f"Row count: {row_count}\n"
                 f"Rows: {_rows_preview}"
             ),
         }]
@@ -493,7 +488,6 @@ async def handler(websocket):
     try:
         async with httpx.AsyncClient() as tts_client:
             pending_msg = None  # Buffered message from stop-listener
-            pending_report_request = None  # Unconfirmed report request awaiting user yes/no
             active_report_task = None   # Background asyncio.Task for call_report_api
             _report_progress_idx = 0    # Index into _REPORT_PROGRESS_MSGS
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
@@ -604,59 +598,23 @@ async def handler(websocket):
                 print(f"  User: {user_text}")
 
                 # --- Report intent routing ---
-                if pending_report_request is not None:
-                    _confirmed = await classify_yes_no(
-                        user_text,
-                        f"Miyako just asked the user to confirm she should generate this report: {pending_report_request}",
-                    )
-                    if _confirmed:
-                        print(f"  Report confirmed: {pending_report_request[:80]}")
-                        history[-1] = {"role": "user", "content": pending_report_request}
-                        # Kick off the background report FIRST so it's already running while Miyako speaks
-                        active_report_task = asyncio.create_task(call_report_api(pending_report_request))
-                        _report_progress_idx = 0
-                        # LLM-generated acknowledgement (varies each time, no hardcoded string)
-                        _ack_messages = list(history) + [{
-                            "role": "user",
-                            "content": (
-                                "[INTERNAL: User just confirmed — you are now pulling the data in the background. "
-                                "Acknowledge naturally and briefly (one short sentence), mention it'll take a bit, "
-                                "invite them to keep chatting. Vary your phrasing each time — don't repeat a stock line. "
-                                "Follow all tag and style rules.]"
-                            ),
-                        }]
-                        _ce = asyncio.Event()
-                        ack_reply = await handle_llm_response(websocket, with_reports_context(_ack_messages), tts_client, _ce)
-                        if ack_reply:
-                            history.append({"role": "assistant", "content": ack_reply})
-                        pending_report_request = None
-                        continue
-                    else:
-                        # User said something else — drop pending report, handle normally
-                        print(f"  Report cancelled by user input.")
-                        pending_report_request = None
-
-                elif _is_report_request(user_text):
-                    # Permissive match — the LLM decides if this is actually a data report request.
-                    # If yes: interpret, fill gaps, confirm. If no: just respond normally.
-                    pending_report_request = user_text
-                    _confirm_messages = list(history[:-1]) + [{
+                # Fire the report directly when intent is detected (no confirmation dance).
+                if _is_report_request(user_text):
+                    print(f"  Report fired: {user_text[:80]}")
+                    active_report_task = asyncio.create_task(call_report_api(user_text))
+                    _report_progress_idx = 0
+                    # Short LLM-generated ack while the background task runs
+                    _ack_messages = list(history) + [{
                         "role": "user",
                         "content": (
-                            f"{user_text}\n\n"
-                            "[INTERNAL: You ARE connected to the live company database and CAN pull real data. "
-                            "Never say you can't access data.\n"
-                            "If this is a data report request you MUST:\n"
-                            "  1) Restate your interpretation specifically (fill gaps like timeframe/grouping with sensible defaults).\n"
-                            "  2) END with a yes/no confirmation question ('sound right?', 'want me to run that?', 'is that what you're after?').\n"
-                            "  DO NOT say 'let me check' or 'one sec' or start running it — you are in confirmation mode only.\n"
-                            "If NOT a data report (mentioning in passing, different meaning): respond normally — ignore this note.]"
+                            "[INTERNAL: You're pulling that data now in the background. "
+                            "Give a brief one-sentence acknowledgement (e.g. 'on it, one sec'). Vary your phrasing.]"
                         ),
                     }]
                     _ce = asyncio.Event()
-                    llm_confirmation = await handle_llm_response(websocket, with_reports_context(_confirm_messages), tts_client, _ce)
-                    if llm_confirmation:
-                        history.append({"role": "assistant", "content": llm_confirmation})
+                    ack_reply = await handle_llm_response(websocket, with_reports_context(_ack_messages), tts_client, _ce)
+                    if ack_reply:
+                        history.append({"role": "assistant", "content": ack_reply})
                     continue
 
                 # --- Phase B: Concurrent generation + stop listener ---

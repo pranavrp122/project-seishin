@@ -50,7 +50,7 @@ WAV_HEADER_SIZE = 44  # Fallback if data chunk parsing fails
 
 ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
 
-REPORT_API_URL = os.environ.get("REPORT_API_URL", "http://127.0.0.1:8000")
+REPORT_API_URL = os.environ.get("REPORT_API_URL", "http://127.0.0.1:9000")
 REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
 
 # --- Report intent detection ---

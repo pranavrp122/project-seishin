@@ -174,9 +174,9 @@ run_tq() {
             --port "$PORT" \
             --quantization modelopt \
             --dtype auto \
-            --kv-cache-dtype tq-t4nc \
-            --gpu-memory-utilization 0.64 \
-            --max-model-len 65536 \
+            --kv-cache-dtype tq-k8v4 \
+            --gpu-memory-utilization 0.60 \
+            --max-model-len 32768 \
             --max-num-seqs 1 \
             --moe-backend marlin \
             --trust-remote-code

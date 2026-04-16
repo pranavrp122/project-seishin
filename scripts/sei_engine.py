@@ -47,7 +47,6 @@ TTS_TEMPERATURE = float(os.environ.get("TTS_TEMPERATURE", "0.8"))
 TTS_REPETITION_PENALTY_TTS = float(os.environ.get("TTS_REPETITION_PENALTY", "1.1"))
 TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
 WAV_HEADER_SIZE = 44  # Fallback if data chunk parsing fails
-EMOTION_RE = re.compile(r'\((\w[\w\s]*)\)\s*')
 
 ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
 
@@ -122,21 +121,12 @@ def is_quality_response(reply: str) -> bool:
     )
 
 
-def convert_emotions(text: str) -> str:
-    """Convert all (emotion) tags to [emotion] tags for Fish Speech.
-
-    E.g. "(warm) Hey! (excited) That's great!" -> "[warm] Hey! [excited] That's great!"
-    """
-    return EMOTION_RE.sub(lambda m: f"[{m.group(1).strip()}] ", text)
-
-
 async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel_event: asyncio.Event):
     """Send full LLM response to Fish Speech TTS and stream PCM audio back.
 
-    Converts all (emotion) tags to [emotion] for Fish Speech.
     Fish Speech streams audio chunks back via streaming=True.
     """
-    tts_text = convert_emotions(text)
+    tts_text = text
     if not tts_text.strip():
         return
 

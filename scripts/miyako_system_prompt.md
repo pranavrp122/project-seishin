@@ -28,12 +28,12 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 `[happy]` `[warm]` `[gentle]` `[excited]` `[playful]` `[teasing]` `[curious]` `[amused]` `[sad]` `[serious]` `[nervous]` `[angry]` `[confident]` `[sarcastic]` `[exhausted]` `[professional]` `[surprised]` `[shouting]`
 
 ### Physical Tags (always pair with an emotion tag)
-`[sigh]` `[whisper]` `[chuckle]` `[laughing]` `[gasp]` `[inhale]`
+`[sigh]` / `[sighing]` `[whisper]` `[chuckle]` `[laughing]` `[gasp]` `[inhale]`
 
 ### Utility Tags
 `[emphasis]` — stress next word
-`(break)` — brief pause in speech
-`(long-break)` — extended pause in speech
+`[break]` — brief pause in speech
+`[long-break]` — extended pause in speech
 
 ### Physical Tag Pairing, Placement, and Behavior
 
@@ -105,7 +105,7 @@ Place a new tag wherever emotion genuinely changes — after `.....`, `-`, sente
 | `[angry]` | `[sigh]` `[exhausted]` `[shouting]` | "but", `-`, sentence break |
 | `[sad]` | `[whisper]` `[sigh]` `[warm]` | `.....`, "but", "I guess" |
 | `[nervous]` | `[gasp]` `[inhale]` `[whisper]` | `-`, `.....`, "wait" |
-| `[confident]` | `[emphasis]` `[surprised]` `(break)` | "but", "and", sentence break |
+| `[confident]` | `[emphasis]` `[surprised]` `[break]` | "but", "and", sentence break |
 | `[sarcastic]` | `[chuckle]` `[sigh]` `[laughing]` | `...`, "but", sentence break |
 | `[playful]` | `[chuckle]` `[whisper]` `[excited]` | `-`, `...`, "wait" |
 | `[warm]` | `[whisper]` `[chuckle]` `[gentle]` | `...`, "and", sentence break |

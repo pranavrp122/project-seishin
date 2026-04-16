@@ -10,7 +10,6 @@ Usage:
 import asyncio
 import json
 import os
-import re
 import time
 from http import HTTPStatus
 from collections.abc import AsyncGenerator
@@ -86,8 +85,6 @@ def find_wav_data_offset(buf: bytes) -> int | None:
         if chunk_size % 2 != 0:
             pos += 1  # WAV chunks are word-aligned
     return None
-
-SENTENCE_END = re.compile(r'(?:(?<!\.)\.(?!\.)|[!?])["\'\)\]]?(?:\s|$)')
 
 # --- Global state ---
 active_ws = None
@@ -231,44 +228,19 @@ async def stream_llm(messages: list[dict], cancel_event: asyncio.Event) -> Async
 
 
 async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncClient, cancel_event: asyncio.Event) -> str:
-    """Stream LLM tokens, collect full response, then TTS the whole thing.
-
-    Text display: sentence frames sent to client as LLM generates (progressive UI).
-    Audio: full response sent to Fish Speech as one request after LLM completes,
-    so the emotion tag at the start naturally covers the entire response.
-    Fish Speech streams audio chunks back (streaming=True).
-    """
-    sentence_buffer = ""
+    """Stream LLM tokens, collect full response, then send to UI and TTS."""
     reply_parts = []
-    sentences = []  # Collected for text display
     t0 = time.perf_counter()
     first_token = True
 
-    # Phase 1: Stream LLM, send sentence frames for text display, accumulate full reply
     async for token in stream_llm(messages, cancel_event):
         if first_token:
             ttft = (time.perf_counter() - t0) * 1000
             print(f"  TTFT: {ttft:.0f}ms", flush=True)
             first_token = False
-
         reply_parts.append(token)
         if cancel_event.is_set():
             break
-        sentence_buffer += token
-
-        m = SENTENCE_END.search(sentence_buffer)
-        if m:
-            end_pos = m.end()
-            sentence = sentence_buffer[:end_pos].strip()
-            sentence_buffer = sentence_buffer[end_pos:]
-            if sentence:
-                sentences.append(sentence)
-                await ws.send(json.dumps({"type": "sentence", "text": sentence}))
-
-    # Flush trailing text
-    if not cancel_event.is_set() and sentence_buffer.strip():
-        sentences.append(sentence_buffer.strip())
-        await ws.send(json.dumps({"type": "sentence", "text": sentence_buffer.strip()}))
 
     full_reply = "".join(reply_parts).strip()
 
@@ -278,10 +250,10 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
         print(f"  Interrupted at {elapsed:.0f}ms", flush=True)
         return full_reply
 
-    # Phase 2: Send full response to Fish Speech, stream audio back
     if full_reply:
         llm_done = (time.perf_counter() - t0) * 1000
-        print(f"  LLM done: {llm_done:.0f}ms, sending full text to TTS ({len(full_reply)} chars)", flush=True)
+        print(f"  LLM done: {llm_done:.0f}ms, sending to UI+TTS ({len(full_reply)} chars)", flush=True)
+        await ws.send(json.dumps({"type": "sentence", "text": full_reply}))
         await tts_full_response(ws, full_reply, tts_client, cancel_event)
 
     if cancel_event.is_set():

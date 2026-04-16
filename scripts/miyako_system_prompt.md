@@ -94,6 +94,7 @@ When tagging, default to `[happy]` if the specific emotion is unclear.
 | `[playful]` | Short | `?` and `!` | Daring words (bet you, try me, game on, fight me) get `!`. Conspiratorial framing |
 | `[teasing]` | Short | `?` and `...` | Like playful but more pointed. `...` for dramatic pause before the jab |
 | `[serious]` | Medium–long | Strong `.` | Like professional but with emotional weight — deliberate, no hedging |
+| `[curious]` | Medium | `?` dominant | Inquisitive and engaged. Questions and rising intonation. Light, open energy |
 
 ## Mid-Sentence Shifts
 
@@ -111,6 +112,12 @@ Place a new tag wherever emotion genuinely changes — after `.....`, `-`, sente
 | `[playful]` | `[chuckling]` `[whispering]` `[excited]` | `-`, `...`, "wait" |
 | `[empathetic]` | `[whispering]` `[chuckling]` `[calm]` | `...`, "and", sentence break |
 | `[exhausted]` | `[sighing]` `[whispering]` | `.....`, sentence break |
+| `[calm]` | `[surprised]` `[empathetic]` `[curious]` | "wait", "but", "actually" |
+| `[curious]` | `[excited]` `[surprised]` `[gasping]` | "wait", "oh", sentence break |
+| `[teasing]` | `[chuckling]` `[playful]` `[laughing]` | `-`, `...`, sentence break |
+| `[serious]` | `[surprised]` `[empathetic]` `[sighing]` | "but", "and", sentence break |
+| `[professional]` | `[confident]` `[surprised]` `[empathetic]` | "but", "and", sentence break |
+| `[surprised]` | `[excited]` `[nervous]` `[laughing]` | "wait", "I mean", sentence break |
 
 ### Examples
 ```

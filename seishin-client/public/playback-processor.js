@@ -10,8 +10,8 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
     this.buffer = new Float32Array(this.capacity);
     this.writeIdx = 0;
     this.readIdx = 0;
-    // Micro-fade for click-free silence/audio transitions (~1.5ms at 44.1kHz)
-    this.fadeLen = 64;
+    // Cosine micro-fade for click-free silence/audio transitions (~5.8ms at 44.1kHz)
+    this.fadeLen = 256;
     this.fadeIn = 0;
     this.fadeOut = 0;
     this.lastOut = 0;
@@ -59,7 +59,7 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
           this.fadeOut = 0;
         }
         if (this.fadeIn < this.fadeLen) {
-          sample *= this.fadeIn / this.fadeLen;
+          sample *= 0.5 * (1 - Math.cos(Math.PI * this.fadeIn / this.fadeLen));
           this.fadeIn++;
         }
         output[i] = sample;
@@ -71,7 +71,7 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
           this.fadeOut = this.fadeLen;
         }
         if (this.fadeOut > 0) {
-          output[i] = this.lastOut * (this.fadeOut / this.fadeLen);
+          output[i] = this.lastOut * 0.5 * (1 - Math.cos(Math.PI * this.fadeOut / this.fadeLen));
           this.fadeOut--;
         } else {
           output[i] = 0;

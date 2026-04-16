@@ -5,6 +5,9 @@ import { updateState, addMessage, appState, resetLatency } from '../state.ts';
 import { setMessageSentTimestamp } from '../orchestrator.ts';
 
 let vad: MicVAD | null = null;
+let micStream: MediaStream | null = null;
+let micAudioCtx: AudioContext | null = null;
+let micAnalyser: AnalyserNode | null = null;
 
 // Float32 to WAV blob conversion (16kHz mono PCM16)
 function float32ToWav(samples: Float32Array, sampleRate: number): Blob {
@@ -41,7 +44,19 @@ function writeStr(view: DataView, offset: number, str: string): void {
   for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
 }
 
+export function getMicAnalyser(): AnalyserNode | null {
+  return micAnalyser;
+}
+
 export async function startVAD(): Promise<void> {
+  // Set up mic analyser for input waveform visualization
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  micAudioCtx = new AudioContext();
+  const source = micAudioCtx.createMediaStreamSource(micStream);
+  micAnalyser = micAudioCtx.createAnalyser();
+  micAnalyser.fftSize = 256;
+  source.connect(micAnalyser);
+
   vad = await MicVAD.new({
     baseAssetPath: '/',
     onnxWASMBasePath: '/',
@@ -96,5 +111,14 @@ export async function startVAD(): Promise<void> {
 
 export async function stopVAD(): Promise<void> {
   if (vad) { await vad.destroy(); vad = null; }
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+  if (micAudioCtx) {
+    await micAudioCtx.close();
+    micAudioCtx = null;
+  }
+  micAnalyser = null;
   updateState({ isListening: false, isSpeaking: false });
 }

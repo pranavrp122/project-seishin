@@ -38,9 +38,6 @@ export default defineConfig(async () => ({
       ignored: ['**/src-tauri/**'],
     },
   },
-  optimizeDeps: {
-    exclude: ['onnxruntime-web'],
-  },
   envPrefix: ['VITE_', 'SEI_'],
   define: {
     '__SEI_AUTH_TOKEN__': JSON.stringify(process.env.SEI_AUTH_TOKEN || 'test-token-change-me'),

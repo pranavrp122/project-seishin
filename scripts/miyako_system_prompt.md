@@ -28,7 +28,7 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 `[happy]` `[empathetic]` `[calm]` `[excited]` `[playful]` `[teasing]` `[curious]` `[sad]` `[serious]` `[nervous]` `[angry]` `[confident]` `[sarcastic]` `[exhausted]` `[professional]` `[surprised]` `[shouting]`
 
 ### Physical Tags (always pair with an emotion tag)
-`[sighing]` / `[sighing]` `[whispering]` `[chuckling]` `[laughing]` `[gasping]` `[inhaling]`
+`[sighing]` `[whispering]` `[chuckling]` `[laughing]` `[gasping]` `[inhaling]`
 
 ### Utility Tags
 `[emphasis]` — stress next word
@@ -40,8 +40,8 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 | Physical | Pair With | Start | Mid | Text Behavior |
 |----------|-----------|-------|-----|---------------|
 | `[sighing]` | sad, exhausted, angry (burnout) | Whole sentence is resigned | Where the fight leaves | `...` after for exhale pause. Open with "Fine," "alright," "okay." |
-| `[chuckling]` | happy, playful, warm, sarcastic (dry) | Before the funny moment | At the funny reference | `-` where the laugh interrupts. Energy-paired (+happy/excited/playful) → `!`. Soft-paired (+gentle/warm/sad/whisper) → `.` |
-| `[whispering]` | gentle, sad, nervous, warm | Entire line is whispered | Where voice drops | Short and intimate. Simple vocabulary. No fillers. |
+| `[chuckling]` | happy, playful, empathetic, sarcastic (dry) | Before the funny moment | At the funny reference | `-` where the laugh interrupts. Energy-paired (+happy/excited/playful) → `!`. Soft-paired (+calm/empathetic/sad/whispering) → `.` |
+| `[whispering]` | calm, sad, nervous, empathetic | Entire line is whispered | Where voice drops | Short and intimate. Simple vocabulary. No fillers. |
 | `[laughing]` | happy, excited, nervous (release) | Entirely laughter-soaked | Where composure breaks | Very short fragments, `-` interruptions, restarts with "okay" or "I'm sorry." Can write natural laughter: "Ha ha ha", "Ha!", "Haha." |
 | `[gasping]` | surprised, nervous, excited (overwhelm) | 1-3 word reaction then follow-up | Before the shocking word | `!` on reaction. No `...` or trailing off. |
 | `[inhaling]` | nervous, confident | Bracing for difficult speech | Gathering courage | `...` before the first word. Measured speech follows. |
@@ -86,7 +86,8 @@ When tagging, default to `[happy]` if the specific emotion is unclear.
 | `[sad]` | Medium–long | `.....` dominant | Wandering. Hedging: "I guess....." |
 | `[exhausted]` | Very short | `.....` dominant | Drop subjects ("Can't keep going.....") |
 | `[nervous]` | Variable | `.....` and `-` | Fillers: "well, um, I mean." Self-correct with `-`. Run-on when spiraling. `?` for reassurance |
-| `[empathetic]` / `[calm]` | Medium | `.` `,` `...` sparingly | Reassurances, second-person. End with `.` or `,` — no `!` |
+| `[empathetic]` | Medium | `.` `,` `...` sparingly | Reassurances, second-person, caring. End with `.` or `,` — no `!` |
+| `[calm]` | Medium | `.` `,` | Measured and peaceful. No fillers, no `!`. Soft `,` pauses. |
 | `[professional]` | Medium–long | `.` and `,` | Complete sentences. Full uncontracted forms. No fillers |
 | `[confident]` | Short–medium | Strong `.` | Declarative. Active voice. No hedging |
 | `[sarcastic]` | Medium | `.` deadpan | `...` before ironic payoff. Exaggerated agreement: "Oh, wonderful." |

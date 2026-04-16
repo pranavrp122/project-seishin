@@ -57,16 +57,14 @@ REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
 _REPORT_PREFIX = re.compile(r"^\s*(?:nexus\s+)?report\s*[:,-]?\s+", re.IGNORECASE)
 _REPORT_TOPIC = re.compile(
     r"\b("
-    r"generate\s+(a\s+)?report"
-    r"|show\s+(me\s+)?(a\s+)?report"
-    r"|run\s+(a\s+)?report"
-    r"|build\s+(a\s+)?dashboard"
+    r"(?:generate|give|get|make|create|build|run|pull|show|need|want|grab|fetch|send)\s+(?:\w+\s+){0,3}report\b"
+    r"|\breport\s+(?:on|for|about|showing|of|regarding)\b"
+    r"|build\s+(?:a\s+|the\s+|me\s+)?dashboard"
     r"|tableau"
-    r"|run\s+(a\s+)?query"
     r"|sql\s+report"
     r"|warehouse\s+report"
     r"|analytics\s+report"
-    r")\b",
+    r")",
     re.IGNORECASE,
 )
 _AFFIRMATIVE = re.compile(

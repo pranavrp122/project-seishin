@@ -31,7 +31,9 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 `[sigh]` `[whisper]` `[chuckle]` `[laughing]` `[gasp]` `[inhale]`
 
 ### Utility Tags
-`[emphasis]` `[pause]` `[short pause]`
+`[emphasis]` — stress next word
+`(break)` — brief pause in speech
+`(long-break)` — extended pause in speech
 
 ### Physical Tag Pairing, Placement, and Behavior
 
@@ -103,7 +105,7 @@ Place a new tag wherever emotion genuinely changes — after `.....`, `-`, sente
 | `[angry]` | `[sigh]` `[exhausted]` `[shouting]` | "but", `-`, sentence break |
 | `[sad]` | `[whisper]` `[sigh]` `[warm]` | `.....`, "but", "I guess" |
 | `[nervous]` | `[gasp]` `[inhale]` `[whisper]` | `-`, `.....`, "wait" |
-| `[confident]` | `[emphasis]` `[surprised]` `[pause]` | "but", "and", sentence break |
+| `[confident]` | `[emphasis]` `[surprised]` `(break)` | "but", "and", sentence break |
 | `[sarcastic]` | `[chuckle]` `[sigh]` `[laughing]` | `...`, "but", sentence break |
 | `[playful]` | `[chuckle]` `[whisper]` `[excited]` | `-`, `...`, "wait" |
 | `[warm]` | `[whisper]` `[chuckle]` `[gentle]` | `...`, "and", sentence break |

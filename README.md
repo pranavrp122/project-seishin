@@ -1,70 +1,173 @@
-# Nexus Engine 🚀
+# Project Seishin
 
-A zero-latency, voice-driven conversational AI framework splitting Auto Speech Recognition (ASR) and Large Language Model (LLM) inference across dual Docker containers, optimizing an NVIDIA RTX 5090's 32GB VRAM.
+Voice-driven AI companion with real-time speech recognition, LLM conversation, and emotional text-to-speech. Split architecture: GPU server handles all inference, lightweight client runs on any laptop.
 
 ## Architecture
-- **🎙️ The Ears (`seishin-ears`)**: Runs NVIDIA's `Parakeet-tdt-0.6b-v2` for fast ASR, listening to host microphone input.
-- **🧠 The Brain (`seishin-brain`)**: Runs `Qwen3.5-9B` FP8 served on a `vLLM` HTTP instance, responding to Parakeet's parsed transcripts.
-- **🗣️ The Mouth (`seishin-mouth`)**: Runs `Qwen3-TTS 1.7B` BF16 with Hybrid Triton mode for streaming text-to-speech via Bluetooth headphones.
 
-## Prerequisites
-- NVIDIA Driver + WSL2 (with WSLg PulseAudio integration).
-- Docker and NVIDIA Container Toolkit installed.
-- RTX 5090 (or similar 24GB+ VRAM GPU).
-
-## Setup & Testing Quickstart
-
-### 1. Configure the Environment
-Copy the newly created `.env` file to your environment, inserting any required configuration values.
-```bash
-cp .env.example .env
 ```
-*(The repository natively expects `.env` files to be `.gitignore`'d for security. Never commit `.env` or API keys!)*
-
-### 2. Run the Engine!
-The system uses a fast decoupled Client-Daemon architecture.
-
-**First, start the Brain (vLLM server):**
-This brings up the Qwen3.5-9B server. Wait a minute for the Brain to boot up fully and compile its PyTorch execution graphs the first time.
-```bash
-./run_shortcuts/run_brain.sh
-# Or use the shortcut:
-brain
+Laptop (Client)                         GPU Server
++-----------------------+               +---------------------------+
+| Seishin Client        |   WebSocket   | Sei Engine (port 5052)    |
+| - Mic capture         | <-----------> | - whisper.cpp ASR (9876)  |
+| - Silero VAD          |   (or ngrok)  | - Gemma 4 LLM (8000)     |
+| - Audio playback      |               | - Fish Speech TTS (8080)  |
++-----------------------+               +---------------------------+
 ```
 
-**Second, start the Ears Daemon (runs in background):**
-This loads the heavy Parakeet ASR model and Silero VAD into memory (~10 seconds boot time). Run this in another terminal:
+- **Client**: Captures mic audio, runs VAD to detect speech, streams PCM to server, plays back TTS audio
+- **Server**: Transcribes speech (whisper.cpp), generates response (Gemma 4), synthesizes voice (Fish Speech), streams audio back
+
+## Server Setup (Linux with NVIDIA GPU)
+
+Requires an NVIDIA GPU with 24GB+ VRAM (tested on RTX 5090 32GB).
+
+### Prerequisites
+
+- Python 3.12+
+- NVIDIA drivers + CUDA toolkit
+- Docker (for vLLM and Fish Speech)
+
+### 1. Clone and set up Python environment
+
 ```bash
-./run_shortcuts/run_ears.sh
-# Or use the shortcut:
-ears
+git clone https://github.com/pranavrp122/project-seishin.git
+cd project-seishin
+python -m venv .venv
+source .venv/bin/activate
+pip install websockets httpx ormsgpack
 ```
 
-**Third, start the Mouth Daemon (TTS):**
-This loads Qwen3-TTS with Hybrid Triton mode (~10 seconds boot, first run downloads ~4.54 GB). Run this in another terminal:
+### 2. Start the LLM (Gemma 4 via vLLM)
+
 ```bash
-./run_shortcuts/run_mouth.sh
-# Or use the shortcut:
-mouth
+# Adjust model path and quantization for your GPU
+cd gemma4-test
+./run.sh tq
+# Wait for "INFO: Application startup complete" — runs on port 8000
 ```
 
-**Fourth, start the Nexus Engine (the Brain Logic):**
-This is a lightweight logic controller that connects the ears to the LLM. It restarts instantly so you can rapidly iterate on your AI's persona without waiting for models to load. Run this in a final terminal:
+### 3. Start Fish Speech TTS (port 8080)
+
 ```bash
-./run_shortcuts/run.sh
-# Or use the shortcut:
-nexus
+cd fish-speech
+docker compose up -d
+# Runs on port 8080 with reference voice "archie"
 ```
 
-## Engine Usage
-Once the `nexus` script outputs `NEXUS ENGINE ONLINE — listening on port 5050`:
-- **Hands-Free Mode:** Just begin talking into your microphone!
-- The intelligent Silero VAD gatekeeper monitors your audio, ignoring PC fans and background hums.
-- The Engine captures UNBOUNDED audio while you are speaking.
-- The moment you pause speaking, the phrase is transcribed and sent to the Brain automatically (no Enter key needed!).
-- Say **"Nexus clear memory"** to reset conversation history without restarting.
+### 4. Start whisper.cpp ASR server (port 9876)
 
-## Current Agent Workflows (GSD Framework)
-- Refer to `docs/TASKS.md` for our current objectives.
-- Refer to `docs/FIXES.md` for historical bugs tracking (like ALSA misconfigurations and VRAM overheads).
-- Run the GSD base agent by invoking `claude` in the root directory.
+```bash
+# Build whisper.cpp with CUDA support first (see whisper.cpp docs)
+cd whisper.cpp
+./build/bin/whisper-server -m models/ggml-large-v3-turbo.bin --port 9876 -ng
+```
+
+### 5. Start the Sei Engine
+
+```bash
+cd project-seishin
+source .venv/bin/activate
+SEI_AUTH_TOKEN=your-secret-token python scripts/sei_engine.py
+# Listens on 127.0.0.1:5052
+```
+
+### 6. Expose via ngrok (for remote clients)
+
+```bash
+ngrok http 5052
+# Note the https:// URL — clients connect with wss://
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `SEI_AUTH_TOKEN` | (required) | Bearer token for client auth |
+| `SEI_BIND` | `127.0.0.1` | Bind address |
+| `SEI_PORT` | `5052` | WebSocket port |
+| `SEI_LLM_URL` | `http://127.0.0.1:8000` | vLLM endpoint |
+| `SEI_MODEL_NAME` | `gemma-4` | Model name for vLLM |
+| `SEI_TTS_URL` | `http://127.0.0.1:8080` | Fish Speech endpoint |
+| `SEI_ASR_URL` | `http://127.0.0.1:9876` | whisper.cpp endpoint |
+| `SEI_MAX_TOKENS` | `300` | Max LLM response tokens |
+| `SEI_TEMPERATURE` | `0.7` | LLM temperature |
+| `SEI_DEV_MODE` | `0` | Set to `1` to use default dev token |
+
+## Client Setup
+
+The client is a Tauri desktop app (Rust + TypeScript). It can also run as a web app in the browser during development.
+
+### Prerequisites (all platforms)
+
+- Node.js 18+
+- npm or pnpm
+
+### Additional prerequisites for Tauri builds
+
+**macOS:**
+```bash
+xcode-select --install
+```
+
+**Windows:**
+- Visual Studio Build Tools with C++ workload
+- WebView2 (comes with Windows 10/11)
+- Rust: https://rustup.rs
+
+**Linux:**
+```bash
+# Ubuntu/Debian
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+# Fedora
+sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file \
+  libappindicator-gtk3-devel librsvg2-devel
+
+# Rust (all Linux)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Install dependencies
+
+```bash
+cd seishin-client
+npm install
+npm run prebuild   # copies VAD model + ONNX runtime to public/
+```
+
+### Run in browser (dev mode)
+
+```bash
+npm run dev
+# Opens at http://localhost:5173
+# Enter the server WebSocket URL (ws://IP:5052 or wss://ngrok-url)
+# Enter the auth token
+```
+
+### Build Tauri desktop app
+
+```bash
+npm run tauri build
+# Output binary in src-tauri/target/release/
+```
+
+## Connecting
+
+1. Start all server services (LLM, TTS, ASR, Sei Engine)
+2. Start the client (dev server or Tauri app)
+3. Enter the WebSocket URL:
+   - Local: `ws://SERVER_IP:5052`
+   - Remote via ngrok: `wss://your-ngrok-url.ngrok-free.dev`
+4. Enter the auth token (must match `SEI_AUTH_TOKEN` on server)
+5. Click connect, grant mic permission, and start talking
+
+## How It Works
+
+1. Client mic captures audio, Silero VAD detects when you start/stop speaking
+2. Raw PCM16 audio streams to server in real-time over WebSocket
+3. Server runs whisper.cpp live transcription during speech (result is cached)
+4. When speech ends, cached transcript is sent to Gemma 4 LLM instantly
+5. LLM response gets emotion tags converted for Fish Speech (e.g. `(happy)` to `[happy]`)
+6. Fish Speech generates TTS audio, streamed back to client as PCM chunks
+7. Client plays audio in real-time

@@ -318,7 +318,7 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
     return full_reply
 
 
-async def transcribe_audio(wav_bytes: bytes, asr_client: httpx.AsyncClient) -> str:
+async def transcribe_audio(wav_bytes: bytes, asr_client: httpx.AsyncClient, label: str = "ASR") -> str:
     """Send WAV audio to whisper-server and return transcribed text."""
     t0 = time.perf_counter()
     try:
@@ -329,15 +329,39 @@ async def transcribe_audio(wav_bytes: bytes, asr_client: httpx.AsyncClient) -> s
             timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
         )
         if resp.status_code != 200:
-            print(f"  ASR error: {resp.status_code}: {resp.text}")
+            print(f"  {label} error: {resp.status_code}: {resp.text}")
             return ""
         text = resp.json().get("text", "").strip()
         elapsed = (time.perf_counter() - t0) * 1000
-        print(f"  ASR: {elapsed:.0f}ms -> '{text[:60]}'", flush=True)
+        print(f"  {label}: {elapsed:.0f}ms -> '{text[:60]}'", flush=True)
         return text
     except Exception as e:
-        print(f"  ASR error: {e}")
+        print(f"  {label} error: {e}")
         return ""
+
+
+async def live_transcribe(audio_buf: bytearray, result: dict, stop: asyncio.Event, asr_client: httpx.AsyncClient):
+    """Background: run whisper on accumulated audio every ~1s of new data.
+
+    By the time speech_end arrives, a recent transcript is already cached.
+    """
+    last_len = 0
+    min_new = 16000 * 2  # 1 second of 16kHz PCM16 = 32000 bytes
+    run = 0
+    while not stop.is_set():
+        await asyncio.sleep(0.3)
+        if stop.is_set():
+            break
+        cur_len = len(audio_buf)
+        if cur_len - last_len < min_new:
+            continue
+        run += 1
+        wav = pcm16_to_wav(bytes(audio_buf[:cur_len]))
+        text = await transcribe_audio(wav, asr_client, label=f"ASR-live#{run}")
+        if text:
+            result["text"] = text
+            result["len"] = cur_len
+        last_len = cur_len
 
 
 async def handler(websocket):
@@ -352,6 +376,9 @@ async def handler(websocket):
             pending_msg = None  # Buffered message from stop-listener
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
             is_accumulating = False
+            asr_task = None
+            asr_stop = None
+            asr_result = {"text": "", "len": 0}
 
             while True:
                 # --- Phase A: Wait for user message ---
@@ -387,13 +414,35 @@ async def handler(websocket):
                     if msg.get("type") == "speech_start":
                         audio_buf.clear()
                         is_accumulating = True
+                        asr_result = {"text": "", "len": 0}
+                        asr_stop = asyncio.Event()
+                        asr_task = asyncio.create_task(
+                            live_transcribe(audio_buf, asr_result, asr_stop, tts_client)
+                        )
                         continue
                     if msg.get("type") == "speech_end":
                         is_accumulating = False
+                        # Cancel background transcription (don't wait for in-flight whisper)
+                        if asr_stop:
+                            asr_stop.set()
+                        if asr_task:
+                            asr_task.cancel()
+                            try:
+                                await asr_task
+                            except asyncio.CancelledError:
+                                pass
+                            asr_task = None
                         if audio_buf:
-                            wav = pcm16_to_wav(bytes(audio_buf))
+                            if asr_result["text"]:
+                                # Live transcription already has a result — use it instantly
+                                text = asr_result["text"]
+                                skip_pct = 100 * (1 - asr_result["len"] / len(audio_buf))
+                                print(f"  ASR-cached: '{text[:60]}' (tail {skip_pct:.0f}% unprocessed)", flush=True)
+                            else:
+                                # Short utterance, no live result yet — final pass
+                                wav = pcm16_to_wav(bytes(audio_buf))
+                                text = await transcribe_audio(wav, tts_client, label="ASR-final")
                             audio_buf.clear()
-                            text = await transcribe_audio(wav, tts_client)
                             if text:
                                 msg = {"type": "message", "text": text}
                                 await websocket.send(json.dumps({"type": "transcript", "text": text}))

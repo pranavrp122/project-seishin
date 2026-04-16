@@ -20,7 +20,21 @@ from websockets.exceptions import ConnectionClosed
 import httpx
 import ormsgpack
 
-from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
+from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, REPORTS_SYSTEM_ADDON
+
+
+def with_reports_context(messages: list[dict]) -> list[dict]:
+    """Return a copy of `messages` with the system message extended with report-mode guidance.
+
+    Only used for report-flow LLM calls so the base system prompt stays lean
+    for normal conversation.
+    """
+    out = list(messages)
+    if out and out[0].get("role") == "system":
+        out[0] = {"role": "system", "content": out[0]["content"] + REPORTS_SYSTEM_ADDON}
+    else:
+        out.insert(0, {"role": "system", "content": SYSTEM_PROMPT + REPORTS_SYSTEM_ADDON})
+    return out
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -57,8 +71,17 @@ REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
 # Permissive: any mention of report / dashboard / tableau / analytics / metrics
 # triggers an LLM review; false positives are handled gracefully in the prompt.
 _REPORT_PREFIX = re.compile(r"^\s*(?:nexus\s+)?report\s*[:,-]?\s+", re.IGNORECASE)
+# Broad prefilter: reports/dashboards/analytics terms, common business entities,
+# and data-query starters. The LLM then decides if it's actually a data request.
 _REPORT_TOPIC = re.compile(
-    r"\b(reports?|dashboards?|tableau|analytics|metrics?|kpis?)\b",
+    r"\b("
+    r"reports?|dashboards?|tableau|analytics|metrics?|kpis?|"
+    r"customers?|orders?|products?|employees?|suppliers?|invoices?|"
+    r"inventory|warehouses?|sales|revenue|profits?|margins?|payments?|"
+    r"transactions?|campaigns?|refunds?|returns?|shipments?|"
+    r"how\s+many|how\s+much|what\s+(is|are|was|were)\s+(?:our|the)|"
+    r"total\s+\w+|average\s+\w+|top\s+\d"
+    r")\b",
     re.IGNORECASE,
 )
 _REPORT_PROGRESS_MSGS = [
@@ -104,7 +127,9 @@ async def classify_yes_no(text: str, context: str) -> bool:
             )
             resp.raise_for_status()
             out = resp.json()["choices"][0]["message"]["content"].strip().upper()
-            return out.startswith("YES")
+            result = out.startswith("YES") or " YES" in f" {out}"
+            print(f"  classify_yes_no('{text[:40]}') -> {out!r} => {result}")
+            return result
     except Exception as e:
         print(f"  classify_yes_no failed: {e}")
         return False
@@ -115,18 +140,28 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
     try:
         res = report_task.result()
         raw_summary = res.get("summary") or "The report came back but there wasn't much to show."
+        raw_rows = res.get("results") or []
+        row_count = res.get("row_count", 0)
     except Exception as _e:
         print(f"  Report API error: {_e}")
         raw_summary = None
+        raw_rows = []
+        row_count = 0
 
     if raw_summary:
+        # Trim rows to keep context small (first 10 is plenty for narration)
+        _rows_preview = json.dumps(raw_rows[:10], default=str)[:1500]
         _wrap_messages = list(history) + [{
             "role": "user",
             "content": (
-                "[INTERNAL: Your background report just finished. Present the result naturally in your voice — "
-                "start by letting the user know it came back (e.g. 'your report's done' or 'alright I got your results'), "
-                "then share what you found conversationally. Follow all tag and style rules. Keep it brief.]\n\n"
-                f"Report result: {raw_summary}"
+                "[INTERNAL: Your background report just finished. Present the result naturally in your voice. "
+                "Start by letting the user know it came back (e.g. 'alright, got your results'). "
+                "STRICT RULES: Only state facts that are in the summary or rows below. "
+                "Do NOT invent dates, quantities, statuses, or any detail not present in the data. "
+                "If the data doesn't mention it, don't say it. Keep it brief. Follow all tag and style rules.]\n\n"
+                f"Summary: {raw_summary}\n"
+                f"Row count: {row_count}\n"
+                f"Rows: {_rows_preview}"
             ),
         }]
     else:
@@ -139,7 +174,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         }]
 
     _ce = asyncio.Event()
-    llm_reply = await handle_llm_response(websocket, _wrap_messages, tts_client, _ce)
+    llm_reply = await handle_llm_response(websocket, with_reports_context(_wrap_messages), tts_client, _ce)
     if llm_reply:
         history.append({"role": "assistant", "content": llm_reply})
 
@@ -576,15 +611,24 @@ async def handler(websocket):
                     )
                     if _confirmed:
                         print(f"  Report confirmed: {pending_report_request[:80]}")
-                        ack = "Perfect, I'm on it. This usually takes around thirty seconds so sit tight — feel free to keep talking in the meantime."
                         history[-1] = {"role": "user", "content": pending_report_request}
-                        history.append({"role": "assistant", "content": ack})
-                        await websocket.send(json.dumps({"type": "sentence", "text": ack}))
-                        _ce = asyncio.Event()
-                        await tts_full_response(websocket, ack, tts_client, _ce)
-                        await websocket.send(json.dumps({"type": "done"}))
+                        # Kick off the background report FIRST so it's already running while Miyako speaks
                         active_report_task = asyncio.create_task(call_report_api(pending_report_request))
                         _report_progress_idx = 0
+                        # LLM-generated acknowledgement (varies each time, no hardcoded string)
+                        _ack_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: User just confirmed — you are now pulling the data in the background. "
+                                "Acknowledge naturally and briefly (one short sentence), mention it'll take a bit, "
+                                "invite them to keep chatting. Vary your phrasing each time — don't repeat a stock line. "
+                                "Follow all tag and style rules.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        ack_reply = await handle_llm_response(websocket, with_reports_context(_ack_messages), tts_client, _ce)
+                        if ack_reply:
+                            history.append({"role": "assistant", "content": ack_reply})
                         pending_report_request = None
                         continue
                     else:
@@ -601,13 +645,16 @@ async def handler(websocket):
                         "content": (
                             f"{user_text}\n\n"
                             "[INTERNAL: You ARE connected to the live company database and CAN pull real data. "
-                            "Never say you can't access data — you can. "
-                            "If this is a data report request: briefly restate what you'll generate (fill gaps like timeframe with sensible defaults) and ask them to confirm. "
-                            "If NOT a report request (mentioning report in passing, different meaning): respond normally — ignore this note.]"
+                            "Never say you can't access data.\n"
+                            "If this is a data report request you MUST:\n"
+                            "  1) Restate your interpretation specifically (fill gaps like timeframe/grouping with sensible defaults).\n"
+                            "  2) END with a yes/no confirmation question ('sound right?', 'want me to run that?', 'is that what you're after?').\n"
+                            "  DO NOT say 'let me check' or 'one sec' or start running it — you are in confirmation mode only.\n"
+                            "If NOT a data report (mentioning in passing, different meaning): respond normally — ignore this note.]"
                         ),
                     }]
                     _ce = asyncio.Event()
-                    llm_confirmation = await handle_llm_response(websocket, _confirm_messages, tts_client, _ce)
+                    llm_confirmation = await handle_llm_response(websocket, with_reports_context(_confirm_messages), tts_client, _ce)
                     if llm_confirmation:
                         history.append({"role": "assistant", "content": llm_confirmation})
                     continue

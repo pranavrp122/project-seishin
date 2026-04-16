@@ -91,12 +91,16 @@ export function renderLayout(parent: HTMLElement): HTMLCanvasElement {
 
   micBtn.addEventListener('click', async () => {
     const { appState } = await import('../state.ts');
-    if (appState.isListening) {
-      const { stopVAD } = await import('../audio/vad.ts');
-      await stopVAD();
-    } else {
-      const { startVAD } = await import('../audio/vad.ts');
-      await startVAD();
+    try {
+      if (appState.isListening) {
+        const { stopVAD } = await import('../audio/vad.ts');
+        await stopVAD();
+      } else {
+        const { startVAD } = await import('../audio/vad.ts');
+        await startVAD();
+      }
+    } catch (err) {
+      console.error('Mic toggle failed:', err);
     }
   });
 

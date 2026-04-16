@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "cp node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx public/silero_vad.onnx && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm public/",
+    "prebuild": "cp node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx public/silero_vad.onnx && cp node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx public/silero_vad_legacy.onnx && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs public/",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"

@@ -666,8 +666,9 @@ async def handler(websocket):
                 if stop_result["new_msg"]:
                     pending_msg = stop_result["new_msg"]
 
-                # If a background report finished during this turn, deliver it now
-                if active_report_task is not None and active_report_task.done():
+                # Deliver report result only when the current turn finished cleanly (not interrupted).
+                # If interrupted, the result will surface on next silence or next clean turn.
+                if active_report_task is not None and active_report_task.done() and not interrupted:
                     try:
                         res = active_report_task.result()
                         report_summary = res.get("summary") or "Your report is ready."

@@ -2,12 +2,13 @@
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'degraded' | 'reconnecting';
 
 // Sei Engine incoming message types (from sei_engine.py protocol)
-export type SeiMessageType = 'sentence' | 'done' | 'interrupted' | 'error';
+export type SeiMessageType = 'sentence' | 'done' | 'interrupted' | 'error' | 'transcript';
 export interface SeiSentenceMessage { type: 'sentence'; text: string; }
 export interface SeiDoneMessage { type: 'done'; }
 export interface SeiInterruptedMessage { type: 'interrupted'; }
 export interface SeiErrorMessage { type: 'error'; message: string; }
-export type SeiMessage = SeiSentenceMessage | SeiDoneMessage | SeiInterruptedMessage | SeiErrorMessage;
+export interface SeiTranscriptMessage { type: 'transcript'; text: string; }
+export type SeiMessage = SeiSentenceMessage | SeiDoneMessage | SeiInterruptedMessage | SeiErrorMessage | SeiTranscriptMessage;
 
 // Outgoing message types
 export interface SeiOutMessage { type: 'message'; text: string; }

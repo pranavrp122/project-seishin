@@ -1,7 +1,6 @@
 import { MicVAD } from '@ricky0123/vad-web';
-import { transcribe } from '../asr/whisper.ts';
-import { sendMessage, sendStop } from '../net/websocket.ts';
-import { updateState, addMessage, appState, resetLatency } from '../state.ts';
+import { sendAudio, sendStop } from '../net/websocket.ts';
+import { updateState, appState, resetLatency } from '../state.ts';
 import { setMessageSentTimestamp } from '../orchestrator.ts';
 
 let vad: MicVAD | null = null;
@@ -74,33 +73,17 @@ export async function startVAD(): Promise<void> {
     },
     onSpeechEnd: async (audio: Float32Array) => {
       updateState({ isSpeaking: false });
-      const asrStart = performance.now();
       resetLatency();
+      setMessageSentTimestamp(performance.now());
       try {
         const wavBlob = float32ToWav(audio, 16000);
-        const text = await transcribe(wavBlob);
-        const asrMs = performance.now() - asrStart;
-        updateState({
-          interimTranscript: '',
-          latency: { ...appState.latency, asrMs },
-        });
-        if (text && text.length > 0) {
-          addMessage({ role: 'user', text });
-          // Set TTFT baseline timestamp before sending (enables latency tracking per D-14)
-          setMessageSentTimestamp(performance.now());
-          const sendStart = performance.now();
-          await sendMessage(text);
-          updateState({
-            isGenerating: true,
-            latency: {
-              ...appState.latency,
-              asrMs,
-              networkSendMs: performance.now() - sendStart,
-            },
-          });
-        }
+        const wavBuffer = await wavBlob.arrayBuffer();
+        updateState({ interimTranscript: 'Transcribing...' });
+        await sendAudio(wavBuffer);
+        // Server handles ASR + LLM + TTS; transcript message will arrive
+        // via orchestrator which adds the user message and sets isGenerating
       } catch (err) {
-        console.error('ASR/send error:', err);
+        console.error('Audio send error:', err);
         updateState({ interimTranscript: '' });
       }
     },

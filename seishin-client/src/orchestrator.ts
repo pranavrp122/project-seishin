@@ -32,6 +32,17 @@ export function initOrchestrator(): void {
 
 function handleControlFrame(msg: SeiMessage): void {
   switch (msg.type) {
+    case 'transcript': {
+      // Server-side ASR result — display as user message and mark generating
+      const asrMs = messageSentAt > 0 ? performance.now() - messageSentAt : null;
+      updateState({
+        interimTranscript: '',
+        isGenerating: true,
+        latency: { ...appState.latency, asrMs },
+      });
+      addMessage({ role: 'user', text: msg.text });
+      break;
+    }
     case 'sentence': {
       const pos = getPlaybackPosition();
       pendingSentences.push({ text: msg.text, byteOffset: pos.writeIdx });

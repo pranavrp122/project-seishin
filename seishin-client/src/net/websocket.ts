@@ -46,6 +46,11 @@ export async function sendMessage(text: string): Promise<void> {
   await ws.send(JSON.stringify({ type: 'message', text }));
 }
 
+export async function sendAudio(wavBytes: ArrayBuffer): Promise<void> {
+  if (!ws) throw new Error('Not connected');
+  await ws.send(Array.from(new Uint8Array(wavBytes)));
+}
+
 export async function sendStop(): Promise<void> {
   if (!ws) return;
   await ws.send(JSON.stringify({ type: 'stop' }));

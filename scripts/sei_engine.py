@@ -49,6 +49,8 @@ TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
 WAV_HEADER_SIZE = 44  # Fallback if data chunk parsing fails
 EMOTION_RE = re.compile(r'^\((\w[\w\s]*)\)\s*')
 
+ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
+
 
 def find_wav_data_offset(buf: bytes) -> int | None:
     """Find byte offset where PCM audio data starts in a WAV buffer.
@@ -303,6 +305,28 @@ async def handle_llm_response(ws, messages: list[dict], tts_client: httpx.AsyncC
     return full_reply
 
 
+async def transcribe_audio(wav_bytes: bytes, asr_client: httpx.AsyncClient) -> str:
+    """Send WAV audio to whisper-server and return transcribed text."""
+    t0 = time.perf_counter()
+    try:
+        resp = await asr_client.post(
+            f"{ASR_URL}/inference",
+            files={"file": ("audio.wav", wav_bytes, "audio/wav")},
+            data={"response_format": "json", "language": "en"},
+            timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
+        )
+        if resp.status_code != 200:
+            print(f"  ASR error: {resp.status_code}: {resp.text}")
+            return ""
+        text = resp.json().get("text", "").strip()
+        elapsed = (time.perf_counter() - t0) * 1000
+        print(f"  ASR: {elapsed:.0f}ms -> '{text[:60]}'", flush=True)
+        return text
+    except Exception as e:
+        print(f"  ASR error: {e}")
+        return ""
+
+
 async def handler(websocket):
     """Handle a single WebSocket client session with barge-in support."""
     global active_ws
@@ -324,11 +348,22 @@ async def handler(websocket):
                         raw = await websocket.recv()
                     except ConnectionClosed:
                         break
-                    try:
-                        msg = json.loads(raw)
-                    except json.JSONDecodeError:
-                        await websocket.send(json.dumps({"type": "error", "message": "Invalid JSON"}))
-                        continue
+
+                    # Binary frame = VAD audio for server-side ASR
+                    if isinstance(raw, bytes):
+                        text = await transcribe_audio(raw, tts_client)
+                        if text:
+                            msg = {"type": "message", "text": text}
+                            # Echo transcription back so client can display it
+                            await websocket.send(json.dumps({"type": "transcript", "text": text}))
+                        else:
+                            continue
+                    else:
+                        try:
+                            msg = json.loads(raw)
+                        except json.JSONDecodeError:
+                            await websocket.send(json.dumps({"type": "error", "message": "Invalid JSON"}))
+                            continue
 
                 if msg.get("type") != "message" or not msg.get("text"):
                     await websocket.send(json.dumps({"type": "error", "message": "Expected {type: message, text: ...}"}))
@@ -357,6 +392,14 @@ async def handler(websocket):
                             raw = await websocket.recv()
                         except ConnectionClosed:
                             cancel_event.set()
+                            return
+                        # Binary frame during generation = voice barge-in
+                        if isinstance(raw, bytes):
+                            text = await transcribe_audio(raw, tts_client)
+                            if text:
+                                cancel_event.set()
+                                await websocket.send(json.dumps({"type": "transcript", "text": text}))
+                                stop_result["new_msg"] = {"type": "message", "text": text}
                             return
                         try:
                             parsed = json.loads(raw)

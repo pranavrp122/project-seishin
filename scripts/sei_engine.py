@@ -174,6 +174,12 @@ async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel
                         await ws.send(remainder)
                     continue
                 await ws.send(chunk)  # Binary WebSocket frame
+
+            # Append silence padding to prevent end-of-clip click/beep artifact.
+            # 150ms of silence at 44100 Hz, 16-bit mono = 13230 zero bytes.
+            if not cancel_event.is_set() and data_offset is not None:
+                silence = bytes(44100 * 150 // 1000 * 2)
+                await ws.send(silence)
     except httpx.ConnectError:
         print(f"  TTS connection failed: {TTS_URL}")
         try:

@@ -130,7 +130,7 @@ run_tq() {
     info "=== Stage 2: NVFP4 + TurboQuant KV cache ==="
     info "Image: $IMAGE"
     info "Model: $MODEL_DIR"
-    info "KV cache: tq-t4nc (4-bit keys + 4-bit values)"
+    info "KV cache: tq-k8v4 (FP8 keys + 4-bit values)"
     info "Skip layers: sliding_window (only compress 5 global layers)"
 
     # Notes on the flags:

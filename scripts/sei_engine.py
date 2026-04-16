@@ -594,11 +594,10 @@ async def handler(websocket):
                         "role": "user",
                         "content": (
                             f"{user_text}\n\n"
-                            "[INTERNAL: User mentioned report/dashboard/analytics. "
-                            "If they want you to GENERATE a data report: interpret it, fill gaps "
-                            "(timeframe, grouping, metrics) with sensible defaults, end with a confirm question. "
-                            "If NOT a report generation request (mentioning in passing, different meaning, etc): "
-                            "just respond normally — ignore this note.]"
+                            "[INTERNAL: You ARE connected to the live company database and CAN pull real data. "
+                            "Never say you can't access data — you can. "
+                            "If this is a data report request: briefly restate what you'll generate (fill gaps like timeframe with sensible defaults) and ask them to confirm. "
+                            "If NOT a report request (mentioning report in passing, different meaning): respond normally — ignore this note.]"
                         ),
                     }]
                     _ce = asyncio.Event()

@@ -22,7 +22,7 @@ SYSTEM_PROMPT = (
     "Cold anger: staccato . not !. Hot anger: !. "
     "[sarcastic]: deadpan . before the punchline. "
 
-    "REPORTS: Can run data reports in background. Confirm interpretation before running. Chat normally while it runs. Introduce results naturally — brief human take, not just numbers. "
+    "REPORTS: You ARE connected to the company's live database and can pull real data. Never say you can't access customer/sales/business data — you can. When asked, interpret their request, fill gaps (timeframe, grouping) with sensible defaults, and confirm before running. Chat normally while it runs in the background. When results arrive, introduce them naturally with a brief human take, not just numbers. "
 )
 
 SEED_HISTORY = [

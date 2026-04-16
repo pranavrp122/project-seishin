@@ -29,7 +29,7 @@ SYSTEM_PROMPT = (
     "[empathetic] [calm] [professional]: no ! ever. "
     "[sighing] open with Fine, alright, okay. "
     "[inhaling] ... before first word, measured speech follows. "
-    "[laughing] barely coherent, - interruptions, restarts with okay or I'm sorry. Can write: Ha ha ha, Haha. "
+    "[laughing] barely coherent, - interruptions, restarts with okay or I'm sorry. "
 )
 
 SEED_HISTORY = [

@@ -86,7 +86,7 @@ def find_wav_data_offset(buf: bytes) -> int | None:
             pos += 1  # WAV chunks are word-aligned
     return None
 
-def fade_out_pcm(pcm: bytes, fade_ms: int = 80, sample_rate: int = 44100) -> bytes:
+def fade_out_pcm(pcm: bytes, fade_ms: int = 200, sample_rate: int = 44100) -> bytes:
     """Apply linear fade-out to the last fade_ms ms of PCM16 mono audio."""
     import struct
     if len(pcm) < 4:

@@ -54,17 +54,11 @@ REPORT_API_URL = os.environ.get("REPORT_API_URL", "http://127.0.0.1:9000")
 REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
 
 # --- Report intent detection ---
+# Permissive: any mention of report / dashboard / tableau / analytics / metrics
+# triggers an LLM review; false positives are handled gracefully in the prompt.
 _REPORT_PREFIX = re.compile(r"^\s*(?:nexus\s+)?report\s*[:,-]?\s+", re.IGNORECASE)
 _REPORT_TOPIC = re.compile(
-    r"\b("
-    r"(?:generate|give|get|make|create|build|run|pull|show|need|want|grab|fetch|send)\s+(?:\w+\s+){0,3}report\b"
-    r"|\breport\s+(?:on|for|about|showing|of|regarding)\b"
-    r"|build\s+(?:a\s+|the\s+|me\s+)?dashboard"
-    r"|tableau"
-    r"|sql\s+report"
-    r"|warehouse\s+report"
-    r"|analytics\s+report"
-    r")",
+    r"\b(reports?|dashboards?|tableau|analytics|metrics?|kpis?)\b",
     re.IGNORECASE,
 )
 _AFFIRMATIVE = re.compile(
@@ -561,17 +555,18 @@ async def handler(websocket):
                         pending_report_request = None
 
                 elif _is_report_request(user_text):
+                    # Permissive match — the LLM decides if this is actually a data report request.
+                    # If yes: interpret, fill gaps, confirm. If no: just respond normally.
                     pending_report_request = user_text
-                    # Let the LLM interpret and rephrase the report request specifically,
-                    # filling gaps (timeframe, grouping, metrics) before asking to confirm.
                     _confirm_messages = list(history[:-1]) + [{
                         "role": "user",
                         "content": (
                             f"{user_text}\n\n"
-                            "[INTERNAL: The user wants to generate a report. Interpret their request, "
-                            "fill in any ambiguous gaps with sensible defaults (e.g. time period, grouping, "
-                            "specific metrics), and ask them to confirm in one or two natural sentences. "
-                            "Do not generate the report yet — just confirm your interpretation.]"
+                            "[INTERNAL: User mentioned report/dashboard/analytics. "
+                            "If they want you to GENERATE a data report: interpret it, fill gaps "
+                            "(timeframe, grouping, metrics) with sensible defaults, end with a confirm question. "
+                            "If NOT a report generation request (mentioning in passing, different meaning, etc): "
+                            "just respond normally — ignore this note.]"
                         ),
                     }]
                     _ce = asyncio.Event()

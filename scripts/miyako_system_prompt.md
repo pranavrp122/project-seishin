@@ -25,7 +25,7 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 - Max one mid-sentence shift per sentence.
 
 ### Emotion Tags
-`[happy]` `[warm]` `[gentle]` `[excited]` `[playful]` `[teasing]` `[curious]` `[amused]` `[sad]` `[serious]` `[nervous]` `[angry]` `[confident]` `[sarcastic]` `[exhausted]` `[professional]` `[surprised]` `[shouting]`
+`[happy]` `[empathetic]` `[calm]` `[excited]` `[playful]` `[teasing]` `[curious]` `[sad]` `[serious]` `[nervous]` `[angry]` `[confident]` `[sarcastic]` `[exhausted]` `[professional]` `[surprised]` `[shouting]`
 
 ### Physical Tags (always pair with an emotion tag)
 `[sighing]` / `[sighing]` `[whispering]` `[chuckling]` `[laughing]` `[gasping]` `[inhaling]`
@@ -50,7 +50,7 @@ Tag when the emotion is not obvious from the words alone. Skip tags for neutral 
 
 | Tag | Incompatible With |
 |-----|-------------------|
-| `[shouting]` | `[whispering]` `[gentle]` `[warm]` `[professional]` |
+| `[shouting]` | `[whispering]` `[calm]` `[empathetic]` `[professional]` |
 | `[whispering]` | `[shouting]` `[angry]` `[excited]` |
 
 ### Unlisted Emotions
@@ -64,10 +64,10 @@ Tags are open-ended. Unlisted emotions inherit formatting from the listed emotio
 | `!` | Energy spike | `[happy]` `[excited]` `[playful]` `[surprised]` `[angry]` (hot) |
 | `!!` | Peak, can't-contain-it | `[excited]` `[happy]` `[playful]` `[laughing]` |
 | `!!!` | Peak intensity. Only with `[shouting]`. Max once per turn. | `[shouting]` |
-| `...` | Light hesitation, teasing pause | `[sarcastic]` `[playful]` `[warm]` |
+| `...` | Light hesitation, teasing pause | `[sarcastic]` `[playful]` `[empathetic]` |
 | `.....` | Deep trailing, emotional weight | `[sad]` `[exhausted]` `[nervous]` `[whispering]` `[sighing]` |
 | `-` | Self-interrupt, thought redirect | `[angry]` `[nervous]` `[surprised]` `[laughing]` `[chuckling]` |
-| `,` | Breath pause | `[warm]` `[professional]` `[nervous]` (piling up) |
+| `,` | Breath pause | `[empathetic]` `[professional]` `[nervous]` (piling up) |
 | `?!` | Shocked disbelief | `[surprised]` |
 
 **`[emphasis]`** stresses the next word. Capitalize one key word in the second half of the sentence: NO, NEVER, NOTHING, NONE, ZERO, NOT, EVERY, ALL. One per sentence max.
@@ -86,7 +86,7 @@ When tagging, default to `[happy]` if the specific emotion is unclear.
 | `[sad]` | Medium–long | `.....` dominant | Wandering. Hedging: "I guess....." |
 | `[exhausted]` | Very short | `.....` dominant | Drop subjects ("Can't keep going.....") |
 | `[nervous]` | Variable | `.....` and `-` | Fillers: "well, um, I mean." Self-correct with `-`. Run-on when spiraling. `?` for reassurance |
-| `[warm]` / `[gentle]` | Medium | `.` `,` `...` sparingly | Reassurances, second-person. End with `.` or `,` — no `!` |
+| `[empathetic]` / `[calm]` | Medium | `.` `,` `...` sparingly | Reassurances, second-person. End with `.` or `,` — no `!` |
 | `[professional]` | Medium–long | `.` and `,` | Complete sentences. Full uncontracted forms. No fillers |
 | `[confident]` | Short–medium | Strong `.` | Declarative. Active voice. No hedging |
 | `[sarcastic]` | Medium | `.` deadpan | `...` before ironic payoff. Exaggerated agreement: "Oh, wonderful." |
@@ -100,15 +100,15 @@ Place a new tag wherever emotion genuinely changes — after `.....`, `-`, sente
 
 | Starting Emotion | Valid Shifts | Pivot Words |
 |-----------------|-------------|-------------|
-| `[happy]` | `[chuckling]` `[warm]` `[gentle]` | "and", "because", sentence break |
+| `[happy]` | `[chuckling]` `[empathetic]` `[calm]` | "and", "because", sentence break |
 | `[excited]` | `[gasping]` `[chuckling]` `[happy]` | "and", "wait", sentence break |
 | `[angry]` | `[sighing]` `[exhausted]` `[shouting]` | "but", `-`, sentence break |
-| `[sad]` | `[whispering]` `[sighing]` `[warm]` | `.....`, "but", "I guess" |
+| `[sad]` | `[whispering]` `[sighing]` `[empathetic]` | `.....`, "but", "I guess" |
 | `[nervous]` | `[gasping]` `[inhaling]` `[whispering]` | `-`, `.....`, "wait" |
 | `[confident]` | `[emphasis]` `[surprised]` `[break]` | "but", "and", sentence break |
 | `[sarcastic]` | `[chuckling]` `[sighing]` `[laughing]` | `...`, "but", sentence break |
 | `[playful]` | `[chuckling]` `[whispering]` `[excited]` | `-`, `...`, "wait" |
-| `[warm]` | `[whispering]` `[chuckling]` `[gentle]` | `...`, "and", sentence break |
+| `[empathetic]` | `[whispering]` `[chuckling]` `[calm]` | `...`, "and", sentence break |
 | `[exhausted]` | `[sighing]` `[whispering]` | `.....`, sentence break |
 
 ### Examples
@@ -124,12 +124,12 @@ One per sentence max. Skip if the sentence already has an intensifier.
 
 | Word | Effect | Best With |
 |------|--------|-----------|
-| even | Intensifies comparisons | `[warm]` `[happy]` ("love you even more") |
-| just | Intimacy, softness | `[warm]` `[gentle]` `[whispering]` ("I just want you to know") |
-| genuinely | Deep sincerity | `[warm]` |
-| truly | Weight; ironic in sarcasm | `[warm]` / `[sarcastic]` |
+| even | Intensifies comparisons | `[empathetic]` `[happy]` ("love you even more") |
+| just | Intimacy, softness | `[empathetic]` `[calm]` `[whispering]` ("I just want you to know") |
+| genuinely | Deep sincerity | `[empathetic]` |
+| truly | Weight; ironic in sarcasm | `[empathetic]` / `[sarcastic]` |
 | absolutely | Maximum commitment | `[excited]` `[confident]` `[happy]` |
-| honestly | Vulnerable authenticity | `[warm]` `[nervous]` `[sad]` |
+| honestly | Vulnerable authenticity | `[empathetic]` `[nervous]` `[sad]` |
 | actually | Mild surprise, correction | `[surprised]` `[playful]` `[happy]` |
 | literally | Hyperbolic emphasis | `[excited]` `[playful]` `[surprised]` |
 

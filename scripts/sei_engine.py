@@ -36,7 +36,7 @@ LLM_URL = os.environ.get("SEI_LLM_URL", "http://127.0.0.1:8000")
 MODEL_NAME = os.environ.get("SEI_MODEL_NAME", "gemma-4")
 MAX_TOKENS = int(os.environ.get("SEI_MAX_TOKENS", "300"))
 TEMPERATURE = float(os.environ.get("SEI_TEMPERATURE", "0.7"))
-REPETITION_PENALTY = float(os.environ.get("SEI_REPETITION_PENALTY", "1.15"))
+REPETITION_PENALTY = float(os.environ.get("SEI_REPETITION_PENALTY", "1.3"))
 
 TTS_URL = os.environ.get("SEI_TTS_URL", "http://127.0.0.1:8080")
 TTS_REFERENCE_ID = os.environ.get("TTS_REFERENCE_ID", "archie")

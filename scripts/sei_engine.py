@@ -61,10 +61,6 @@ _REPORT_TOPIC = re.compile(
     r"\b(reports?|dashboards?|tableau|analytics|metrics?|kpis?)\b",
     re.IGNORECASE,
 )
-_AFFIRMATIVE = re.compile(
-    r"^\s*(yes|yeah|yep|yup|sure|correct|confirm|go ahead|that'?s right|sounds good|do it|exactly)\s*[.!]?\s*$",
-    re.IGNORECASE,
-)
 _REPORT_PROGRESS_MSGS = [
     "Still working on it, shouldn't be too much longer now.",
     "Almost there, just pulling the final numbers together.",
@@ -78,8 +74,40 @@ def _is_report_request(text: str) -> bool:
     return bool(_REPORT_PREFIX.search(t) or _REPORT_TOPIC.search(t))
 
 
-def _is_affirmative(text: str) -> bool:
-    return bool(_AFFIRMATIVE.match((text or "").strip()))
+async def classify_yes_no(text: str, context: str) -> bool:
+    """Use the LLM as a fast binary classifier. Returns True for YES, False otherwise.
+
+    `context` describes the question the user was just asked.
+    On any error or ambiguous output, returns False (safe default: don't run reports).
+    """
+    system = (
+        "You are a binary intent classifier. "
+        "Given the context and user response, reply with a single word: YES or NO. "
+        "No punctuation, no explanation."
+    )
+    user_msg = f"Context: {context}\nUser response: {text}\nAnswer (YES or NO):"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{LLM_URL}/v1/chat/completions",
+                json={
+                    "model": MODEL_NAME,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "max_tokens": 4,
+                    "temperature": 0.0,
+                    "stream": False,
+                },
+                timeout=httpx.Timeout(connect=3.0, read=8.0, write=3.0, pool=3.0),
+            )
+            resp.raise_for_status()
+            out = resp.json()["choices"][0]["message"]["content"].strip().upper()
+            return out.startswith("YES")
+    except Exception as e:
+        print(f"  classify_yes_no failed: {e}")
+        return False
 
 
 async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient) -> None:
@@ -536,7 +564,11 @@ async def handler(websocket):
 
                 # --- Report intent routing ---
                 if pending_report_request is not None:
-                    if _is_affirmative(user_text):
+                    _confirmed = await classify_yes_no(
+                        user_text,
+                        f"Miyako just asked the user to confirm she should generate this report: {pending_report_request}",
+                    )
+                    if _confirmed:
                         print(f"  Report confirmed: {pending_report_request[:80]}")
                         ack = "Perfect, I'm on it. This usually takes around thirty seconds so sit tight — feel free to keep talking in the meantime."
                         history[-1] = {"role": "user", "content": pending_report_request}

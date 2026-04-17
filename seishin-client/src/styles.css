@@ -522,15 +522,125 @@ html, body {
 .pane-section { margin-bottom: 18px; }
 .pane-section:last-child { margin-bottom: 0; }
 
-/* ── Dashboard image ─────────────────────────────────────────────────────── */
-.dashboard-img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-  border: 1px solid #1e1e2a;
-  border-radius: 6px;
-  background: #fff;
+/* ── Dashboard widgets (client-rendered, no matplotlib) ─────────────────── */
+.widget-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
+.widget-title {
+  font-size: 13px;
+  color: #8888a0;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+/* Big-number card */
+.widget-bignum {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background: linear-gradient(145deg, #151525, #0f0f1c);
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  gap: 14px;
+}
+.widget-bignum-value {
+  font-size: 72px;
+  font-weight: 700;
+  color: #e0e0f0;
+  line-height: 1;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+.widget-bignum-label {
+  font-size: 15px;
+  color: #8888a0;
+  text-align: center;
+  max-width: 440px;
+}
+
+/* Multi-metric grid */
+.widget-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.widget-metric-card {
+  padding: 18px 16px;
+  background: #151525;
+  border: 1px solid #1e1e2a;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.widget-metric-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: #e0e0f0;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+.widget-metric-label {
+  font-size: 12px;
+  color: #7878a0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Bar chart */
+.widget-barchart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.widget-bar-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) 1fr minmax(60px, auto);
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.widget-bar-label {
+  color: #c0c0d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.widget-bar-track {
+  height: 22px;
+  background: #0e0e18;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.widget-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.widget-bar-value {
+  color: #8888a0;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  text-align: right;
+}
+
+/* Line chart */
+.widget-linechart {
+  display: flex;
+  flex-direction: column;
+}
+.widget-linechart-svg {
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+}
+
+/* Styled table wrapper (fallback) */
+.widget-table-wrap { display: flex; flex-direction: column; }
 
 /* ── SQL block ───────────────────────────────────────────────────────────── */
 .report-sql {

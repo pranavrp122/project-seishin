@@ -25,7 +25,7 @@ SYSTEM_PROMPT = (
 
 # Report-mode context — injected only during report-related LLM calls.
 REPORTS_SYSTEM_ADDON = (
-    " You have live DB access. Use only facts in the provided data — never invent details. Keep it to one short sentence."
+    " You have live DB access. Use only facts in the provided data — never invent details. Keep it brief."
 )
 
 SEED_HISTORY = [

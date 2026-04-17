@@ -153,8 +153,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         _wrap_messages = list(history) + [{
             "role": "user",
             "content": (
-                "[INTERNAL: Report just finished. Deliver in ONE short sentence using only the facts below. "
-                "No extra context, no rambling, no invented details.]\n\n"
+                "[INTERNAL: Report just finished. Keep it brief, use only the facts below, no invented details.]\n\n"
                 f"Summary: {raw_summary}\n"
                 f"Rows: {_rows_preview}"
             ),

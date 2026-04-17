@@ -185,7 +185,7 @@ async def call_report_api(user_request: str) -> dict:
             f"{REPORT_API_URL}/report",
             json={"user_request": user_request},
             headers=headers,
-            timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
+            timeout=httpx.Timeout(connect=5.0, read=240.0, write=5.0, pool=5.0),
         )
         resp.raise_for_status()
         return resp.json()

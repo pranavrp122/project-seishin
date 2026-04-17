@@ -265,3 +265,206 @@ html, body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+
+/* ── Main layout: horizontal flex ────────────────────────────────────────── */
+#main-layout {
+  flex-direction: row !important;
+}
+
+/* ── Side panel ──────────────────────────────────────────────────────────── */
+.side-panel {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #1e1e2a;
+  background: #0c0c12;
+  transition: width 0.22s ease, min-width 0.22s ease;
+  flex-shrink: 0;
+}
+.side-panel.open {
+  width: 320px;
+  min-width: 320px;
+}
+
+/* ── Tab bar ─────────────────────────────────────────────────────────────── */
+.panel-tab-bar {
+  display: flex;
+  border-bottom: 1px solid #1e1e2a;
+  flex-shrink: 0;
+}
+.panel-tab-btn {
+  flex: 1;
+  padding: 10px 8px;
+  background: transparent;
+  border: none;
+  color: #6b6b80;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: color 0.15s, border-bottom 0.15s;
+  border-bottom: 2px solid transparent;
+}
+.panel-tab-btn:hover { color: #a0a0b8; }
+.panel-tab-btn.active {
+  color: #e0e0e6;
+  border-bottom: 2px solid #2563eb;
+}
+
+/* ── Panel panes ─────────────────────────────────────────────────────────── */
+.panel-pane {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.panel-pane.active { display: flex; }
+
+/* chat pane reuses .chat-area children */
+#chat-pane {
+  overflow: hidden;
+}
+
+/* ── Main content (right side) ───────────────────────────────────────────── */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Panel toggle button ─────────────────────────────────────────────────── */
+.panel-toggle-btn {
+  width: 32px;
+  height: 32px;
+  background: #1a1a24;
+  border: 1px solid #2a2a3a;
+  border-radius: 6px;
+  color: #6b6b80;
+  cursor: pointer;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 8px;
+  transition: color 0.15s, background 0.15s;
+}
+.panel-toggle-btn:hover { color: #e0e0e6; background: #22222e; }
+
+/* ── Report Log list ─────────────────────────────────────────────────────── */
+#log-pane {
+  overflow-y: auto;
+  padding: 8px;
+}
+.report-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.report-log-empty {
+  color: #4a4a5a;
+  font-size: 13px;
+  text-align: center;
+  padding: 24px 12px;
+}
+
+/* ── Report entry (accordion) ────────────────────────────────────────────── */
+.report-entry {
+  background: #131320;
+  border: 1px solid #1e1e2a;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.report-entry.open { border-color: #2a2a4a; }
+
+.report-entry-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.report-entry-header:hover { background: #1a1a2a; }
+
+.report-entry-title {
+  flex: 1;
+  font-size: 13px;
+  color: #c0c0d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.report-entry-meta {
+  font-size: 11px;
+  color: #4a4a5a;
+  flex-shrink: 0;
+}
+.report-entry-chevron {
+  font-size: 10px;
+  color: #4a4a5a;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.report-entry.open .report-entry-chevron { color: #6b6b80; }
+
+/* ── Report entry detail ─────────────────────────────────────────────────── */
+.report-entry-detail {
+  border-top: 1px solid #1e1e2a;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.report-detail-section { display: flex; flex-direction: column; gap: 4px; }
+.report-detail-label {
+  font-size: 10px;
+  color: #4a4a5a;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+}
+.report-sql {
+  background: #0a0a10;
+  border: 1px solid #1e1e2a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 11px;
+  color: #8888b8;
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.report-entry-summary {
+  font-size: 12px;
+  color: #a0a0b8;
+  line-height: 1.5;
+}
+.report-no-data { font-size: 12px; color: #4a4a5a; }
+.report-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+.report-data-table th {
+  text-align: left;
+  padding: 4px 8px;
+  color: #6b6b80;
+  border-bottom: 1px solid #1e1e2a;
+  font-weight: 500;
+}
+.report-data-table td {
+  padding: 4px 8px;
+  color: #a0a0b8;
+  border-bottom: 1px solid #131320;
+}

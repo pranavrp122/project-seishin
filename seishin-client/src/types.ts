@@ -2,7 +2,7 @@
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'degraded' | 'reconnecting';
 
 // Sei Engine incoming message types (from sei_engine.py protocol)
-export type SeiMessageType = 'sentence' | 'done' | 'interrupted' | 'error' | 'transcript';
+export type SeiMessageType = 'sentence' | 'done' | 'interrupted' | 'error' | 'transcript' | 'report_log';
 export interface SeiSentenceMessage { type: 'sentence'; text: string; }
 export interface SeiDoneMessage { type: 'done'; }
 export interface SeiInterruptedMessage { type: 'interrupted'; }
@@ -43,6 +43,17 @@ export interface AppState {
   isGenerating: boolean;      // Server is generating response
   interimTranscript: string;  // Live transcription text per D-09
   latency: LatencyMetrics;
+}
+
+// Report log entry — one per completed report run
+export interface ReportLogEntry {
+  id: string;
+  query: string;
+  sql: string;
+  rowCount: number;
+  results: Record<string, unknown>[];
+  summary: string;
+  timestamp: number;
 }
 
 // Event callbacks for state changes

@@ -2,7 +2,8 @@ import { connectionManager } from './net/connection.ts';
 import { enqueuePCM, clearPlayback, getPlaybackPosition, resumePlayback } from './audio/playback.ts';
 import { updateState, addMessage, appState } from './state.ts';
 import { showSentence, markResponseComplete, markResponseInterrupted } from './ui/chat.ts';
-import { SeiMessage } from './types.ts';
+import { SeiMessage, ReportLogEntry } from './types.ts';
+import { addReportLogEntry } from './ui/report-log.ts';
 
 interface PendingSentence {
   text: string;
@@ -77,6 +78,19 @@ function handleControlFrame(msg: SeiMessage): void {
       console.error('Server error:', msg.message);
       updateState({ isGenerating: false });
       resetOrchestratorState();
+      break;
+    }
+    case 'report_log': {
+      const entry: ReportLogEntry = {
+        id: Date.now().toString(),
+        query: (msg as any).query ?? '',
+        sql: (msg as any).sql ?? '',
+        rowCount: (msg as any).row_count ?? 0,
+        results: (msg as any).results ?? [],
+        summary: (msg as any).summary ?? '',
+        timestamp: Date.now(),
+      };
+      addReportLogEntry(entry);
       break;
     }
   }

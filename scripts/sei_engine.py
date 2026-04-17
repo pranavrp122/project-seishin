@@ -131,13 +131,24 @@ _REPORT_LEADINS = [
 ]
 
 async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient) -> None:
-    """Speak Claude's verbatim summary with a short varied lead-in. No LLM interpretation."""
+    """Speak Claude's verbatim summary and push a report_log frame to the client."""
     try:
         res = report_task.result()
         raw_summary = (res.get("summary") or "").strip()
     except Exception as _e:
         print(f"  Report API error: {_e}")
+        res = {}
         raw_summary = ""
+
+    # Send report_log frame so the client can display SQL + raw data in the Log tab
+    await websocket.send(json.dumps({
+        "type": "report_log",
+        "query": history[-1]["content"] if history and history[-1]["role"] == "user" else "",
+        "sql": res.get("sql") or res.get("sql_text") or "",
+        "row_count": res.get("row_count", 0),
+        "results": res.get("results", []),
+        "summary": raw_summary,
+    }))
 
     if raw_summary:
         spoken = random.choice(_REPORT_LEADINS) + raw_summary

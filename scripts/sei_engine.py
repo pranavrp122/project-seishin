@@ -35,6 +35,8 @@ if not AUTH_TOKEN:
 BIND_ADDR = os.environ.get("SEI_BIND", "127.0.0.1")
 PORT = int(os.environ.get("SEI_PORT", "5052"))
 LLM_URL = os.environ.get("SEI_LLM_URL", "http://127.0.0.1:8000")
+LLM_API_KEY = os.environ.get("SEI_LLM_API_KEY", "")
+_LLM_HEADERS = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
 MODEL_NAME = os.environ.get("SEI_MODEL_NAME", "gemma-4")
 MAX_TOKENS = int(os.environ.get("SEI_MAX_TOKENS", "300"))
 TEMPERATURE = float(os.environ.get("SEI_TEMPERATURE", "0.7"))
@@ -110,6 +112,7 @@ async def classify_yes_no(text: str, context: str) -> bool:
                     "temperature": 0.0,
                     "stream": False,
                 },
+                headers=_LLM_HEADERS,
                 timeout=httpx.Timeout(connect=3.0, read=8.0, write=3.0, pool=3.0),
             )
             resp.raise_for_status()
@@ -368,6 +371,7 @@ async def stream_llm(messages: list[dict], cancel_event: asyncio.Event) -> Async
                 "stream": True,
                 "stop": ["\n\n"],
             },
+            headers=_LLM_HEADERS,
             timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
         ) as response:
             if response.status_code != 200:
@@ -774,7 +778,7 @@ async def handler(websocket):
 
 async def main():
     print(f"Sei Engine listening on {BIND_ADDR}:{PORT}")
-    print(f"LLM: {LLM_URL} (model: {MODEL_NAME})")
+    print(f"LLM: {LLM_URL} (model: {MODEL_NAME}, auth: {'Bearer ***' if LLM_API_KEY else 'none'})")
     print(f"TTS: {TTS_URL} (reference: {TTS_REFERENCE_ID})")
     print(f"Auth: {'<from env>' if os.environ.get('SEI_AUTH_TOKEN') else '<dev mode>'}")
     async with serve(handler, BIND_ADDR, PORT, process_request=process_request) as server:

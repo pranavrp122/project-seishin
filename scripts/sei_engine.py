@@ -594,12 +594,14 @@ async def handler(websocket):
                     print(f"  Report fired: {user_text[:80]}")
                     active_report_task = asyncio.create_task(call_report_api(user_text))
                     _report_progress_idx = 0
-                    # Short LLM-generated ack while the background task runs
+                    # Ack that repeats back what the user asked — acts as a verification step
+                    # so they know the report fired and exactly what was sent to the pipeline.
                     _ack_messages = list(history) + [{
                         "role": "user",
                         "content": (
-                            "[INTERNAL: You're pulling that data now in the background. "
-                            "Give a brief one-sentence acknowledgement (e.g. 'on it, one sec'). Vary your phrasing.]"
+                            "[INTERNAL: Pulling that data now in the background. "
+                            "Acknowledge by briefly restating what they asked for so they know the request went through. "
+                            "One short sentence. Example shape: 'Got it, pulling up <their topic> now.' Vary your phrasing.]"
                         ),
                     }]
                     _ce = asyncio.Event()

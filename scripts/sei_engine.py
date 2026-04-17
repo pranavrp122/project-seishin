@@ -10,6 +10,7 @@ Usage:
 import asyncio
 import json
 import os
+import random
 import re
 import time
 from http import HTTPStatus
@@ -135,42 +136,33 @@ async def classify_yes_no(text: str, context: str) -> bool:
         return False
 
 
+_REPORT_LEADINS = [
+    "[happy] Alright, here's what I found. ",
+    "[calm] Got your results. ",
+    "[happy] Here you go — ",
+    "[calm] Done, here's what came back. ",
+    "[happy] Alright, got it. ",
+]
+
 async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient) -> None:
-    """Wrap a finished report result in Miyako's voice and deliver via TTS."""
+    """Speak Claude's verbatim summary with a short varied lead-in. No LLM interpretation."""
     try:
         res = report_task.result()
-        raw_summary = res.get("summary") or "The report came back but there wasn't much to show."
-        raw_rows = res.get("results") or []
-        row_count = res.get("row_count", 0)
+        raw_summary = (res.get("summary") or "").strip()
     except Exception as _e:
         print(f"  Report API error: {_e}")
-        raw_summary = None
-        raw_rows = []
-        row_count = 0
+        raw_summary = ""
 
     if raw_summary:
-        _rows_preview = json.dumps(raw_rows[:10], default=str)[:1000]
-        _wrap_messages = list(history) + [{
-            "role": "user",
-            "content": (
-                "[INTERNAL: Report just finished. Keep it brief, use only the facts below, no invented details.]\n\n"
-                f"Summary: {raw_summary}\n"
-                f"Rows: {_rows_preview}"
-            ),
-        }]
+        spoken = random.choice(_REPORT_LEADINS) + raw_summary
     else:
-        _wrap_messages = list(history) + [{
-            "role": "user",
-            "content": (
-                "[INTERNAL: The background report you were running hit an error. "
-                "Let the user know naturally and offer to try again. Follow all tag and style rules.]"
-            ),
-        }]
+        spoken = "[calm] Sorry, I ran into an issue pulling that report. Want me to try again?"
 
+    history.append({"role": "assistant", "content": spoken})
+    await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
     _ce = asyncio.Event()
-    llm_reply = await handle_llm_response(websocket, with_reports_context(_wrap_messages), tts_client, _ce)
-    if llm_reply:
-        history.append({"role": "assistant", "content": llm_reply})
+    await tts_full_response(websocket, spoken, tts_client, _ce)
+    await websocket.send(json.dumps({"type": "done"}))
 
 
 async def call_report_api(user_request: str) -> dict:

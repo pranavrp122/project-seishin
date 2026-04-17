@@ -643,25 +643,159 @@ async def handler(websocket):
                     continue
 
                 elif intent == "follow_up_on_previous" and session_cache.all_reports():
-                    # Follow-up on previous report — route to report API with refinement context
-                    query = data_query or user_text
-                    active_report_query = query
-                    active_report_task = asyncio.create_task(call_report_api(query))
-                    ack_messages = list(history) + [{
-                        "role": "user",
-                        "content": (
-                            "[INTERNAL: User wants to refine the previous data pull. "
-                            "Short natural ack that you're adjusting the results. One sentence.]"
-                        ),
-                    }]
-                    cancel_event = asyncio.Event()
-                    ack_reply = await handle_llm_response(websocket, ack_messages, tts_client, cancel_event)
-                    if ack_reply:
-                        history.append({"role": "assistant", "content": ack_reply})
+                    # FOLLOW-02: LLM interprets follow-up via guided_json op spec
+                    op_spec_result = await generate_op_spec(
+                        user_text, session_cache.summary()
+                    )
+
+                    # Resolve target report
+                    target_report = (
+                        session_cache.get(op_spec_result.get("report_id"))
+                        or session_cache.get_latest()
+                    )
+
+                    if target_report is None:
+                        # Cache expired during op spec call — fall back to new_data_request
+                        fallback_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The cached data expired. Let the user know naturally "
+                                "that you'll need to pull fresh data. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        fb_reply = await handle_llm_response(websocket, fallback_messages, tts_client, _ce)
+                        if fb_reply:
+                            history.append({"role": "assistant", "content": fb_reply})
+                        # Re-run as new_data_request
+                        query = data_query or user_text
+                        active_report_query = query
+                        active_report_task = asyncio.create_task(call_report_api(query))
+                        continue
+
+                    # FOLLOW-05: Validate referenced columns exist in cached report
+                    referenced_col = op_spec_result.get("column")
+                    referenced_cols = op_spec_result.get("columns") or []
+                    all_referenced = ([referenced_col] if referenced_col else []) + referenced_cols
+                    missing_cols = [c for c in all_referenced if c and c not in target_report["columns"]]
+
+                    if missing_cols:
+                        # Missing column — fallback to new_data_request with voice hint
+                        fallback_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                f"[INTERNAL: The user asked about columns ({', '.join(missing_cols)}) "
+                                "that don't exist in the cached data. Let them know naturally "
+                                "that you'll need to pull fresh data for that. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        fb_reply = await handle_llm_response(websocket, fallback_messages, tts_client, _ce)
+                        if fb_reply:
+                            history.append({"role": "assistant", "content": fb_reply})
+                        query = data_query or user_text
+                        active_report_query = query
+                        active_report_task = asyncio.create_task(call_report_api(query))
+                        continue
+
+                    # Execute op spec against cached data
+                    executor = CacheExecutor()
+                    try:
+                        if op_spec_result["op_type"] == "cross_report_compare":
+                            secondary_id = op_spec_result.get("compare_report_id")
+                            secondary = session_cache.get(secondary_id) if secondary_id else None
+                            if secondary is None:
+                                raise ValueError("Compare report not found in cache")
+                            result = executor.execute_cross_report(op_spec_result, target_report, secondary)
+                        else:
+                            result = executor.execute(op_spec_result, target_report)
+                    except Exception as exec_err:
+                        print(f"  Executor error: {exec_err}")
+                        error_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The data operation failed. Let the user know naturally "
+                                "and offer to try a different approach or pull fresh data. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        err_reply = await handle_llm_response(websocket, error_messages, tts_client, _ce)
+                        if err_reply:
+                            history.append({"role": "assistant", "content": err_reply})
+                        continue
+
+                    # FOLLOW-06: Send report_log frame (same shape as deliver_report_result)
+                    await websocket.send(json.dumps({
+                        "type": "report_log",
+                        "query": user_text,
+                        "sql": target_report["sql"],
+                        "row_count": result["row_count"],
+                        "results": result["rows"],
+                        "summary": op_spec_result.get("explanation", ""),
+                        "claude_interactions": [],
+                        "dashboard_b64": "",
+                    }))
+
+                    # Cache the result as a new report (enables chained follow-ups)
+                    new_rid = session_cache.store(
+                        {"results": result["rows"]},
+                        query=user_text,
+                        sql=target_report["sql"],
+                    )
+                    print(f"  Follow-up cached as {new_rid} ({result['row_count']} rows)")
+
+                    # Voice the results via Gemma + TTS
+                    if result["row_count"] == 0:
+                        voice_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The filter/operation returned zero results. "
+                                "Let the user know naturally — no matching data. One sentence.]"
+                            ),
+                        }]
+                    else:
+                        # Build a concise summary of the result for Gemma to voice
+                        preview_rows = result["rows"][:5]
+                        preview_text = json.dumps(preview_rows, default=str)[:500]
+                        voice_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                f"[INTERNAL: The follow-up operation is done. "
+                                f"Operation: {op_spec_result.get('explanation', '')}. "
+                                f"Result: {result['row_count']} rows. "
+                                f"Preview: {preview_text}\n\n"
+                                "Present these results naturally and briefly. "
+                                "Use exact numbers from above. 2-3 sentences max.]"
+                            ),
+                        }]
+
+                    _ce = asyncio.Event()
+                    spoken = await handle_llm_response_text_only(websocket, voice_messages, _ce)
+                    if not spoken:
+                        spoken = op_spec_result.get("explanation", "Done.")
+                    history.append({"role": "assistant", "content": spoken})
+                    await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
+                    _ce2 = asyncio.Event()
+                    await tts_full_response(websocket, spoken, tts_client, _ce2)
+                    await websocket.send(json.dumps({"type": "done"}))
                     continue
 
-                # confirm and cancel intents fall through to normal_chat for now
-                # (Phase 11 will add session cache that uses these)
+                elif intent == "follow_up_on_previous" and not session_cache.all_reports():
+                    # No cached reports — treat as conversational fallback
+                    fallback_messages = list(history) + [{
+                        "role": "user",
+                        "content": (
+                            "[INTERNAL: The user wants to refine data but there's nothing cached yet. "
+                            "Let them know naturally and offer to pull fresh data. One sentence.]"
+                        ),
+                    }]
+                    _ce = asyncio.Event()
+                    fb_reply = await handle_llm_response(websocket, fallback_messages, tts_client, _ce)
+                    if fb_reply:
+                        history.append({"role": "assistant", "content": fb_reply})
+                    continue
+
+                # confirm and cancel intents fall through to normal_chat
                 # normal_chat falls through to the existing generation phase below
 
                 # --- Phase B: Concurrent generation + stop listener ---

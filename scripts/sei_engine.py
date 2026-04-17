@@ -482,7 +482,7 @@ async def handler(websocket):
                 else:
                     try:
                         if active_report_task is not None:
-                            raw = await asyncio.wait_for(websocket.recv(), timeout=12.0)
+                            raw = await asyncio.wait_for(websocket.recv(), timeout=8.0)
                         else:
                             raw = await websocket.recv()
                     except ConnectionClosed:

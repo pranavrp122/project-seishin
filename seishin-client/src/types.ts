@@ -26,6 +26,7 @@ export interface SeiReportLogMessage {
   results: Record<string, unknown>[];
   summary: string;
   claude_interactions?: ClaudeInteraction[];
+  dashboard_b64?: string;
 }
 export type SeiMessage =
   | SeiSentenceMessage
@@ -79,6 +80,7 @@ export interface ReportLogEntry {
   results: Record<string, unknown>[];
   summary: string;
   claudeInteractions: ClaudeInteraction[];
+  dashboardB64: string;
   timestamp: number;
 }
 

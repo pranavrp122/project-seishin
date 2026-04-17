@@ -140,7 +140,20 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         res = {}
         raw_summary = ""
 
-    # Send report_log frame so the client can display SQL + raw data in the Log tab
+    # Read the dashboard PNG from disk if the report generator produced one,
+    # and inline as base64 so the client (over WebSocket) can render it without
+    # a second HTTP fetch into the report generator's ports.
+    import base64
+    dashboard_b64 = ""
+    report_path = res.get("report_path") or ""
+    if report_path:
+        try:
+            with open(report_path, "rb") as fh:
+                dashboard_b64 = base64.b64encode(fh.read()).decode("ascii")
+        except Exception as _e:
+            print(f"  could not read dashboard image: {_e}")
+
+    # Send report_log frame so the client can display all pipeline artifacts in the Log tab
     await websocket.send(json.dumps({
         "type": "report_log",
         "query": query,
@@ -149,6 +162,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         "results": res.get("results", []),
         "summary": raw_summary,
         "claude_interactions": res.get("claude_interactions", []),
+        "dashboard_b64": dashboard_b64,
     }))
 
     if raw_summary:

@@ -419,21 +419,22 @@ html, body {
   font-weight: 600;
 }
 
-/* ── Report entry (accordion) ────────────────────────────────────────────── */
+/* ── Report entry (accordion with tabs inside) ───────────────────────────── */
 .report-entry {
   background: #131320;
   border: 1px solid #1e1e2a;
   border-radius: 8px;
   overflow: hidden;
   transition: border-color 0.15s;
+  margin-bottom: 6px;
 }
 .report-entry.open { border-color: #2a2a4a; }
 
 .report-entry-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 14px 16px;
   cursor: pointer;
   user-select: none;
   transition: background 0.12s;
@@ -442,78 +443,147 @@ html, body {
 
 .report-entry-title {
   flex: 1;
-  font-size: 13px;
-  color: #c0c0d0;
+  font-size: 15px;
+  color: #d5d5e0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 500;
 }
 .report-entry-meta {
-  font-size: 11px;
-  color: #4a4a5a;
+  font-size: 13px;
+  color: #5a5a70;
   flex-shrink: 0;
 }
 .report-entry-chevron {
-  font-size: 10px;
-  color: #4a4a5a;
+  font-size: 12px;
+  color: #5a5a70;
   flex-shrink: 0;
   transition: color 0.15s;
 }
-.report-entry.open .report-entry-chevron { color: #6b6b80; }
+.report-entry.open .report-entry-chevron { color: #8888a0; }
 
-/* ── Report entry detail ─────────────────────────────────────────────────── */
+/* ── Expanded detail + tabs ──────────────────────────────────────────────── */
 .report-entry-detail {
   border-top: 1px solid #1e1e2a;
-  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
-.report-detail-section { display: flex; flex-direction: column; gap: 4px; }
-.report-detail-label {
-  font-size: 10px;
-  color: #4a4a5a;
+
+.entry-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+  background: #0e0e18;
+  border-bottom: 1px solid #1e1e2a;
+  flex-shrink: 0;
+}
+.entry-tab-btn {
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: #5a5a70;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+.entry-tab-btn:hover { color: #a0a0b8; }
+.entry-tab-btn.active {
+  color: #e0e0e6;
+  border-bottom-color: #2563eb;
+}
+
+.entry-tab-pane {
+  display: none;
+  padding: 16px 18px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+.entry-tab-pane.active { display: block; }
+
+.pane-label {
+  font-size: 12px;
+  color: #5a5a70;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.7px;
   font-weight: 600;
+  margin-bottom: 10px;
 }
+.pane-empty {
+  color: #5a5a70;
+  font-size: 14px;
+  text-align: center;
+  padding: 40px 20px;
+  font-style: italic;
+}
+.pane-section { margin-bottom: 18px; }
+.pane-section:last-child { margin-bottom: 0; }
+
+/* ── Dashboard image ─────────────────────────────────────────────────────── */
+.dashboard-img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid #1e1e2a;
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* ── SQL block ───────────────────────────────────────────────────────────── */
 .report-sql {
   background: #0a0a10;
   border: 1px solid #1e1e2a;
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 12px 14px;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 11px;
-  color: #8888b8;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #b0b0d0;
   overflow-x: auto;
   white-space: pre;
-  max-height: 160px;
-  overflow-y: auto;
+  margin: 0;
 }
+
+/* ── Summary paragraph ───────────────────────────────────────────────────── */
 .report-entry-summary {
-  font-size: 12px;
-  color: #a0a0b8;
-  line-height: 1.5;
+  font-size: 14px;
+  color: #c0c0d0;
+  line-height: 1.6;
+  margin: 0;
 }
-.report-no-data { font-size: 12px; color: #4a4a5a; }
+
+/* ── Raw-data table ──────────────────────────────────────────────────────── */
+.report-no-data { font-size: 14px; color: #5a5a70; font-style: italic; }
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid #1e1e2a;
+  border-radius: 6px;
+}
 .report-data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 13px;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }
 .report-data-table th {
   text-align: left;
-  padding: 4px 8px;
-  color: #6b6b80;
+  padding: 8px 12px;
+  color: #8888a0;
+  background: #0e0e18;
   border-bottom: 1px solid #1e1e2a;
-  font-weight: 500;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
 }
 .report-data-table td {
-  padding: 4px 8px;
-  color: #a0a0b8;
+  padding: 7px 12px;
+  color: #c0c0d0;
   border-bottom: 1px solid #131320;
 }
+.report-data-table tr:hover td { background: #1a1a2a; }
 
 /* ── Claude back-and-forth log ───────────────────────────────────────────── */
 .claude-log {
@@ -532,12 +602,12 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 10px;
+  padding: 10px 14px;
   cursor: pointer;
   list-style: none;
   user-select: none;
-  font-size: 12px;
+  font-size: 13px;
 }
 .claude-call-summary::-webkit-details-marker { display: none; }
 .claude-call-summary::before {
@@ -549,36 +619,37 @@ html, body {
 .claude-call[open] .claude-call-summary::before { content: '▾'; }
 .claude-call-step { color: #c0c0d0; flex: 1; }
 .claude-call-tokens {
-  color: #4a4a5a;
-  font-size: 10px;
+  color: #5a5a70;
+  font-size: 12px;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   flex-shrink: 0;
 }
 .claude-call-body {
   border-top: 1px solid #1e1e2a;
-  padding: 8px 10px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
-.claude-block { display: flex; flex-direction: column; gap: 2px; }
+.claude-block { display: flex; flex-direction: column; gap: 4px; }
 .claude-block-label {
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #4a4a5a;
+  letter-spacing: 0.6px;
+  color: #6b6b80;
   font-weight: 600;
 }
 .claude-block-text {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 10px;
-  color: #8888b8;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #a0a0b8;
   background: #05050a;
-  padding: 6px 8px;
-  border-radius: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 180px;
+  max-height: 240px;
   overflow-y: auto;
   margin: 0;
 }

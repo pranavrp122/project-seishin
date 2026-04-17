@@ -19,12 +19,11 @@ from websockets.exceptions import ConnectionClosed
 import httpx
 import ormsgpack
 
-from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
+from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, build_cache_summary_block
 from intent_classifier import classify_intent
 from session_cache import SessionCache
 from op_spec import generate_op_spec
 from cache_executor import CacheExecutor
-from system_prompts import build_cache_summary_block
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -647,6 +646,13 @@ async def handler(websocket):
                     op_spec_result = await generate_op_spec(
                         user_text, session_cache.summary()
                     )
+
+                    # LLM parse error — fall back to new_data_request
+                    if op_spec_result.get("op_type") == "_error":
+                        query = data_query or user_text
+                        active_report_query = query
+                        active_report_task = asyncio.create_task(call_report_api(query))
+                        continue
 
                     # Resolve target report
                     target_report = (

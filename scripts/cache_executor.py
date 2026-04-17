@@ -9,6 +9,8 @@ Exports:
 
 import pandas as pd
 
+_AGG_MAP = {"sum": "sum", "avg": "mean", "count": "count", "min": "min", "max": "max"}
+
 
 def _infer_dtype(series: pd.Series) -> str:
     """Return a simplified dtype string for a pandas Series."""
@@ -78,6 +80,8 @@ class CacheExecutor:
 
     def _op_filter(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
         col = spec["column"]
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
         op = spec["operator"]
         val = spec.get("value")
 
@@ -116,9 +120,14 @@ class CacheExecutor:
         sort_specs = spec.get("sort_specs")
         if sort_specs:
             cols = [s["column"] for s in sort_specs]
+            missing = [c for c in cols if c not in df.columns]
+            if missing:
+                raise ValueError(f"Sort columns not found: {missing}")
             ascending = [s["direction"] == "asc" for s in sort_specs]
             return df.sort_values(by=cols, ascending=ascending)
         col = spec.get("column")
+        if col is None or col not in df.columns:
+            raise ValueError(f"Sort column '{col}' not found in data")
         direction = spec.get("direction", "asc")
         return df.sort_values(by=col, ascending=(direction == "asc"))
 
@@ -139,19 +148,17 @@ class CacheExecutor:
     def _op_aggregate(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
         col = spec["column"]
         func = spec["agg_func"]
+        if func not in _AGG_MAP:
+            raise ValueError(f"Unknown agg_func: {func!r}. Must be one of: {list(_AGG_MAP)}")
+        pandas_func = _AGG_MAP[func]
         group_by = spec.get("group_by")
 
         if group_by:
             grouped = df.groupby(group_by)
-            if func == "avg":
-                return grouped[col].mean().reset_index()
-            return getattr(grouped[col], func)().reset_index()
+            return getattr(grouped[col], pandas_func)().reset_index()
 
         # Scalar aggregate -- single-row DataFrame
-        if func == "avg":
-            val = df[col].mean()
-        else:
-            val = getattr(df[col], func)()
+        val = getattr(df[col], pandas_func)()
         return pd.DataFrame([{col: val, "aggregation": func}])
 
     def _op_pivot(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:

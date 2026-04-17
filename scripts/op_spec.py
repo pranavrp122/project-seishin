@@ -139,10 +139,8 @@ Required: report_id (primary), compare_report_id, compare_column
 """
 
 _SAFE_DEFAULT = {
-    "op_type": "filter",
-    "explanation": "parse error",
-    "column": None,
-    "operator": None,
+    "op_type": "_error",
+    "explanation": "LLM parse error - could not generate operation spec",
 }
 
 

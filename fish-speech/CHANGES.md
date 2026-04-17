@@ -355,3 +355,29 @@ WAV header (0xFFFFFFFF) + int16 PCM segments → HTTP chunked response
 - Context overflow at ~3000-3500 tokens for long texts (deferred)
 - Non-streaming backward compatibility not yet validated (Phase 4 deferred)
 - Sub-chunk RTF slightly higher than batch mode due to repeated DAC decode
+
+---
+
+## Step 12: BF16 native precision (FISH_QUANT gate) + max_seq_len 4096→8192
+
+**Date**: 2026-04-17
+**Status**: Implemented, pending A/B test
+
+### Changes (`inference.py`)
+- `from_pretrained(..., max_length=8192)` — raised from 4096; better prosodic coherence on longer multi-clause responses
+- `FISH_QUANT` env var gate: default `none` = native BF16 (no quantization). Set `FISH_QUANT=int8` to restore previous INT8 W8A16 behavior.
+- INT8-specific inductor config (`force_fuse_int_mm_with_mul`, coordinate descent) gated behind `_quant == "int8"` — not applied in BF16 mode.
+
+### Why BF16 now
+Gemma 4 moved to AWS EC2, freeing ~12 GB VRAM on the 5090. Parakeet ASR (3 GB) replaces the old cloud whisper call. Combined Fish Speech + Parakeet footprint is ~13 GB, leaving ~7 GB headroom — enough to run S2-Pro at full BF16 precision.
+
+BF16 is the model's native training dtype. INT8 W8A16 was a VRAM optimization we no longer need. Community benchmarks (ComfyUI) show BF16 is often faster than bitsandbytes INT8 per token because dequant overhead disappears.
+
+### Expected VRAM
+~14-16 GB (vs ~9.9 GB INT8) — well within the ~20 GB budget.
+
+### To revert to INT8
+```bash
+export FISH_QUANT=int8
+./start_server.sh --compile ...
+```

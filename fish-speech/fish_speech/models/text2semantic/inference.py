@@ -392,7 +392,7 @@ def generate(
 
 def init_model(checkpoint_path, device, precision, compile=False):
     model = DualARTransformer.from_pretrained(
-        checkpoint_path, load_weights=True, max_length=4096
+        checkpoint_path, load_weights=True, max_length=8192
     )
 
     model = model.to(device=device, dtype=precision)
@@ -409,11 +409,14 @@ def init_model(checkpoint_path, device, precision, compile=False):
         torch.set_float32_matmul_precision("high")
         logger.info("TF32 matmul precision enabled")
 
-    # INT8 quantization — must happen before compile
-    if str(device) == "cuda" or getattr(device, "type", None) == "cuda":
+    # Quantization — gate behind FISH_QUANT env var (default "none" = native BF16)
+    _quant = os.environ.get("FISH_QUANT", "none").lower()
+    if _quant == "int8" and (str(device) == "cuda" or getattr(device, "type", None) == "cuda"):
         from torchao.quantization import quantize_, Int8WeightOnlyConfig
         quantize_(model, Int8WeightOnlyConfig())
         logger.info("Applied INT8 W8A16 quantization")
+    else:
+        logger.info(f"Running native BF16 (FISH_QUANT={_quant})")
 
     # Pre-create fixed parameter tensors to avoid runtime creation
     model.fixed_temperature = torch.tensor(0.7, device=device, dtype=torch.float)
@@ -424,10 +427,11 @@ def init_model(checkpoint_path, device, precision, compile=False):
     model._cache_setup_done = False
 
     if compile:
-        # Inductor tuning for INT8 — fuse dequant with matmul for ~5-10% speedup
-        torch._inductor.config.force_fuse_int_mm_with_mul = True
-        torch._inductor.config.coordinate_descent_tuning = True
-        torch._inductor.config.coordinate_descent_check_all_directions = True
+        if _quant == "int8":
+            # Inductor tuning for INT8 — fuse dequant with matmul for ~5-10% speedup
+            torch._inductor.config.force_fuse_int_mm_with_mul = True
+            torch._inductor.config.coordinate_descent_tuning = True
+            torch._inductor.config.coordinate_descent_check_all_directions = True
 
 
         logger.info("Compiling function with reduce-overhead...")

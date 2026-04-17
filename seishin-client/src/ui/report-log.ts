@@ -23,10 +23,33 @@ function renderEntries(): void {
   if (entries.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'report-log-empty';
-    empty.textContent = 'No reports yet.';
+
+    const icon = document.createElement('div');
+    icon.className = 'report-log-empty-icon';
+    icon.textContent = '◷';
+
+    const heading = document.createElement('div');
+    heading.className = 'report-log-empty-heading';
+    heading.textContent = 'No reports yet';
+
+    const hint = document.createElement('div');
+    hint.className = 'report-log-empty-hint';
+    hint.textContent = 'Ask for a report and it\'ll show up here with the SQL and raw data.';
+
+    const example = document.createElement('div');
+    example.className = 'report-log-empty-example';
+    example.textContent = 'e.g. "how many orders did we have this year"';
+
+    empty.append(icon, heading, hint, example);
     logContainer.appendChild(empty);
     return;
   }
+
+  // Header shown when we have entries
+  const header = document.createElement('div');
+  header.className = 'report-log-header';
+  header.textContent = `Session reports · ${entries.length}`;
+  logContainer.appendChild(header);
 
   for (const entry of entries) {
     logContainer.appendChild(buildEntryEl(entry));

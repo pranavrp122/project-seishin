@@ -91,7 +91,7 @@ export function renderLayout(parent: HTMLElement): HTMLCanvasElement {
 
   mainContent.appendChild(viewArea);
 
-  // Wire nav item clicks → swap views
+  // Wire nav item clicks → swap views (and toggle input visibility)
   navEls.forEach(btn => {
     btn.addEventListener('click', () => {
       const target = btn.dataset.view;
@@ -100,6 +100,8 @@ export function renderLayout(parent: HTMLElement): HTMLCanvasElement {
       [chatView, logView].forEach(v => {
         v.classList.toggle('active', v.id === `view-${target}`);
       });
+      // Report Log view hides the input/waveform bars; Chat view shows them.
+      mainContent.classList.toggle('view-mode-log', target === 'log');
     });
   });
 

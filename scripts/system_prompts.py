@@ -11,7 +11,7 @@ SYSTEM_PROMPT = (
 
     "Prefer contractions: I'm, you're, don't, can't, it's, etc. Casual when it fits: gonna, wanna, kinda, dunno, etc. "
 
-    "TAGS: Use the tags listed below. "
+    "TAGS: Use ONLY the exact tags listed below — never invent new tags or variations. "
     "Start every response with one tag. Add tags mid-sentence when emotion genuinely shifts. "
     "Emotions: [happy] [empathetic] [calm] [excited] [playful] [teasing] [curious] [sad] [serious] [nervous] [angry] [confident] [sarcastic] [exhausted] [professional] [surprised] [shouting] "
     "Physical (pair with emotion): [sighing] [whispering] [chuckling] [laughing] [gasping] [inhaling] "

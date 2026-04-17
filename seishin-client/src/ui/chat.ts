@@ -4,12 +4,13 @@ import { ChatMessage } from '../types.ts';
 let chatContainer: HTMLDivElement | null = null;
 let interimEl: HTMLDivElement | null = null;
 
-// Regex to strip emotion tags like [happy], [sad], etc. from display text
-const EMOTION_TAG_RE = /^\[[\w\s]+\]\s*/;
+// Regex to strip emotion/physical/pause tags like [happy], [long-break], etc. from display text.
+// Matches anywhere in the text (not just leading) so mid-sentence tags are removed too.
+const EMOTION_TAG_RE = /\[[a-z][a-z\s-]{0,30}\]\s*/gi;
 
 /** Strip Fish Speech emotion tags from text for display */
 function stripEmotionTag(text: string): string {
-  return text.replace(EMOTION_TAG_RE, '');
+  return text.replace(EMOTION_TAG_RE, '').replace(/\s+/g, ' ').trim();
 }
 
 /** Remove all child elements from a container safely */

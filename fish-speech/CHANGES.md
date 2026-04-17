@@ -361,7 +361,7 @@ WAV header (0xFFFFFFFF) + int16 PCM segments → HTTP chunked response
 ## Step 12: BF16 native precision (FISH_QUANT gate) + max_seq_len 4096→8192
 
 **Date**: 2026-04-17
-**Status**: Implemented, pending A/B test
+**Status**: ✅ CONFIRMED BETTER — noticeably improved emotional expressiveness vs INT8
 
 ### Changes (`inference.py`)
 - `from_pretrained(..., max_length=8192)` — raised from 4096; better prosodic coherence on longer multi-clause responses
@@ -373,8 +373,21 @@ Gemma 4 moved to AWS EC2, freeing ~12 GB VRAM on the 5090. Parakeet ASR (3 GB) r
 
 BF16 is the model's native training dtype. INT8 W8A16 was a VRAM optimization we no longer need. Community benchmarks (ComfyUI) show BF16 is often faster than bitsandbytes INT8 per token because dequant overhead disappears.
 
+### Metrics (temp=0.85, top_p=0.8, rep=1.1)
+| Clip | Audio | Total | RTF | VRAM |
+|------|-------|-------|-----|------|
+| 01_warm | 6.1s | 1.96s | 0.32x | - |
+| 02_exhausted | 12.8s | 3.58s | 0.28x | - |
+| 03_angry | 3.5s | 1.29s | 0.37x | - |
+| 04_tender | 7.2s | 2.43s | 0.34x | - |
+| 05_professional | 10.1s | 3.13s | 0.31x | - |
+
+**TTFA**: ~285ms | **VRAM**: ~15.4 GB | **RTF**: ~0.32x mean
+
+HuggingFace: `model_comparison/s2pro_bf16/`
+
 ### Expected VRAM
-~14-16 GB (vs ~9.9 GB INT8) — well within the ~20 GB budget.
+~15.4 GB (vs ~9.9 GB INT8) — well within the ~20 GB budget.
 
 ### To revert to INT8
 ```bash

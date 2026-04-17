@@ -8,6 +8,7 @@ export function renderReportLog(parent: HTMLElement): void {
   logContainer.id = 'report-log-list';
   logContainer.className = 'report-log-list';
   parent.appendChild(logContainer);
+  renderEntries(); // paint the empty state immediately
 }
 
 export function addReportLogEntry(entry: ReportLogEntry): void {

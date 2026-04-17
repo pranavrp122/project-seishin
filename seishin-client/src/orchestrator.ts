@@ -83,11 +83,11 @@ function handleControlFrame(msg: SeiMessage): void {
     case 'report_log': {
       const entry: ReportLogEntry = {
         id: Date.now().toString(),
-        query: (msg as any).query ?? '',
-        sql: (msg as any).sql ?? '',
-        rowCount: (msg as any).row_count ?? 0,
-        results: (msg as any).results ?? [],
-        summary: (msg as any).summary ?? '',
+        query: msg.query,
+        sql: msg.sql,
+        rowCount: msg.row_count,
+        results: msg.results,
+        summary: msg.summary,
         timestamp: Date.now(),
       };
       addReportLogEntry(entry);

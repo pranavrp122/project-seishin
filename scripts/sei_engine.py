@@ -130,7 +130,7 @@ _REPORT_LEADINS = [
     "[happy] Alright, got it. ",
 ]
 
-async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient) -> None:
+async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "") -> None:
     """Speak Claude's verbatim summary and push a report_log frame to the client."""
     try:
         res = report_task.result()
@@ -143,7 +143,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
     # Send report_log frame so the client can display SQL + raw data in the Log tab
     await websocket.send(json.dumps({
         "type": "report_log",
-        "query": history[-1]["content"] if history and history[-1]["role"] == "user" else "",
+        "query": query,
         "sql": res.get("sql") or res.get("sql_text") or "",
         "row_count": res.get("row_count", 0),
         "results": res.get("results", []),
@@ -478,6 +478,7 @@ async def handler(websocket):
             pending_msg = None  # Buffered message from stop-listener
             pending_report_request = None  # Request restated and awaiting user yes/no
             active_report_task = None   # Background asyncio.Task for call_report_api
+            active_report_query = ""    # The original user query being reported on
             _report_progress_idx = 0    # Index into _REPORT_PROGRESS_MSGS
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
             is_accumulating = False
@@ -501,8 +502,9 @@ async def handler(websocket):
                     except asyncio.TimeoutError:
                         # Silence while report is running — deliver result or send update
                         if active_report_task.done():
-                            await deliver_report_result(websocket, active_report_task, history, tts_client)
+                            await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query)
                             active_report_task = None
+                            active_report_query = ""
                         else:
                             update = _REPORT_PROGRESS_MSGS[_report_progress_idx] \
                                 if _report_progress_idx < len(_REPORT_PROGRESS_MSGS) \
@@ -595,6 +597,7 @@ async def handler(websocket):
                     )
                     if confirmed:
                         print(f"  Report confirmed: {pending_report_request[:80]}")
+                        active_report_query = pending_report_request
                         active_report_task = asyncio.create_task(call_report_api(pending_report_request))
                         _report_progress_idx = 0
                         _ack_messages = list(history) + [{
@@ -746,8 +749,9 @@ async def handler(websocket):
                 # Deliver report result only when the current turn finished cleanly (not interrupted).
                 # If interrupted, the result will surface on next silence or next clean turn.
                 if active_report_task is not None and active_report_task.done() and not interrupted:
-                    await deliver_report_result(websocket, active_report_task, history, tts_client)
+                    await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query)
                     active_report_task = None
+                    active_report_query = ""
     finally:
         active_ws = None
         print(f"Client disconnected: {websocket.remote_address}")

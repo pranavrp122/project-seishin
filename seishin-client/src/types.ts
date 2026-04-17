@@ -8,7 +8,21 @@ export interface SeiDoneMessage { type: 'done'; }
 export interface SeiInterruptedMessage { type: 'interrupted'; }
 export interface SeiErrorMessage { type: 'error'; message: string; }
 export interface SeiTranscriptMessage { type: 'transcript'; text: string; }
-export type SeiMessage = SeiSentenceMessage | SeiDoneMessage | SeiInterruptedMessage | SeiErrorMessage | SeiTranscriptMessage;
+export interface SeiReportLogMessage {
+  type: 'report_log';
+  query: string;
+  sql: string;
+  row_count: number;
+  results: Record<string, unknown>[];
+  summary: string;
+}
+export type SeiMessage =
+  | SeiSentenceMessage
+  | SeiDoneMessage
+  | SeiInterruptedMessage
+  | SeiErrorMessage
+  | SeiTranscriptMessage
+  | SeiReportLogMessage;
 
 // Outgoing message types
 export interface SeiOutMessage { type: 'message'; text: string; }

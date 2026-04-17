@@ -21,6 +21,10 @@ import ormsgpack
 
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
 from intent_classifier import classify_intent
+from session_cache import SessionCache
+from op_spec import generate_op_spec
+from cache_executor import CacheExecutor
+from system_prompts import build_cache_summary_block
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -65,7 +69,7 @@ async def handle_llm_response_text_only(ws, messages: list[dict], cancel_event: 
     return "".join(reply_parts).strip()
 
 
-async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "") -> bool:
+async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "", session_cache=None) -> bool:
     """Speak Claude's verbatim summary and push a report_log frame to the client."""
     try:
         res = report_task.result()
@@ -99,6 +103,11 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         "claude_interactions": res.get("claude_interactions", []),
         "dashboard_b64": dashboard_b64,
     }))
+
+    # Cache report data for follow-up operations
+    if session_cache is not None and res.get("results"):
+        report_id = session_cache.store(res, query=query, sql=res.get("sql") or res.get("sql_text") or "")
+        print(f"  Cached report {report_id} ({len(res.get('results', []))} rows)")
 
     if raw_summary:
         # Let Gemma introduce the results naturally
@@ -449,6 +458,7 @@ async def handler(websocket):
     global active_ws
     active_ws = websocket  # Set here where finally block guarantees cleanup
     history = build_initial_messages()
+    session_cache = SessionCache(ttl_seconds=600)
     print(f"Client connected: {websocket.remote_address}")
 
     try:
@@ -456,7 +466,6 @@ async def handler(websocket):
             pending_msg = None  # Buffered message from stop-listener
             active_report_task = None   # Background asyncio.Task for call_report_api
             active_report_query = ""    # The original user query being reported on
-            has_active_report = False   # True after a report has been delivered this session
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
             is_accumulating = False
             asr_task = None
@@ -479,9 +488,7 @@ async def handler(websocket):
                     except asyncio.TimeoutError:
                         # Silence while report is running — deliver result or send update
                         if active_report_task.done():
-                            delivered = await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query)
-                            if delivered:
-                                has_active_report = True
+                            await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
                             active_report_task = None
                             active_report_query = ""
                         else:
@@ -574,7 +581,7 @@ async def handler(websocket):
                 print(f"  User: {user_text}")
 
                 # --- Intent classification ---
-                intent_result = await classify_intent(user_text, history, has_active_report)
+                intent_result = await classify_intent(user_text, history, bool(session_cache.all_reports()))
                 intent = intent_result["intent"]
                 confidence = intent_result["confidence"]
                 data_query = intent_result["data_query"]
@@ -582,6 +589,26 @@ async def handler(websocket):
                 if intent == "new_data_request" and confidence >= 0.6:
                     # Fire report immediately — no confirmation gate
                     query = data_query or user_text
+
+                    # FOLLOW-04: Check cache for overlapping data before firing pipeline
+                    overlaps = session_cache.find_overlapping(query)
+                    if overlaps:
+                        overlap_hint = overlaps[0]["query"]
+                        hint_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                f"[INTERNAL: You already pulled data earlier that might be relevant — "
+                                f'the query was: "{overlap_hint}". '
+                                "Mention this briefly and naturally — like 'I already pulled some warehouse data earlier, "
+                                "want me to use that instead?' One sentence. Stay in character.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        hint_reply = await handle_llm_response(websocket, hint_messages, tts_client, _ce)
+                        if hint_reply:
+                            history.append({"role": "assistant", "content": hint_reply})
+                        # Continue with pipeline anyway — hint is informational, not blocking
+
                     active_report_query = query
                     active_report_task = asyncio.create_task(call_report_api(query))
                     # LLM-generated ack in Miyako's voice
@@ -615,7 +642,7 @@ async def handler(websocket):
                         history.append({"role": "assistant", "content": clarify_reply})
                     continue
 
-                elif intent == "follow_up_on_previous" and has_active_report:
+                elif intent == "follow_up_on_previous" and session_cache.all_reports():
                     # Follow-up on previous report — route to report API with refinement context
                     query = data_query or user_text
                     active_report_query = query
@@ -748,9 +775,7 @@ async def handler(websocket):
                 # Deliver report result only when the current turn finished cleanly (not interrupted).
                 # If interrupted, the result will surface on next silence or next clean turn.
                 if active_report_task is not None and active_report_task.done() and not interrupted:
-                    delivered = await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query)
-                    if delivered:
-                        has_active_report = True
+                    await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
                     active_report_task = None
                     active_report_query = ""
     finally:

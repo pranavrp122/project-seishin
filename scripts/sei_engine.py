@@ -21,21 +21,7 @@ from websockets.exceptions import ConnectionClosed
 import httpx
 import ormsgpack
 
-from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, REPORTS_SYSTEM_ADDON
-
-
-def with_reports_context(messages: list[dict]) -> list[dict]:
-    """Return a copy of `messages` with the system message extended with report-mode guidance.
-
-    Only used for report-flow LLM calls so the base system prompt stays lean
-    for normal conversation.
-    """
-    out = list(messages)
-    if out and out[0].get("role") == "system":
-        out[0] = {"role": "system", "content": out[0]["content"] + REPORTS_SYSTEM_ADDON}
-    else:
-        out.insert(0, {"role": "system", "content": SYSTEM_PROMPT + REPORTS_SYSTEM_ADDON})
-    return out
+from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -608,7 +594,7 @@ async def handler(websocket):
                             ),
                         }]
                         _ce = asyncio.Event()
-                        ack_reply = await handle_llm_response(websocket, with_reports_context(_ack_messages), tts_client, _ce)
+                        ack_reply = await handle_llm_response(websocket, _ack_messages, tts_client, _ce)
                         if ack_reply:
                             history.append({"role": "assistant", "content": ack_reply})
                         pending_report_request = None
@@ -626,14 +612,14 @@ async def handler(websocket):
                         "role": "user",
                         "content": (
                             f"{user_text}\n\n"
-                            "[INTERNAL: User asked for a data report. Briefly restate exactly what you'll pull "
-                            "(fill gaps like timeframe with sensible defaults) and END with a yes/no confirmation "
-                            "question so they can correct you if speech misheard them. "
-                            "Do NOT start running it — confirmation only.]"
+                            "[INTERNAL: User asked for a data report. Briefly restate what you heard in one short sentence "
+                            "and end with a yes/no check (e.g. 'sound right?'). "
+                            "Do NOT ask what extra fields to include, do NOT offer alternatives, "
+                            "do NOT offer to add stats — just verify the request. Confirmation only, do not start running it.]"
                         ),
                     }]
                     _ce = asyncio.Event()
-                    confirm_reply = await handle_llm_response(websocket, with_reports_context(_confirm_messages), tts_client, _ce)
+                    confirm_reply = await handle_llm_response(websocket, _confirm_messages, tts_client, _ce)
                     if confirm_reply:
                         history.append({"role": "assistant", "content": confirm_reply})
                     continue

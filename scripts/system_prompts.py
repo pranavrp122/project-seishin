@@ -21,11 +21,8 @@ SYSTEM_PROMPT = (
     "[empathetic] [calm] [professional] [sarcastic]: use . or , only — no !. "
     "Cold anger: staccato . not !. Hot anger: !. "
     "[sarcastic]: deadpan . before the punchline. "
-)
 
-# Report-mode context — injected only during report-related LLM calls.
-REPORTS_SYSTEM_ADDON = (
-    " You have live DB access. Use only facts in the provided data — never invent details. Keep it brief."
+    "REPORTS: You have live DB access. Use only facts in the provided data — never invent details. Keep it brief."
 )
 
 SEED_HISTORY = [

@@ -1,4 +1,4 @@
-import { ReportLogEntry } from '../types.ts';
+import { ReportLogEntry, ClaudeInteraction } from '../types.ts';
 
 let logContainer: HTMLDivElement | null = null;
 const entries: ReportLogEntry[] = [];
@@ -85,6 +85,12 @@ function buildEntryEl(entry: ReportLogEntry): HTMLElement {
   const detail = document.createElement('div');
   detail.className = 'report-entry-detail';
   detail.style.display = 'none';
+  if (entry.claudeInteractions.length > 0) {
+    detail.appendChild(buildSection(
+      `Claude Back-and-Forth (${entry.claudeInteractions.length} calls)`,
+      buildClaudeLog(entry.claudeInteractions),
+    ));
+  }
   detail.appendChild(buildSection('SQL', buildCode(entry.sql)));
   detail.appendChild(buildSection(`Raw Data (${entry.rowCount} rows)`, buildTable(entry.results)));
   if (entry.summary) {
@@ -133,7 +139,16 @@ function buildTable(rows: Record<string, unknown>[]): HTMLElement {
     p.textContent = 'No rows returned.';
     return p;
   }
+  // Sort by id column if one exists, ascending
   const cols = Object.keys(rows[0]);
+  const idCol = cols.find(c => c.toLowerCase() === 'id') ?? cols.find(c => c.toLowerCase().endsWith('_id'));
+  if (idCol) {
+    rows = [...rows].sort((a, b) => {
+      const av = a[idCol], bv = b[idCol];
+      if (typeof av === 'number' && typeof bv === 'number') return av - bv;
+      return String(av ?? '').localeCompare(String(bv ?? ''));
+    });
+  }
   const table = document.createElement('table');
   table.className = 'report-data-table';
 
@@ -163,4 +178,52 @@ function buildTable(rows: Record<string, unknown>[]): HTMLElement {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function buildClaudeLog(calls: ClaudeInteraction[]): HTMLElement {
+  const list = document.createElement('div');
+  list.className = 'claude-log';
+  calls.forEach((call, idx) => {
+    const item = document.createElement('details');
+    item.className = 'claude-call';
+
+    const summary = document.createElement('summary');
+    summary.className = 'claude-call-summary';
+    const step = document.createElement('span');
+    step.className = 'claude-call-step';
+    step.textContent = `${idx + 1}. ${call.step || 'Claude call'}`;
+    const tokens = document.createElement('span');
+    tokens.className = 'claude-call-tokens';
+    const ins = call.input_tokens ?? 0;
+    const outs = call.output_tokens ?? 0;
+    const ms = call.latency_ms ?? 0;
+    tokens.textContent = `${ins} in · ${outs} out · ${ms}ms`;
+    summary.appendChild(step);
+    summary.appendChild(tokens);
+    item.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'claude-call-body';
+    if (call.system) body.appendChild(claudeBlock('System', call.system));
+    if (call.user_message) body.appendChild(claudeBlock('User', call.user_message));
+    if (call.response) body.appendChild(claudeBlock('Response', call.response));
+    item.appendChild(body);
+
+    list.appendChild(item);
+  });
+  return list;
+}
+
+function claudeBlock(label: string, text: string): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'claude-block';
+  const lbl = document.createElement('div');
+  lbl.className = 'claude-block-label';
+  lbl.textContent = label;
+  const pre = document.createElement('pre');
+  pre.className = 'claude-block-text';
+  pre.textContent = text;
+  wrap.appendChild(lbl);
+  wrap.appendChild(pre);
+  return wrap;
 }

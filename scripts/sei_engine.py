@@ -148,6 +148,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         "row_count": res.get("row_count", 0),
         "results": res.get("results", []),
         "summary": raw_summary,
+        "claude_interactions": res.get("claude_interactions", []),
     }))
 
     if raw_summary:

@@ -88,6 +88,7 @@ function handleControlFrame(msg: SeiMessage): void {
         rowCount: msg.row_count,
         results: msg.results,
         summary: msg.summary,
+        claudeInteractions: msg.claude_interactions ?? [],
         timestamp: Date.now(),
       };
       addReportLogEntry(entry);

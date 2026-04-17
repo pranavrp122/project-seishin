@@ -8,6 +8,16 @@ export interface SeiDoneMessage { type: 'done'; }
 export interface SeiInterruptedMessage { type: 'interrupted'; }
 export interface SeiErrorMessage { type: 'error'; message: string; }
 export interface SeiTranscriptMessage { type: 'transcript'; text: string; }
+export interface ClaudeInteraction {
+  step: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  latency_ms?: number | null;
+  system?: string;
+  user_message?: string;
+  response?: string;
+}
 export interface SeiReportLogMessage {
   type: 'report_log';
   query: string;
@@ -15,6 +25,7 @@ export interface SeiReportLogMessage {
   row_count: number;
   results: Record<string, unknown>[];
   summary: string;
+  claude_interactions?: ClaudeInteraction[];
 }
 export type SeiMessage =
   | SeiSentenceMessage
@@ -67,6 +78,7 @@ export interface ReportLogEntry {
   rowCount: number;
   results: Record<string, unknown>[];
   summary: string;
+  claudeInteractions: ClaudeInteraction[];
   timestamp: number;
 }
 

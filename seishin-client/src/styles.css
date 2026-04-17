@@ -514,3 +514,71 @@ html, body {
   color: #a0a0b8;
   border-bottom: 1px solid #131320;
 }
+
+/* ── Claude back-and-forth log ───────────────────────────────────────────── */
+.claude-log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.claude-call {
+  background: #0a0a10;
+  border: 1px solid #1e1e2a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.claude-call[open] { border-color: #2a2a4a; }
+.claude-call-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-size: 12px;
+}
+.claude-call-summary::-webkit-details-marker { display: none; }
+.claude-call-summary::before {
+  content: '▸';
+  color: #4a4a5a;
+  font-size: 9px;
+  transition: transform 0.15s;
+}
+.claude-call[open] .claude-call-summary::before { content: '▾'; }
+.claude-call-step { color: #c0c0d0; flex: 1; }
+.claude-call-tokens {
+  color: #4a4a5a;
+  font-size: 10px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  flex-shrink: 0;
+}
+.claude-call-body {
+  border-top: 1px solid #1e1e2a;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.claude-block { display: flex; flex-direction: column; gap: 2px; }
+.claude-block-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #4a4a5a;
+  font-weight: 600;
+}
+.claude-block-text {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 10px;
+  color: #8888b8;
+  background: #05050a;
+  padding: 6px 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0;
+}

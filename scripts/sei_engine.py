@@ -479,6 +479,7 @@ async def handler(websocket):
     try:
         async with httpx.AsyncClient() as tts_client:
             pending_msg = None  # Buffered message from stop-listener
+            pending_report_request = None  # Request restated and awaiting user yes/no
             active_report_task = None   # Background asyncio.Task for call_report_api
             _report_progress_idx = 0    # Index into _REPORT_PROGRESS_MSGS
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
@@ -589,25 +590,52 @@ async def handler(websocket):
                 print(f"  User: {user_text}")
 
                 # --- Report intent routing ---
-                # Fire the report directly when intent is detected (no confirmation dance).
+                # Pending verification: user had a report restated and we're waiting on yes/no
+                if pending_report_request is not None:
+                    confirmed = await classify_yes_no(
+                        user_text,
+                        f"Miyako just restated this report request and asked the user to confirm: {pending_report_request}",
+                    )
+                    if confirmed:
+                        print(f"  Report confirmed: {pending_report_request[:80]}")
+                        active_report_task = asyncio.create_task(call_report_api(pending_report_request))
+                        _report_progress_idx = 0
+                        _ack_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: User confirmed. You are now pulling the data in the background. "
+                                "Short one-sentence ack. Vary your phrasing.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        ack_reply = await handle_llm_response(websocket, with_reports_context(_ack_messages), tts_client, _ce)
+                        if ack_reply:
+                            history.append({"role": "assistant", "content": ack_reply})
+                        pending_report_request = None
+                        continue
+                    else:
+                        # Not a yes — drop pending and let the current message route normally
+                        # (if it's a rephrased report, _is_report_request will catch it below)
+                        print(f"  Report NOT confirmed; dropping pending.")
+                        pending_report_request = None
+
+                # New report intent: restate and ask for confirmation, DO NOT fire yet
                 if _is_report_request(user_text):
-                    print(f"  Report fired: {user_text[:80]}")
-                    active_report_task = asyncio.create_task(call_report_api(user_text))
-                    _report_progress_idx = 0
-                    # Ack that repeats back what the user asked — acts as a verification step
-                    # so they know the report fired and exactly what was sent to the pipeline.
-                    _ack_messages = list(history) + [{
+                    pending_report_request = user_text
+                    _confirm_messages = list(history[:-1]) + [{
                         "role": "user",
                         "content": (
-                            "[INTERNAL: Pulling that data now in the background. "
-                            "Acknowledge by briefly restating what they asked for so they know the request went through. "
-                            "One short sentence. Example shape: 'Got it, pulling up <their topic> now.' Vary your phrasing.]"
+                            f"{user_text}\n\n"
+                            "[INTERNAL: User asked for a data report. Briefly restate exactly what you'll pull "
+                            "(fill gaps like timeframe with sensible defaults) and END with a yes/no confirmation "
+                            "question so they can correct you if speech misheard them. "
+                            "Do NOT start running it — confirmation only.]"
                         ),
                     }]
                     _ce = asyncio.Event()
-                    ack_reply = await handle_llm_response(websocket, with_reports_context(_ack_messages), tts_client, _ce)
-                    if ack_reply:
-                        history.append({"role": "assistant", "content": ack_reply})
+                    confirm_reply = await handle_llm_response(websocket, with_reports_context(_confirm_messages), tts_client, _ce)
+                    if confirm_reply:
+                        history.append({"role": "assistant", "content": confirm_reply})
                     continue
 
                 # --- Phase B: Concurrent generation + stop listener ---

@@ -6,99 +6,102 @@ import { onStateChange } from '../state.ts';
 
 /**
  * Layout:
- * +--[≡]--+--[top-bar / metrics]--+
- * |       |                       |
- * | Panel | (waveform)            |
- * | [Chat]|                       |
- * | [Log] | (input bar)           |
- * +-------+-----------------------+
  *
- * Panel is collapsible via the toggle button.
- * Two tabs inside: Chat (conversation) and Log (report log).
+ * +--[≡]--+-------------------------------+
+ * |       |  top-bar (metrics)            |
+ * | [Chat]|-------------------------------|
+ * | [Log] |  main view (chat OR log)      |
+ * |       |  switches on nav click        |
+ * |       |-------------------------------|
+ * |       |  waveform                     |
+ * |       |-------------------------------|
+ * |       |  input bar (mic + text)       |
+ * +-------+-------------------------------+
+ *
+ * Sidebar is a collapsible nav drawer — clicking an item swaps the main view.
  */
 export function renderLayout(parent: HTMLElement): HTMLCanvasElement {
   while (parent.firstChild) parent.removeChild(parent.firstChild);
-
-  // Root: horizontal flex
   parent.style.flexDirection = 'row';
 
-  // ── Side panel ──────────────────────────────────────────────────────────
-  const sidePanel = document.createElement('div');
-  sidePanel.id = 'side-panel';
-  sidePanel.className = 'side-panel open';
+  // ── Side nav ───────────────────────────────────────────────────────────
+  const sideNav = document.createElement('div');
+  sideNav.id = 'side-nav';
+  sideNav.className = 'side-nav';
 
-  // Tab bar
-  const tabBar = document.createElement('div');
-  tabBar.className = 'panel-tab-bar';
-
-  const chatTabBtn = document.createElement('button');
-  chatTabBtn.className = 'panel-tab-btn active';
-  chatTabBtn.textContent = 'Chat';
-  chatTabBtn.dataset.tab = 'chat';
-
-  const logTabBtn = document.createElement('button');
-  logTabBtn.className = 'panel-tab-btn';
-  logTabBtn.textContent = 'Report Log';
-  logTabBtn.dataset.tab = 'log';
-
-  tabBar.appendChild(chatTabBtn);
-  tabBar.appendChild(logTabBtn);
-  sidePanel.appendChild(tabBar);
-
-  // Chat pane
-  const chatPane = document.createElement('div');
-  chatPane.className = 'panel-pane active';
-  chatPane.id = 'chat-pane';
-  renderChat(chatPane);
-  sidePanel.appendChild(chatPane);
-
-  // Log pane
-  const logPane = document.createElement('div');
-  logPane.className = 'panel-pane';
-  logPane.id = 'log-pane';
-  renderReportLog(logPane);
-  sidePanel.appendChild(logPane);
-
-  // Tab switching
-  [chatTabBtn, logTabBtn].forEach(btn => {
-    btn.addEventListener('click', () => {
-      [chatTabBtn, logTabBtn].forEach(b => b.classList.remove('active'));
-      [chatPane, logPane].forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      const target = btn.dataset.tab === 'chat' ? chatPane : logPane;
-      target.classList.add('active');
-    });
+  // Toggle button (top of nav)
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'side-nav-toggle';
+  toggleBtn.title = 'Toggle sidebar';
+  toggleBtn.textContent = '☰';
+  toggleBtn.addEventListener('click', () => {
+    sideNav.classList.toggle('open');
   });
+  sideNav.appendChild(toggleBtn);
 
-  parent.appendChild(sidePanel);
+  // Nav items
+  const navItems = [
+    { id: 'nav-chat', label: 'Chatbot', view: 'chat' },
+    { id: 'nav-log',  label: 'Report Log', view: 'log' },
+  ];
 
-  // ── Main content ─────────────────────────────────────────────────────────
+  const navEls: HTMLButtonElement[] = [];
+  for (const item of navItems) {
+    const btn = document.createElement('button');
+    btn.id = item.id;
+    btn.className = 'side-nav-item' + (item.view === 'chat' ? ' active' : '');
+    btn.textContent = item.label;
+    btn.dataset.view = item.view;
+    navEls.push(btn);
+    sideNav.appendChild(btn);
+  }
+
+  parent.appendChild(sideNav);
+
+  // ── Main content ───────────────────────────────────────────────────────
   const mainContent = document.createElement('div');
   mainContent.id = 'main-content';
   mainContent.className = 'main-content';
 
-  // Top bar: toggle button + metrics
+  // Top bar
   const topBar = document.createElement('div');
   topBar.className = 'top-bar';
-
-  // Panel toggle button
-  const toggleBtn = document.createElement('button');
-  toggleBtn.id = 'panel-toggle';
-  toggleBtn.className = 'panel-toggle-btn';
-  toggleBtn.title = 'Toggle panel';
-  toggleBtn.textContent = '◀';
-  toggleBtn.addEventListener('click', () => {
-    const open = sidePanel.classList.toggle('open');
-    toggleBtn.textContent = open ? '◀' : '▶';
-  });
-  topBar.appendChild(toggleBtn);
-
   const metricsContainer = document.createElement('div');
   metricsContainer.className = 'metrics-container';
   renderMetrics(metricsContainer);
   topBar.appendChild(metricsContainer);
-
   mainContent.appendChild(topBar);
+
+  // View area — swaps between chat and log
+  const viewArea = document.createElement('div');
+  viewArea.id = 'view-area';
+  viewArea.className = 'view-area';
+
+  const chatView = document.createElement('div');
+  chatView.id = 'view-chat';
+  chatView.className = 'view active';
+  renderChat(chatView);
+  viewArea.appendChild(chatView);
+
+  const logView = document.createElement('div');
+  logView.id = 'view-log';
+  logView.className = 'view';
+  renderReportLog(logView);
+  viewArea.appendChild(logView);
+
+  mainContent.appendChild(viewArea);
+
+  // Wire nav item clicks → swap views
+  navEls.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.view;
+      navEls.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      [chatView, logView].forEach(v => {
+        v.classList.toggle('active', v.id === `view-${target}`);
+      });
+    });
+  });
 
   // Waveform
   const waveformBar = document.createElement('div');
@@ -147,7 +150,7 @@ export function renderLayout(parent: HTMLElement): HTMLCanvasElement {
       }
     } catch (err) { console.error('Mic toggle failed:', err); }
   });
-  onStateChange((state) => {
+  onStateChange(state => {
     micBtn.classList.toggle('active', state.isListening);
     micBtn.classList.toggle('speaking', state.isSpeaking);
   });
@@ -176,13 +179,12 @@ export function renderLayout(parent: HTMLElement): HTMLCanvasElement {
     updateState({ isGenerating: true });
   };
   sendBtn.addEventListener('click', sendHandler);
-  textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendHandler(); });
+  textInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendHandler(); });
   inputBar.appendChild(micBtn);
   inputBar.appendChild(textInput);
   inputBar.appendChild(sendBtn);
   mainContent.appendChild(inputBar);
 
   parent.appendChild(mainContent);
-
   return canvas;
 }

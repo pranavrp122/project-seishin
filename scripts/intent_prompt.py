@@ -23,14 +23,26 @@ Examples:
 - "Show me the orders from last week"
 
 ## follow_up_on_previous
-The user wants to refine, filter, sort, or drill into a report that was \
-ALREADY delivered in this conversation.
+The user wants to refine, filter, sort, drill into, or ask more about a report \
+that was ALREADY delivered in this conversation. This includes asking for more \
+detail about results that were summarized (e.g. a count was returned and now \
+they want the actual records).
 Examples:
 - "Now filter those by region"
 - "Sort by revenue descending"
 - "What about just the top five?"
 - "Only show California warehouses"
 - "Break that down by month"
+- "What are their names?"
+- "Who are they?"
+- "Show me the actual records"
+- "What are the details?"
+- "Give me more info on those"
+- "What are they called?"
+- "List them out"
+- "Show me each one"
+- "What companies are those?"
+- "Give me the full list"
 
 ## confirm
 The user is affirming or agreeing with something just asked.

@@ -30,6 +30,7 @@ INTENT_SCHEMA = {
                 "follow_up_on_previous",
                 "confirm",
                 "cancel",
+                "list_cached_data",
                 "normal_chat",
             ],
         },

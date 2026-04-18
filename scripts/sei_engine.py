@@ -874,6 +874,46 @@ async def handler(websocket):
                         history.append({"role": "assistant", "content": fb_reply})
                     continue
 
+                elif intent == "list_cached_data":
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
+                    reports = session_cache.all_reports()
+                    if not reports:
+                        empty_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The user asked what data is available but nothing has been "
+                                "pulled yet this session. Let them know naturally. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        empty_reply = await handle_llm_response(websocket, empty_messages, tts_client, _ce)
+                        if empty_reply:
+                            history.append({"role": "assistant", "content": empty_reply})
+                        continue
+
+                    # Build summary from session_cache.summary()
+                    cache_summary = session_cache.summary()
+                    summary_lines = []
+                    for entry in cache_summary:
+                        summary_lines.append(f"- \"{entry.get('query', 'unknown')}\" ({entry.get('row_count', 0)} rows)")
+                    summary_text = "\n".join(summary_lines)
+
+                    list_messages = list(history) + [{
+                        "role": "user",
+                        "content": (
+                            f"[INTERNAL: The user asked what data is available. Here's what's cached:\n"
+                            f"{summary_text}\n\n"
+                            "Read this off naturally — like listing what you've already looked up. "
+                            "Mention each query and how many rows. Keep it brief and casual.]"
+                        ),
+                    }]
+                    _ce = asyncio.Event()
+                    list_reply = await handle_llm_response(websocket, list_messages, tts_client, _ce)
+                    if list_reply:
+                        history.append({"role": "assistant", "content": list_reply})
+                    continue
+
                 # confirm and cancel intents fall through to normal_chat
                 # normal_chat falls through to the existing generation phase below
                 if speculative_op_task is not None:

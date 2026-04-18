@@ -50,6 +50,14 @@ Examples:
 - "Cancel that"
 - "Actually don't"
 
+## list_cached_data
+The user wants to know what data has already been pulled this session.
+Examples:
+- "What data do I have?"
+- "What have you pulled so far?"
+- "Show me what's cached"
+- "What reports do I have available?"
+
 ## normal_chat
 Everything else — casual conversation, questions, opinions, greetings, or \
 mentions of data/reports that are NOT requests.
@@ -70,12 +78,14 @@ normal_chat with confidence below 0.5.
 - follow_up_on_previous ONLY applies when a report was already delivered \
 earlier in the conversation. If no report context exists, classify \
 data-sounding requests as new_data_request.
+- list_cached_data is for when the user asks what data is already available \
+in this session, NOT when they want new data.
 
 ## Output Format
 
 Return a JSON object with exactly three fields:
 - intent: one of "new_data_request", "follow_up_on_previous", "confirm", \
-"cancel", "normal_chat"
+"cancel", "list_cached_data", "normal_chat"
 - data_query: a short restatement of what data the user wants (string), or \
 null if not a data request
 - confidence: a float between 0.0 and 1.0 indicating classification certainty

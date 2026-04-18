@@ -23,26 +23,19 @@ Examples:
 - "Show me the orders from last week"
 
 ## follow_up_on_previous
-The user wants to refine, filter, sort, drill into, or ask more about a report \
-that was ALREADY delivered in this conversation. This includes asking for more \
-detail about results that were summarized (e.g. a count was returned and now \
-they want the actual records).
+The user is continuing a conversation about data that was ALREADY delivered. \
+This includes filtering, sorting, drilling down, asking for more detail, \
+requesting the underlying records behind a summary or count, or asking \
+anything that refers back to the previous result (using words like "those", \
+"them", "their", "it", "the ones", etc.). If a count or summary was just \
+delivered and the user is now asking about the actual records or any \
+attribute of them, that is a follow_up_on_previous.
 Examples:
 - "Now filter those by region"
 - "Sort by revenue descending"
 - "What about just the top five?"
 - "Only show California warehouses"
 - "Break that down by month"
-- "What are their names?"
-- "Who are they?"
-- "Show me the actual records"
-- "What are the details?"
-- "Give me more info on those"
-- "What are they called?"
-- "List them out"
-- "Show me each one"
-- "What companies are those?"
-- "Give me the full list"
 
 ## confirm
 The user is affirming or agreeing with something just asked.

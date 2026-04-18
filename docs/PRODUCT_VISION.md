@@ -11,7 +11,7 @@
 3. [OpenClaw Research](#3-openclaw-research)
 4. [The Product Pivot](#4-the-product-pivot)
 5. [Market Research](#5-market-research)
-6. [Use Cases — Tax Firm](#6-use-cases--tax-firm)
+6. [Use Cases — Tax Dispute Company](#6-use-cases--tax-firm)
 7. [Technical Architecture](#7-technical-architecture)
 8. [Model Setup](#8-model-setup)
 9. [The Agentic Workflow Vision](#9-the-agentic-workflow-vision)
@@ -150,7 +150,7 @@ Hits Salesforce for the case record, S3 for attached documents, searches local m
 | Compliance burden | AWS BAA, data residency reviews | Lighter — querying existing authorized systems |
 | Personal + company unified | No | Yes |
 
-**The key distinction:** Quick Suite ingest-index-search vs our query-on-demand-return-forget. For a tax firm handling client SSNs and financial data, putting that into an AWS vector store triggers IRC Section 7216, IRS Publication 1075, and the FTC Safeguards Rule. Querying S3 and Salesforce on-demand using existing IAM credentials is a completely different compliance conversation.
+**The key distinction:** Quick Suite ingest-index-search vs our query-on-demand-return-forget. For a tax dispute company handling client SSNs and financial data, putting that into an AWS vector store triggers IRC Section 7216, IRS Publication 1075, and the FTC Safeguards Rule. Querying S3 and Salesforce on-demand using existing IAM credentials is a completely different compliance conversation.
 
 ### The Pitch
 
@@ -183,7 +183,7 @@ Hits Salesforce for the case record, S3 for attached documents, searches local m
 
 ### The White Space
 
-No competitor has a voice-first interface for tax professionals. Every product is text/GUI-based. Voice in finance sits at 11% adoption despite 91% AI adoption overall. The 5-50 person tax firm has no affordable, AI-native, voice-first assistant connected to their actual data.
+No competitor has a voice-first interface for tax professionals. Every product is text/GUI-based. Voice in finance sits at 11% adoption despite 91% AI adoption overall. The 5-50 person tax dispute company has no affordable, AI-native, voice-first assistant connected to their actual data.
 
 ### Pain Points (Data)
 
@@ -193,7 +193,7 @@ No competitor has a voice-first interface for tax professionals. Every product i
 - Thomson Reuters: 60-70% time reduction in multi-jurisdiction tax returns using AI
 - 56% of CEOs report zero measurable ROI from AI despite record spending (PwC, Jan 2026) — the rework problem
 
-### Key Compliance Requirements for Tax Firms
+### Key Compliance Requirements for Tax Dispute Companys
 
 - **IRC Section 7216** — Client data can only be used for tax prep; any other use requires explicit written consent
 - **IRS Publication 1075** — Strengthened controls for all Federal Tax Information recipients
@@ -203,48 +203,95 @@ No competitor has a voice-first interface for tax professionals. Every product i
 
 ---
 
-## 6. Use Cases — Tax Firm
+## 6. Use Cases — Tax Dispute Company
 
-### Executive / Managing Partner
+Clients upload their documents (IRS notices, tax returns, financial statements, correspondence) through a client portal. The agent has access to that portal database alongside internal case management, so every workflow below pulls from both what the company holds internally and what the client has submitted.
 
-- "How many active cases do we have, broken down by stage?"
-- "Which clients haven't paid invoices over 60 days? Draft gentle follow-up emails to each one"
-- "Compare case volume this month vs last month — are we ahead or behind?"
-- "Who are our top 20 clients by revenue this year?"
-- "Find the engagement letter for Meridian Holdings"
-- "How many returns have we filed this quarter vs same time last year?"
-- "Which staff members have the most cases in review right now?"
-- "Draft a partner update on our Q1 throughput and send it to the team"
-- "Any clients with IRS notices that haven't been responded to?"
-- "What's our projected revenue for this month based on open invoices?"
+---
 
-### Tax Document Reviewer
+### Workflow 1: Morning Case Review (Case Manager)
 
-- "Pull up everything we have on file for the Johnson case"
-- "Is the W-2 from Metro Construction in the system yet?"
-- "Show me all cases missing a signed engagement letter"
-- "Which cases have been sitting in review for more than 5 days?"
-- "Compare the 1099-NEC income on file against what the client reported"
-- "Flag the Martinez case as needing amended return, add a note"
-- "List all Schedule C filers from this quarter who claimed home office"
-- "Find all cases where we received an IRS notice in the last 30 days"
-- "Which clients still haven't sent their bank statements?"
-- "Show me all business returns where depreciation schedules are missing"
-- "Pull last year's return for Peterson so I can compare carryovers"
+The case manager starts their day without opening a single system.
 
-### Tax Form Preparer / Filer
+> **Agent:** "Good morning. You have 14 active cases. Three need attention today — the Nguyen levy case response is due to the IRS by Friday, the Okafor Offer in Compromise has been in negotiation for 6 months and hasn't had a touch in 3 weeks, and the Rivera audit has a new document uploaded to the portal overnight. Want to start with Rivera since something just came in?"
 
-- "What documents are on file for client Ramirez? What are we still waiting on?"
-- "What did we claim for their home office deduction last year?"
-- "What's the filing deadline for the Chen extension?"
-- "Has anyone reviewed the Kapoor return yet or is it still in prep?"
-- "Show me all clients whose extensions are due in the next 2 weeks"
-- "Pull prior year carryover losses for all S-Corp clients"
-- "Which returns are ready to file but haven't been sent to the client for signature?"
-- "How many amended returns are in progress right now?"
-- "Mark the Williams return as ready for partner review"
-- "Are there any e-file rejections from today I need to fix?"
-- "Draft a document request email to the Santos family — they're missing their 1099-DIV and brokerage statement"
+> **Case manager:** "Yeah what did they upload?"
+
+> **Agent:** "They uploaded a 2021 bank statement and what looks like a CP2000 notice. The CP2000 is from March — we didn't have that on file. Want me to pull the full case and flag this as a new IRS notice?"
+
+> **Case manager:** "Yes, flag it and draft an acknowledgment to the client that we received it."
+
+> **Agent:** "Flagged. Here's the draft: 'Hi Mr. Rivera, we've received the documents you uploaded — thank you. We've noted the CP2000 notice and will be in touch within 2 business days with next steps.' Want me to send that?"
+
+> **Case manager:** "Send it."
+
+> **Agent:** "Sent. Moving on — the Nguyen levy response. Want me to pull what we have?"
+
+---
+
+### Workflow 2: Preparing an IRS Response (Tax Dispute Specialist)
+
+A specialist is preparing a response to an IRS levy notice for a client.
+
+> **Specialist:** "Pull everything we have on the Nguyen case — I need to prep the CDP hearing response."
+
+> **Agent:** "Nguyen case — Collection Due Process hearing, levy on wages. Client uploaded their financial statements last Tuesday. We have the original CP504, the levy notice, 3 years of tax returns, and the financial disclosure form 433-A. Still missing the 2023 bank statements — the client hasn't uploaded those yet. IRS deadline is Friday."
+
+> **Specialist:** "We need those bank statements. Draft a message to the client — urgent, we need them by tomorrow."
+
+> **Agent:** "Draft: 'Hi Ms. Nguyen, urgent — we need your 2023 bank statements uploaded to the portal by tomorrow morning to meet your Friday IRS deadline. If you need help uploading them, call us at [number].' Want me to send that through the portal?"
+
+> **Specialist:** "Yes. Also what's her current balance owed?"
+
+> **Agent:** "According to the case file, total tax debt is $47,200 across 2021 and 2022. She's on an installment agreement that lapsed in September. That's what triggered the levy."
+
+> **Specialist:** "Got it. What arguments have we used on similar CDP cases in the last year?"
+
+> **Agent:** "We've handled 9 CDP hearings in the last 12 months. Most successful argument has been economic hardship combined with installment agreement reinstatement — used in 6 cases, 5 resulted in levy release. Want me to pull one of those case files as a reference?"
+
+---
+
+### Workflow 3: Offer in Compromise Review (Senior Negotiator)
+
+> **Negotiator:** "What's the status on all our active Offers in Compromise?"
+
+> **Agent:** "You have 7 active OICs. Two are overdue for follow-up — the Okafor case hasn't been touched in 3 weeks and the IRS typically responds within 6 months, which puts us at the window now. The Santos OIC was submitted 2 months ago, no response yet. The other 5 are within normal timelines. Want me to draft a status check letter to the IRS on Okafor?"
+
+> **Negotiator:** "What did we submit for Okafor — what was the offer amount?"
+
+> **Agent:** "Offer submitted was $8,500 on a total liability of $134,000. Based on the 433-A they uploaded, monthly income was $3,200 and allowable expenses were $2,950, so the reasonable collection potential came out to $6,600. We padded it slightly to $8,500."
+
+> **Negotiator:** "And the IRS hasn't countered?"
+
+> **Agent:** "No record of a counter. Last note on the case was from 3 weeks ago — a call log from Marcus saying the assigned revenue officer hadn't responded. Want me to draft a follow-up to the IRS and add a task to call them tomorrow?"
+
+> **Negotiator:** "Do both."
+
+---
+
+### Workflow 4: New Client Intake (Intake Coordinator)
+
+A new client just signed and uploaded their documents to the portal.
+
+> **Agent:** "New client alert — James Whitfield signed the engagement letter 20 minutes ago and uploaded 4 documents to the portal: a CP14 balance due notice for $23,400, two years of tax returns (2021, 2022), and what looks like a wage garnishment notice."
+
+> **Intake coordinator:** "What type of case is this shaping up to be?"
+
+> **Agent:** "Based on the documents: $23,400 balance due with a garnishment already active suggests we're in active collections. The CP14 is from 8 months ago so the IRS has had time to escalate. Likely needs either an installment agreement to stop the garnishment or a hardship currently-not-collectible filing depending on his income. We don't have a 433-A yet."
+
+> **Intake coordinator:** "Assign it to Sarah and send Whitfield a welcome message asking him to fill out the financial disclosure form."
+
+> **Agent:** "Assigned to Sarah. Draft for Whitfield: 'Welcome — we've reviewed your documents and have everything we need to get started. To move forward, please complete the financial disclosure form in your portal under the Documents tab. This helps us determine the best resolution strategy for your case. Let us know if you have any questions.' Send it?"
+
+> **Intake coordinator:** "Send it."
+
+---
+
+### Workflow 5: End-of-Day Portfolio Check (Managing Partner)
+
+> **Partner:** "Give me a quick rundown of where we stand this week."
+
+> **Agent:** "This week: 3 IRS responses filed, 2 OICs submitted, 1 levy release secured for the Park case. Outstanding: 4 cases have deadlines in the next 7 days — Nguyen CDP on Friday is the most urgent. 6 clients uploaded documents this week that haven't been reviewed yet. Revenue: $47,800 invoiced this week, $12,300 collected. You have 2 new leads in the intake queue that haven't been contacted. Want me to send those leads a first-touch email?"
 
 ---
 
@@ -364,7 +411,7 @@ Gemma 4 is not on Bedrock. For the enterprise BYOC model, Bedrock is recommended
 - The company doesn't need a dedicated GPU just for LLM (only for ASR + TTS on g5.xlarge)
 - Claude on Bedrock supports structured output via tool_use, replacing guided_json
 
-### Cost Estimate — 20-User Tax Firm
+### Cost Estimate — 20-User Tax Dispute Company
 
 | Component | Monthly |
 |-----------|---------|
@@ -470,7 +517,7 @@ That interaction replaced:
 
 **15 minutes → 30 seconds.**
 
-### Workflow Types for a Tax Firm
+### Workflow Types for a Tax Dispute Company
 
 **Morning briefing**
 "Here's what's on today: 3 client calls, 5 open cases due this week, 12 emails needing responses. Highest priority is the Wilson estate — deadline Friday, missing the trust amendment. Want to start there?"
@@ -511,7 +558,7 @@ The confirmation gate isn't just a safety feature — it's a liability and compl
 
 ### ROI Math
 
-For a 20-person tax firm, each person saves 2 hours/day of prep and admin:
+For a 20-person tax dispute company, each person saves 2 hours/day of prep and admin:
 
 - 20 people x 2 hours/day x 250 working days = 10,000 hours/year recovered
 - At $50/hr loaded cost = $500,000/year in recovered capacity
@@ -603,7 +650,7 @@ Move Parakeet TDT 0.6b v2 to EC2 g5.xlarge in company VPC. Audio stays in compan
 Fish Speech quality polish (top-p 0.7, ffmpeg post-filter).
 
 **Phase 12: Demo Readiness**
-README-DEMO.md, 3 rehearsed end-to-end demos, cold start under 5 minutes, zero 429 errors. Can walk into a tax firm and demo live on their laptop with zero setup friction.
+README-DEMO.md, 3 rehearsed end-to-end demos, cold start under 5 minutes, zero 429 errors. Can walk into a tax dispute company and demo live on their laptop with zero setup friction.
 
 ### Product Build
 
@@ -659,7 +706,7 @@ README-DEMO.md, 3 rehearsed end-to-end demos, cold start under 5 minutes, zero 4
 ### Go to Market
 
 **Pilot phase** (start now, run alongside build)
-- 2-3 tax firms, $500-1000/month flat
+- 2-3 tax dispute companys, $500-1000/month flat
 - Manual setup, hands-on
 - Watch how they actually use it
 - Use learnings to build the connector setup wizard and self-service onboarding

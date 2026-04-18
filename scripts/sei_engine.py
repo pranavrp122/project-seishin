@@ -20,11 +20,14 @@ from websockets.exceptions import ConnectionClosed
 import httpx
 import ormsgpack
 
+import re
+
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, build_cache_summary_block
 from intent_classifier import classify_intent
 from session_cache import SessionCache
 from op_spec import generate_op_spec
-from cache_executor import CacheExecutor
+from cache_executor import CacheExecutor, _fuzzy_match_column
+from text_utils import _normalize_datetime
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -469,6 +472,28 @@ async def live_transcribe(audio_buf: bytearray, result: dict, stop: asyncio.Even
         last_len = cur_len
 
 
+def _suggest_broadened_spec(op_spec: dict, report_data: dict) -> dict | None:
+    """Generate a broadened version of a filter that returned zero results (D-07)."""
+    if op_spec.get("op_type") != "filter":
+        return None
+    broadened = dict(op_spec)
+    op = op_spec.get("operator")
+    val = op_spec.get("value")
+
+    if op == "eq" and val is not None:
+        broadened["operator"] = "contains"
+        return broadened
+
+    if op in ("gt", "gte", "lt", "lte") and isinstance(val, (int, float)):
+        if op in ("gt", "gte"):
+            broadened["value"] = val * 0.8  # Lower threshold by 20%
+        else:
+            broadened["value"] = val * 1.2  # Raise threshold by 20%
+        return broadened
+
+    return None
+
+
 async def handler(websocket):
     """Handle a single WebSocket client session with barge-in support."""
     global active_ws
@@ -488,6 +513,9 @@ async def handler(websocket):
             asr_task = None
             asr_stop = None
             asr_result = {"text": "", "len": 0}
+            undo_stack: list[dict] = []  # D-03: last 5 ops, each: {report_id, op_spec, pre_op_report_id, query_text}
+            pending_suggestion_spec: dict | None = None  # D-07: broadened filter awaiting confirm
+            last_intent_result: dict | None = None  # D-05: stored for op_chain after delivery
 
             while True:
                 # --- Phase A: Wait for user message ---
@@ -593,6 +621,9 @@ async def handler(websocket):
                 user_text = msg["text"].strip()
                 if not user_text:
                     continue
+
+                # D-08: Normalize relative date references before any classification
+                user_text = _normalize_datetime(user_text)
 
                 # --- Overlap confirmation handling ---
                 skip_classification = False
@@ -750,11 +781,33 @@ async def handler(websocket):
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
-                    # FOLLOW-05: Validate referenced columns exist in cached report
+                    # FOLLOW-05 + D-02: Validate referenced columns with fuzzy matching
                     referenced_col = op_spec_result.get("column")
                     referenced_cols = op_spec_result.get("columns") or []
                     all_referenced = ([referenced_col] if referenced_col else []) + referenced_cols
-                    missing_cols = [c for c in all_referenced if c and c not in target_report["columns"]]
+
+                    # Resolve columns via fuzzy matching before declaring them missing
+                    available_cols = list(target_report["columns"].keys())
+                    resolved_cols = {}
+                    missing_cols = []
+                    for c in all_referenced:
+                        if not c:
+                            continue
+                        if c in target_report["columns"]:
+                            resolved_cols[c] = c
+                        else:
+                            matched = _fuzzy_match_column(c, available_cols)
+                            if matched:
+                                resolved_cols[c] = matched
+                            else:
+                                missing_cols.append(c)
+
+                    # Update op_spec with resolved column names
+                    if resolved_cols:
+                        if op_spec_result.get("column") in resolved_cols:
+                            op_spec_result["column"] = resolved_cols[op_spec_result["column"]]
+                        if op_spec_result.get("columns"):
+                            op_spec_result["columns"] = [resolved_cols.get(c, c) for c in op_spec_result["columns"]]
 
                     if missing_cols:
                         # Missing column — fallback to new_data_request with voice hint

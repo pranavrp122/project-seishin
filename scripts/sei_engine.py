@@ -806,20 +806,16 @@ async def handler(websocket):
                     )
 
                     if target_report is None:
-                        # Cache expired during op spec call — fall back to new_data_request
-                        fallback_messages = list(history) + [{
-                            "role": "user",
-                            "content": (
-                                "[INTERNAL: The cached data expired. Let the user know naturally "
-                                "that you'll need to pull fresh data. One sentence.]"
-                            ),
-                        }]
-                        _ce = asyncio.Event()
-                        fb_reply = await handle_llm_response(websocket, fallback_messages, tts_client, _ce)
-                        if fb_reply:
-                            history.append({"role": "assistant", "content": fb_reply})
-                        # Re-run as new_data_request
-                        query = data_query or user_text
+                        # Cache expired — reconstruct query from history context
+                        prev_data_query = None
+                        for m in reversed(history):
+                            if m.get("role") == "user" and m.get("content") and not m["content"].startswith("[INTERNAL"):
+                                prev_data_query = m["content"]
+                                break
+                        if prev_data_query and prev_data_query != user_text:
+                            query = f"Based on '{prev_data_query}': {user_text}"
+                        else:
+                            query = data_query or user_text
                         active_report_query = query
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
@@ -982,18 +978,19 @@ async def handler(websocket):
                 elif intent == "follow_up_on_previous" and not session_cache.all_reports():
                     if speculative_op_task is not None:
                         speculative_op_task.cancel()
-                    # No cached reports — treat as conversational fallback
-                    fallback_messages = list(history) + [{
-                        "role": "user",
-                        "content": (
-                            "[INTERNAL: The user wants to refine data but there's nothing cached yet. "
-                            "Let them know naturally and offer to pull fresh data. One sentence.]"
-                        ),
-                    }]
-                    _ce = asyncio.Event()
-                    fb_reply = await handle_llm_response(websocket, fallback_messages, tts_client, _ce)
-                    if fb_reply:
-                        history.append({"role": "assistant", "content": fb_reply})
+                    # No cached data — infer a new data request from conversation context.
+                    # Find the most recent user data request in history to use as base query.
+                    prev_data_query = None
+                    for m in reversed(history):
+                        if m.get("role") == "user" and m.get("content") and not m["content"].startswith("[INTERNAL"):
+                            prev_data_query = m["content"]
+                            break
+                    if prev_data_query and prev_data_query != user_text:
+                        query = f"Based on '{prev_data_query}': {user_text}"
+                    else:
+                        query = data_query or user_text
+                    active_report_query = query
+                    active_report_task = asyncio.create_task(call_report_api(query))
                     continue
 
                 elif intent == "list_cached_data":

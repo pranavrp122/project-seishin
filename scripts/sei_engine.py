@@ -472,6 +472,39 @@ async def live_transcribe(audio_buf: bytearray, result: dict, stop: asyncio.Even
         last_len = cur_len
 
 
+async def _apply_op_chain(websocket, intent_result: dict, session_cache, report_query: str) -> None:
+    """Auto-apply op_chain operations from a compound request after report delivery (D-05)."""
+    chain = intent_result.get("op_chain")
+    if not chain:
+        return
+    executor_instance = CacheExecutor()
+    for chain_op in chain:
+        target = session_cache.get_latest()
+        if not target:
+            break
+        col = chain_op.get("column")
+        if col and col not in target["columns"]:
+            matched = _fuzzy_match_column(col, list(target["columns"].keys()))
+            if matched:
+                chain_op["column"] = matched
+        chain_op.setdefault("explanation", "auto-chained operation")
+        try:
+            chain_result = executor_instance.execute(chain_op, target)
+            session_cache.store({"results": chain_result["rows"]}, query=report_query, sql=target["sql"])
+            await websocket.send(json.dumps({
+                "type": "report_log",
+                "query": report_query,
+                "sql": target["sql"],
+                "row_count": chain_result["row_count"],
+                "results": chain_result["rows"],
+                "summary": "",
+                "claude_interactions": [],
+                "dashboard_b64": "",
+            }))
+        except Exception as ce:
+            print(f"  Op chain error: {ce}")
+
+
 def _suggest_broadened_spec(op_spec: dict, report_data: dict) -> dict | None:
     """Generate a broadened version of a filter that returned zero results (D-07)."""
     if op_spec.get("op_type") != "filter":
@@ -485,10 +518,11 @@ def _suggest_broadened_spec(op_spec: dict, report_data: dict) -> dict | None:
         return broadened
 
     if op in ("gt", "gte", "lt", "lte") and isinstance(val, (int, float)):
+        delta = max(abs(val) * 0.2, 1)  # 20% of abs value, minimum delta of 1
         if op in ("gt", "gte"):
-            broadened["value"] = val * 0.8  # Lower threshold by 20%
+            broadened["value"] = val - delta  # Lower threshold to broaden
         else:
-            broadened["value"] = val * 1.2  # Raise threshold by 20%
+            broadened["value"] = val + delta  # Raise threshold to broaden
         return broadened
 
     return None
@@ -534,37 +568,8 @@ async def handler(websocket):
                         # Silence while report is running — deliver result or send update
                         if active_report_task.done():
                             await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
-                            # D-05: Auto-apply op_chain if present
-                            if last_intent_result and last_intent_result.get("op_chain"):
-                                executor_instance = CacheExecutor()
-                                for chain_op in last_intent_result["op_chain"]:
-                                    target = session_cache.get_latest()
-                                    if target:
-                                        chain_col = chain_op.get("column")
-                                        if chain_col and chain_col not in target["columns"]:
-                                            matched = _fuzzy_match_column(chain_col, list(target["columns"].keys()))
-                                            if matched:
-                                                chain_op["column"] = matched
-                                        chain_op.setdefault("explanation", "auto-chained operation")
-                                        try:
-                                            chain_result = executor_instance.execute(chain_op, target)
-                                            new_rid = session_cache.store(
-                                                {"results": chain_result["rows"]},
-                                                query=active_report_query,
-                                                sql=target["sql"],
-                                            )
-                                            await websocket.send(json.dumps({
-                                                "type": "report_log",
-                                                "query": active_report_query,
-                                                "sql": target["sql"],
-                                                "row_count": chain_result["row_count"],
-                                                "results": chain_result["rows"],
-                                                "summary": "",
-                                                "claude_interactions": [],
-                                                "dashboard_b64": "",
-                                            }))
-                                        except Exception as ce:
-                                            print(f"  Op chain error: {ce}")
+                            if last_intent_result:
+                                await _apply_op_chain(websocket, last_intent_result, session_cache, active_report_query)
                                 last_intent_result = None
                             active_report_task = None
                             active_report_query = ""
@@ -1506,37 +1511,8 @@ async def handler(websocket):
                 # If interrupted, the result will surface on next silence or next clean turn.
                 if active_report_task is not None and active_report_task.done() and not interrupted:
                     await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
-                    # D-05: Auto-apply op_chain if present
-                    if last_intent_result and last_intent_result.get("op_chain"):
-                        executor_instance = CacheExecutor()
-                        for chain_op in last_intent_result["op_chain"]:
-                            target = session_cache.get_latest()
-                            if target:
-                                chain_col = chain_op.get("column")
-                                if chain_col and chain_col not in target["columns"]:
-                                    matched = _fuzzy_match_column(chain_col, list(target["columns"].keys()))
-                                    if matched:
-                                        chain_op["column"] = matched
-                                chain_op.setdefault("explanation", "auto-chained operation")
-                                try:
-                                    chain_result = executor_instance.execute(chain_op, target)
-                                    new_rid = session_cache.store(
-                                        {"results": chain_result["rows"]},
-                                        query=active_report_query,
-                                        sql=target["sql"],
-                                    )
-                                    await websocket.send(json.dumps({
-                                        "type": "report_log",
-                                        "query": active_report_query,
-                                        "sql": target["sql"],
-                                        "row_count": chain_result["row_count"],
-                                        "results": chain_result["rows"],
-                                        "summary": "",
-                                        "claude_interactions": [],
-                                        "dashboard_b64": "",
-                                    }))
-                                except Exception as ce:
-                                    print(f"  Op chain error: {ce}")
+                    if last_intent_result:
+                        await _apply_op_chain(websocket, last_intent_result, session_cache, active_report_query)
                         last_intent_result = None
                     active_report_task = None
                     active_report_query = ""

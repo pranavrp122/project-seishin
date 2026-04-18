@@ -93,96 +93,388 @@ We query the company's own systems on demand. Nothing is indexed, copied, or sto
 
 ## 4. Phase 1 — Voice Intelligence Layer
 
-> **Goal:** Ship a proof of concept that delivers immediate, measurable value to every role on day one. Simple enough to deploy confidently. Compelling enough to close pilot deals.
+> **Goal:** A complete, working personal AI assistant deployable on any laptop. Useful on its own — no company database required. Speaks naturally, finds files, drafts emails, researches anything online, reads your calendar, and learns your context over time. Also connects to a company database when one is available, making it the starting point for every company-specific capability that follows.
+>
+> **After Phase 1, this product can be demoed to anyone on any laptop and stand on its own.**
+
+---
+
+### Full Architecture
+
+Everything the user sees and touches runs in the desktop app on their laptop. All the intelligence runs in the cloud — either on the company's own cloud infrastructure or, for a demo, on a shared server. The user's laptop only needs a microphone and internet access.
+
+```
+USER'S LAPTOP
+─────────────────────────────────────────────────────────
+  Seishin Desktop App
+  ├── Microphone capture
+  ├── Voice Activity Detection (speech start/end detection)
+  ├── Audio streaming → server
+  ├── Audio playback ← server
+  ├── UI panels
+  │   ├── Conversation / voice interface
+  │   ├── Email compose panel (To, Subject, Body)
+  │   ├── File result cards
+  │   ├── Action confirmation cards
+  │   └── Send queue sidebar (with countdown per email)
+  ├── Client-side memory store (local, never leaves laptop)
+  └── OpenClaw (starts and stops with the app)
+      ├── Email connection (Gmail or Outlook via OAuth)
+      ├── Calendar connection (Google Calendar or Outlook)
+      ├── Local file search
+      └── Browser automation (Chrome)
+
+SERVER (AWS — company's own account or demo server)
+─────────────────────────────────────────────────────────
+  ├── Speech recognition (Parakeet) — audio → text
+  ├── Language model (Gemma 4) — intent, conversation, responses
+  ├── Text-to-speech (Fish Speech) — text → audio
+  ├── SQL generation (Claude Haiku) — natural language → database query
+  └── Company database — case data, financials, client records
+```
+
+**Data flow for a voice request:**
+
+```
+1. User speaks
+2. Voice Activity Detection detects speech start/end on laptop
+3. Audio streamed to server
+4. Parakeet transcribes audio → text
+5. Text sent to Gemma language model
+6. Gemma classifies intent (what kind of request is this?)
+7. Gemma routes to the right handler:
+     → Database query    → SQL generation → database → results voiced
+     → File search       → OpenClaw searches laptop → results shown in app
+     → Email draft       → language model drafts → compose panel opens in app
+     → Calendar          → OpenClaw reads calendar → schedule voiced
+     → Browser research  → OpenClaw opens Chrome → agent voices findings
+     → Conversation      → Gemma responds directly
+8. Response text sent to Fish Speech → audio
+9. Audio streamed back to laptop and played
+10. Action logged to local audit log
+```
 
 ---
 
 ### The Interaction Rules *(Established here. Never change.)*
 
 > **Reads are instant — writes are confirmed.**
-> The agent queries, searches, and retrieves freely. Before it sends, moves, or creates anything, it pauses and shows exactly what it's about to do. The user approves. Then it happens.
+> The agent queries, searches, reads, and retrieves freely. Before it sends, moves, or creates anything, it stops and shows exactly what it's about to do. The user approves. Then it happens.
 
 | Rule | How it works |
 |------|-------------|
-| **Everything stays in the app** | File moves, calendar events, and all internal actions show a confirmation card inside Seishin. No external windows for these. |
-| **Emails get a full compose view** | Before any email sends, a complete compose panel opens in the app — To, Subject, Body, all editable. Built as a React component in Tauri. Works with any email provider. OpenClaw handles delivery in the background. |
-| **Email send queue — 5-minute delay** | After approval, every email enters a visible countdown queue. Cancel or re-edit anytime during those 5 minutes. Permanent rule — no exceptions. |
-| **Browser opens Chrome** | Web research and browser tasks are the one deliberate exception to "stay in app." The user needs to see real web content. Chrome opens, the user watches, the agent voices what it found. |
-| **Audit log on everything** | Every query, file access, and email sent is logged with timestamp, user, and action. Exportable for compliance. |
+| **Everything stays in the app** | File finds, calendar checks, confirmation cards — all shown inside Seishin. No external windows for these. |
+| **Emails get a full compose view** | Before any email sends, a complete compose panel opens in the app — To, Subject, Body — all editable. The user reads the full email and confirms before it goes into the queue. |
+| **Email send queue — 5-minute delay** | After approval, every email enters a visible countdown queue in the app sidebar. Cancel or re-edit anytime during those 5 minutes. No exceptions, ever. |
+| **Browser opens Chrome** | The one exception to "stay in app." Web research opens a real Chrome tab so the user can see exactly where the agent goes and what it finds. The agent voices a summary when done. |
+| **Audit log on everything** | Every query, file access, email sent, and browser action is logged locally with timestamp and action. |
 
 ---
 
-### What Phase 1 Delivers
+### OpenClaw Integration
 
-#### OpenClaw Integration
+OpenClaw is bundled into the Seishin installer. No separate installation, no background service. It starts when Seishin opens and stops when Seishin closes. The user never configures it manually — on first launch, Seishin guides them through connecting their email and calendar accounts via standard OAuth (the same authorization flow used by every email client). Done once, works every session.
 
-Phase 1 includes the full integration of OpenClaw into the Seishin desktop app. OpenClaw is bundled directly into the installer — no separate setup, no background service. It starts when Seishin opens and stops when Seishin closes.
+**What OpenClaw handles:**
+- Email account connection and message delivery
+- Calendar read and write access
+- Local file search across the laptop
+- Browser automation in Chrome
 
-**What OpenClaw enables in Phase 1:**
-- Email OAuth connection to Gmail or Outlook (whichever the company uses) — handles authentication and delivery
-- Local file search via ripgrep
-- Calendar read access (Google Calendar or Outlook)
+**What Seishin handles:**
+- All UI — the compose panel, file cards, confirmation cards, send queue
+- All decisions — nothing executes without user approval
+- All intelligence — OpenClaw is the execution engine, Seishin's language model decides what to do and when
 
-The Seishin app owns all the UI — compose panels, confirmation cards, the send queue. OpenClaw is the execution layer underneath. This separation means the interface stays consistent regardless of which email provider or calendar system the company uses.
-
----
-
-#### Database Queries — Instant, Conversational
-
-Any case metric, accessible by voice. Results come back quickly. Every follow-up (filter, sort, compare) runs against the already-retrieved data — no re-query.
-
-```
-"Show me all cases in investigation phase"
-  → voiced results
-
-"Filter to only ones with IRS deadlines this week"
-  → fast, no DB call
-
-"Sort by amount owed"
-  → instant
-```
-
-#### Local File Operations *(Read-only in Phase 1)*
-
-| What you say | What happens |
-|-------------|-------------|
-| "Find the investigation file for case 4521" | File card appears in app: name, path, last modified. Say "open it" or click. |
-| "Open the Chen 433-A" | Document opens in default viewer (PDF, Word) |
-| "Find everything I worked on last week" | Listed by date in the app panel |
-
-> File *moving* and *organizing* are held back until Phase 2. Phase 1 keeps local operations read-only to stay focused and low-risk.
-
-#### Email Drafting
-
-```
-"Draft a status update to the client on case 4521"
-  → In-app compose panel opens
-  → To, Subject, Body pre-filled
-  → User edits directly, then approves
-  → 5-minute send queue starts
-```
-
-#### Calendar Read
-
-- "What do I have today?" → schedule voiced back
-- "When's my next opening this week?" → reads calendar, suggests times
-
-#### Proactive Briefing *(Phase 1 form — simple, DB-only)*
-
-When the app opens, before the user says anything, the agent checks the database and surfaces the top items:
-
-> *"Morning. 4 cases have IRS deadlines this week, and 6 clients haven't uploaded the documents your team requested. Want to start with the deadlines?"*
+This separation is intentional. The interface and experience are consistent regardless of whether the user is on Gmail or Outlook, Google Calendar or Outlook Calendar. OpenClaw adapts; the user experience doesn't change.
 
 ---
 
-### Phase 1 in Action
+### Client-Side Memory
+
+Phase 1 introduces persistent memory that lives on the user's laptop. Between sessions, the agent remembers context — recent work, frequent requests, and things the user has explicitly told it to remember. This makes the agent feel genuinely personal rather than starting from scratch every time.
+
+**What gets remembered:**
+
+| Memory type | Example |
+|------------|---------|
+| Recent sessions | "Last session you were working on the Chen case — want to continue?" |
+| Frequent queries | Recognizes patterns in what this user asks for and surfaces relevant context |
+| Explicit instructions | "Remember I want emails sorted by urgency, not by date" |
+| Recent files accessed | "Here are the files you had open last week" |
+| Preferences | Response style, level of detail, preferred calendar view |
+
+**How it works:**
+- Memory is stored locally on the laptop — it never leaves the device
+- When the app opens, recent memory is loaded into context alongside the conversation
+- The language model can reference it naturally: "You were asking about something similar last Tuesday"
+- The user can ask to clear it: "Forget everything from last week"
+- Memory does not contain raw file contents or email bodies — only summaries and references
+
+**Session start with memory:**
+> *"Morning. Last session you were asking about Q3 resolution rates and had the Chen case file open. You also have 3 unread items in your send queue from yesterday — 2 emails and a calendar event. Want to start there or something new?"*
+
+---
+
+### Voice Pipeline — How It Works End to End
+
+Understanding the pipeline helps in debugging, optimizing, and extending it. Here is every step from microphone to audio response:
+
+**Step 1 — Speech detection (on laptop)**
+The app listens passively using a tiny local model that only detects whether someone is speaking. When speech starts, it begins streaming audio. When speech ends, it signals the server that the utterance is complete. This runs on the laptop CPU — no network call needed just to detect speech.
+
+**Step 2 — Audio streaming**
+Raw audio is streamed over a WebSocket connection to the server as the user speaks. It does not wait for the user to finish — it streams continuously, which is what enables the server to begin processing as early as possible.
+
+**Step 3 — Transcription (on server)**
+The speech recognition model on the server converts the audio stream to text. The result is a clean text transcript of what the user said.
+
+**Step 4 — Intent classification (on server)**
+The language model reads the transcript and classifies what the user wants. Is this a database query? A file search? An email draft? A calendar check? A web research request? General conversation? This classification determines the entire handling path. It uses the recent conversation history and the user's memory context to understand follow-ups and references ("those", "that", "the ones from last week").
+
+**Step 5 — Execution (split between server and laptop)**
+Depending on the classified intent:
+- Database queries → SQL generated by a fast language model, run against the connected database, results returned
+- File search → command sent back to OpenClaw on the laptop, results returned to server
+- Email draft → language model drafts the email, full content sent back to app
+- Calendar → command sent to OpenClaw on laptop, results returned
+- Browser → command sent to OpenClaw, Chrome opens on laptop
+- Conversation → language model generates response directly
+
+**Step 6 — Response generation (on server)**
+The language model generates a natural voice response — not a robotic readout of data, but a human-sounding conversational reply with the right information.
+
+**Step 7 — Speech synthesis (on server)**
+The response text is converted to audio by the text-to-speech model. This produces a natural, expressive voice.
+
+**Step 8 — Audio playback (on laptop)**
+Audio is streamed back to the laptop and played in real time. The user hears the response as it is being generated — they do not wait for the full response to be ready before audio starts.
+
+---
+
+### Intent System — What the Agent Understands
+
+Every spoken request is classified into one of these intent types before anything else happens:
+
+| Intent | What triggers it | What happens |
+|--------|-----------------|-------------|
+| `new_data_request` | Any question about data in the database | SQL generated and query executed |
+| `follow_up_on_previous` | Refinement of a previous result ("filter those", "sort those") | Applied to cached result — no re-query |
+| `compare_reports` | Comparing two data sets | Both fetched and compared |
+| `find_file` | Any request about files on the laptop | OpenClaw searches local filesystem |
+| `draft_email` | Any email writing request | Language model drafts, compose panel opens |
+| `get_calendar` | Any calendar question | OpenClaw reads calendar |
+| `browser_research` | Any request to look something up online | OpenClaw opens Chrome |
+| `undo` | "go back", "undo", "revert" | Previous result restored |
+| `list_cached_data` | "what did I pull?", "what do I have?" | Current session data voiced |
+| `what_can_i_ask` | "what can you do?", "what data do you have?" | Capabilities voiced |
+| `confirm` | "yes", "do it", "send it", "go ahead" | Pending action executes |
+| `cancel` | "no", "never mind", "cancel" | Pending action discarded |
+| `normal_chat` | Everything else | Language model responds conversationally |
+
+The classifier also detects **compound requests** — a single sentence that contains both a data request and a follow-up operation. "Show me open cases sorted by deadline" is classified as `new_data_request` with a sort operation appended. Both execute in sequence automatically.
+
+---
+
+### What Phase 1 Can Do — General Demo Capabilities
+
+These work on any laptop, with any email account, no company database required. This is the demo you can show anyone.
+
+#### Email — Draft, Review, Send
+
+The agent drafts emails in the full compose panel. The user reads the complete email — To, Subject, Body — edits any field directly, then approves. 5-minute queue before it sends.
+
+**General examples:**
+```
+"Draft an email to my team about our project status update"
+"Write a follow-up to the meeting I had this morning"
+"Draft a message to Sarah letting her know the report is ready"
+"Write a professional reply to this email — I want to decline politely"
+"Email John asking if he's free Thursday afternoon"
+"Draft a message to the whole team about the new schedule"
+```
+
+**What the compose panel shows:**
+```
+┌─────────────────────────────────────────────────────┐
+│  To:      sarah@company.com                         │
+│  Subject: Re: Project Update                        │
+├─────────────────────────────────────────────────────┤
+│  Hi Sarah,                                          │
+│                                                     │
+│  The report is ready for your review. I've attached │
+│  the Q3 summary as discussed. Let me know if you    │
+│  have any questions before Thursday's meeting.      │
+│                                                     │
+│  Best,                                              │
+│  [Name]                                             │
+└─────────────────────────────────────────────────────┘
+  [Edit]  [Send — queuing in 5:00]  [Cancel]
+```
+
+User edits directly in the panel. Clicks send or says "send it." Countdown starts. Visible in sidebar.
+
+---
+
+#### File Search — Find Anything on the Laptop
+
+Searches across the full local filesystem. Results appear as file cards in the app — name, folder path, last modified date. Say "open it" or click to launch in the default application.
+
+**General examples:**
+```
+"Find my resume"
+"Find all PDFs I downloaded this month"
+"Find the presentation I was working on last week"
+"Find everything related to the Johnson project"
+"Where is my tax return from last year?"
+"Find all spreadsheets modified in the last 3 days"
+"Find the contract we signed with Acme"
+"Look for any file with 'budget' in the name"
+```
+
+**What a file result card looks like:**
+```
+┌─────────────────────────────────────────────────────┐
+│  📄  Resume_2025_Final.pdf                          │
+│  📁  ~/Documents/Personal/                         │
+│  🕐  Modified: 3 days ago                          │
+│                    [Open]  [Show in folder]         │
+└─────────────────────────────────────────────────────┘
+```
+
+Multiple results stack as scrollable cards. Say "open the second one" or "show me more" to continue.
+
+---
+
+#### Browser Research — Look Up Anything in Chrome
+
+The agent opens Chrome, navigates to the right place, finds what you asked for, and voices a summary. The user watches it happen in real time — full transparency on what it's doing and where it went.
+
+**Read-only research (Chrome opens automatically):**
+```
+"What's the weather in Miami this weekend?"
+"Look up the latest iPhone release specs"
+"Research the best approach for tax loss harvesting"
+"Find the IRS form for a payment extension"
+"What are the current federal interest rates?"
+"Look up reviews for the restaurant we're going to"
+"Search for flights from LA to New York next Tuesday"
+"Find the LinkedIn page for Acme Corp"
+"What does the stock market look like today?"
+"Look up how to use pivot tables in Excel"
+```
+
+**Browser actions (agent announces first, user confirms):**
+```
+"Fill out the contact form on their website"
+"Download the PDF from that page"
+"Submit the newsletter signup"
+```
+
+After research, Chrome stays open and the agent voices what it found. User can ask follow-up questions and the agent continues navigating.
+
+---
+
+#### Calendar — Read Your Schedule
+
+Reads from Google Calendar or Outlook Calendar (whichever is connected).
+
+```
+"What do I have today?"
+"Am I free Thursday afternoon?"
+"When is my next meeting?"
+"What does my week look like?"
+"Do I have anything tomorrow morning?"
+"When's my dentist appointment?"
+"What time does my flight leave?"
+"Find a free hour this week for a deep work block"
+```
+
+---
+
+#### Database Queries — Company Data *(When connected)*
+
+When a company database is connected, the same voice interface extends to company data. Results are returned, voiced back, and can be refined conversationally.
+
+```
+"Show me all open cases"
+"Which cases have deadlines this week?"
+"Filter to just the ones in investigation phase"
+"How many cases closed last month?"
+"Who has the highest caseload right now?"
+```
+
+Every follow-up runs against the already-retrieved data — no additional database calls needed for refinements.
+
+---
+
+#### General Conversation and Context
+
+The agent is conversational. It handles questions, discussions, and context naturally.
+
+```
+"What were we talking about last session?"
+"Remind me what I was working on yesterday"
+"What files did I have open earlier this week?"
+"Give me a summary of what I've done today"
+"I need to prepare for a meeting about Q3 results — help me think through it"
+"What emails did I send this morning?"
+```
+
+---
+
+### Proactive Session Start Briefing
+
+When the app opens, the agent immediately surfaces what matters — before the user says anything.
+
+**General (no database connected):**
+> *"Morning. You have 4 emails in your draft queue from yesterday. 3 meetings today, first one at 10am. Last session you were working on the project proposal — the file is still open. Anything urgent or want to continue where you left off?"*
+
+**With company database:**
+> *"Morning. 4 cases have IRS deadlines this week, 6 clients haven't uploaded requested documents. You also have 2 emails in your draft queue and a 10am meeting. Where do you want to start?"*
+
+---
+
+### Phase 1 in Action — General Demo (Personal Workspace)
+
+This is what Phase 1 looks like on a personal laptop with no company system connected. A complete, compelling demonstration of the product.
+
+**Scenario: Preparing for a Monday**
+
+> *User opens Seishin.*
+>
+> *Agent: "Morning. You have 3 meetings today. 2 draft emails in your queue from Friday. You were working on the Q3 analysis last week — the file is still open on your desktop. Anything from the weekend I should know about?"*
+>
+> *User: "Find the notes I took from Friday's strategy meeting."*
+>
+> *Agent shows file card: `Strategy_Meeting_Notes_Fri.docx` — 3 days ago, in Documents/Meetings. "Found it. Open it?"*
+>
+> *User: "Yes. Also draft a follow-up email to the team about the action items we discussed."*
+>
+> *Compose panel opens. To: team@company.com. Subject: "Follow-up: Friday Strategy Meeting." Full email body drafted with action items in bullet form. User reads it, changes one item.*
+>
+> *User: "Good. Send it."*
+>
+> *Send queue starts. Sidebar shows: "Sending in 5:00."*
+>
+> *User: "Look up the market data for the three companies we discussed."*
+>
+> *Chrome opens. Agent navigates to financial data sites for each company, extracts key metrics, voices a summary.*
+>
+> *Agent: "Here's what I found: Company A is up 8% YTD with Q3 earnings coming next week. Company B reported a miss last quarter, stock down 12% since. Company C is private — no public financials, but I found their recent funding announcement. Want me to pull anything specific?"*
+
+Total time: under 10 minutes. No app switching, no searching, no typing.
+
+---
+
+### Phase 1 in Action — Company Deployment (Tax Dispute)
 
 #### Case Manager
-Opens the app. Hears what needs attention. Asks by voice. Gets instant answers. Drafts client emails — the full compose view appears in the app, pre-filled and ready to edit. Morning setup that used to take 20 minutes takes 5.
+Opens the app. Hears the morning briefing. Asks about their cases by voice. Gets instant answers. Drafts client emails with the compose panel pre-filled. The morning setup that used to take 20 minutes takes 5.
 
-#### Executive — Monday Morning
+#### Executive — Monday Morning Revenue Review
 
-> *Agent: "Morning. 847 active cases. Investigation volume up 12% from last month — ahead of intake trends. Resolution closures last week: 31. Average days to close this quarter: 94, down from 108 last year. 4 IRS deadlines this week, 2 without filed responses."*
+> *Agent: "Morning. Investigation-phase volume is up 12% from last month. Resolution closures last week: 31. Average days to close this quarter is down from last year. 4 IRS deadlines this week, 2 without filed responses."*
 >
 > *Executive: "Show me closures by type this quarter."*
 >
@@ -192,9 +484,50 @@ Opens the app. Hears what needs attention. Asks by voice. Gets instant answers. 
 >
 > *Agent: "OICs are up 34% quarter over quarter. Everything else roughly flat."*
 
-**No dashboard. No waiting. Full business picture in 3 minutes. This is the demo that sells Phase 1.**
+No dashboard. No waiting. Full business picture in a few minutes. **This is the demo that sells Phase 1.**
 
 ---
+
+### What Phase 1 Is, End to End
+
+After Phase 1 is deployed and configured, here is exactly what the product is:
+
+**A desktop app that a person installs on their laptop.**
+- Takes about 5 minutes to install and connect their email and calendar accounts
+- Opens when they want it, closes when they don't — nothing runs when it's closed
+- Works on Mac, Windows, or Linux
+
+**A voice-first interface.**
+- User speaks naturally — no commands, no keywords, no special syntax
+- Agent responds in a natural voice
+- Conversation is continuous — follow-ups understand context from prior turns
+- Hands-free capable — user can be doing other things while interacting
+
+**Connected to the user's personal workspace.**
+- Finds any file on their laptop by description, name, content type, or date
+- Opens files directly from the app
+- Reads their email account — can reference recent emails in conversation
+- Drafts and sends emails through the in-app compose panel with a 5-minute safety queue
+- Reads their calendar — knows what meetings they have and when they're free
+- Researches anything on the web by opening Chrome and navigating live
+
+**Remembers context between sessions.**
+- Knows what the user was working on last session
+- Surfaces relevant context on open
+- Learns preferences over time
+
+**Connected to a company database when available.**
+- Queries any business metric by voice
+- Refines results conversationally without re-querying
+- Surfaces relevant deadlines and alerts on session start
+
+**Always in control.**
+- Nothing permanent happens without the user seeing it and approving it
+- All emails reviewed in full before they queue
+- All browser actions announced before they execute
+- Full audit log of everything that happened
+
+**This is a complete, useful product after Phase 1.** It is also the technical foundation that every subsequent phase builds on — the voice pipeline, the intent system, the OpenClaw integration, the memory store, and the confirmation patterns are all live and proven before Phase 2 adds a single new capability.
 
 ## 5. Phase 2 — Office Automation + Access Control
 

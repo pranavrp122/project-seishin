@@ -62,6 +62,9 @@ ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
 REPORT_API_URL = os.environ.get("REPORT_API_URL", "http://127.0.0.1:9000")
 REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
 
+# Text mode: skip TTS entirely, responses show as text only
+TEXT_MODE = os.environ.get("SEI_TEXT_MODE", "0") == "1"
+
 async def handle_llm_response_text_only(ws, messages: list[dict], cancel_event: asyncio.Event) -> str:
     """Get full LLM response text without sending to WebSocket/TTS. For internal use."""
     reply_parts = []
@@ -267,7 +270,10 @@ async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel
     """Send full LLM response to Fish Speech TTS and stream PCM audio back.
 
     Fish Speech streams audio chunks back via streaming=True.
+    In TEXT_MODE, skips TTS entirely — text is already sent as sentence frames.
     """
+    if TEXT_MODE:
+        return
     tts_text = text
     if not tts_text.strip():
         return

@@ -12,6 +12,7 @@ import json
 import os
 import time
 from http import HTTPStatus
+from collections import defaultdict
 from collections.abc import AsyncGenerator
 
 from websockets.asyncio.server import serve
@@ -149,6 +150,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
 
 async def call_report_api(user_request: str) -> dict:
     """POST user request to the report generator and return the response dict."""
+    user_request = user_request[:1000]
     headers = {"X-API-Key": REPORT_API_KEY} if REPORT_API_KEY else {}
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -213,6 +215,11 @@ def fade_out_pcm(pcm: bytes, fade_ms: int = 200, sample_rate: int = 44100) -> by
     return struct.pack(f'<{n}h', *samples) + pcm[n * 2:]
 
 
+# --- Rate limiting ---
+_rate_limit_window: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_MAX = 10
+_RATE_LIMIT_SECONDS = 60
+
 # --- Global state ---
 active_ws = None
 
@@ -220,6 +227,16 @@ active_ws = None
 async def process_request(connection, request):
     """Validate Bearer token and enforce single session before WebSocket upgrade."""
     global active_ws
+
+    # Per-IP sliding window rate limit
+    ip = connection.remote_address[0]
+    now = time.time()
+    window = _rate_limit_window[ip]
+    _rate_limit_window[ip] = [t for t in window if now - t < _RATE_LIMIT_SECONDS]
+    _rate_limit_window[ip].append(now)
+    if len(_rate_limit_window[ip]) > _RATE_LIMIT_MAX:
+        return connection.respond(HTTPStatus.TOO_MANY_REQUESTS, "Rate limit exceeded\n")
+
     auth = request.headers.get("Authorization", "")
     if auth != f"Bearer {AUTH_TOKEN}":
         return connection.respond(HTTPStatus.UNAUTHORIZED, "Invalid token\n")
@@ -647,8 +664,20 @@ async def handler(websocket):
                         user_text, session_cache.summary()
                     )
 
-                    # LLM parse error — fall back to new_data_request
+                    # LLM parse error — voice a natural hint before re-firing
                     if op_spec_result.get("op_type") == "_error":
+                        fallback_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The follow-up operation couldn't parse properly. "
+                                "Let the user know naturally that you'll pull fresh data for that. "
+                                "One casual sentence — like 'let me grab that fresh for you'. Stay in character.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        hint_reply = await handle_llm_response(websocket, fallback_messages, tts_client, _ce)
+                        if hint_reply:
+                            history.append({"role": "assistant", "content": hint_reply})
                         query = data_query or user_text
                         active_report_query = query
                         active_report_task = asyncio.create_task(call_report_api(query))

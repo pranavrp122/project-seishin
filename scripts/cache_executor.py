@@ -59,14 +59,45 @@ class CacheExecutor:
         df2 = pd.DataFrame(secondary["rows"])
         compare_column = op_spec["compare_column"]
 
-        if compare_column not in df1.columns:
-            raise ValueError(
-                f"Column '{compare_column}' not in primary report"
-            )
-        if compare_column not in df2.columns:
-            raise ValueError(
-                f"Column '{compare_column}' not in secondary report"
-            )
+        # Alias fallback: try common ID column aliases
+        _COLUMN_ALIASES = [
+            ("id", "customer_id"),
+            ("id", "client_id"),
+            ("id", "order_id"),
+        ]
+
+        in_df1 = compare_column in df1.columns
+        in_df2 = compare_column in df2.columns
+
+        if not in_df1 or not in_df2:
+            renamed_col = None
+            for alias_a, alias_b in _COLUMN_ALIASES:
+                if in_df1 and not in_df2:
+                    if compare_column == alias_a and alias_b in df2.columns:
+                        df2 = df2.rename(columns={alias_b: compare_column})
+                        renamed_col = alias_b
+                        break
+                    elif compare_column == alias_b and alias_a in df2.columns:
+                        df2 = df2.rename(columns={alias_a: compare_column})
+                        renamed_col = alias_a
+                        break
+                elif in_df2 and not in_df1:
+                    if compare_column == alias_a and alias_b in df1.columns:
+                        df1 = df1.rename(columns={alias_b: compare_column})
+                        renamed_col = alias_b
+                        break
+                    elif compare_column == alias_b and alias_a in df1.columns:
+                        df1 = df1.rename(columns={alias_a: compare_column})
+                        renamed_col = alias_a
+                        break
+            if renamed_col is None:
+                if not in_df1:
+                    raise ValueError(
+                        f"Column '{compare_column}' not in primary report"
+                    )
+                raise ValueError(
+                    f"Column '{compare_column}' not in secondary report"
+                )
 
         merged = df1.merge(
             df2,

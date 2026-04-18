@@ -7,9 +7,59 @@ Exports:
     CacheExecutor - dispatch to _op_* handlers for all 9 op types.
 """
 
+import re
+
 import pandas as pd
 
 _AGG_MAP = {"sum": "sum", "avg": "mean", "count": "count", "min": "min", "max": "max"}
+
+# --- Synonym dictionary for fuzzy column matching (D-02) ---
+_COLUMN_SYNONYMS: dict[str, list[str]] = {
+    "revenue": [r"revenue", r"total_dollars", r"amount", r"sales", r"income"],
+    "sales": [r"sales", r"revenue", r"total_dollars", r"amount"],
+    "date": [r"date", r"created_at", r"issued_at", r"due_at", r"timestamp", r"_at$"],
+    "time": [r"date", r"created_at", r"issued_at", r"due_at", r"timestamp", r"_at$"],
+    "when": [r"date", r"created_at", r"issued_at", r"due_at", r"timestamp", r"_at$"],
+    "name": [r"name", r"client_name", r"customer_name", r"company"],
+    "customer": [r"customer", r"client", r"account"],
+    "client": [r"customer", r"client", r"account"],
+    "quantity": [r"quantity", r"units", r"count", r"qty"],
+    "price": [r"price", r"cost", r"rate", r"unit_price"],
+    "cost": [r"price", r"cost", r"rate", r"unit_price"],
+    "status": [r"status", r"state", r"active", r"enabled"],
+    "region": [r"region", r"area", r"territory", r"zone"],
+    "area": [r"region", r"area", r"territory", r"zone"],
+    "id": [r"_id$", r"^id$"],
+    "amount": [r"amount", r"total", r"dollars", r"revenue", r"total_dollars"],
+}
+
+
+def _fuzzy_match_column(name: str, columns: list[str]) -> str | None:
+    """Match a business term to an actual column name via synonym dictionary.
+
+    Returns the matched column name, or None if no match found.
+    Silent -- no logging to voice output.
+    """
+    name_lower = name.lower().replace(" ", "_")
+
+    # 1. Exact match (case-insensitive)
+    for col in columns:
+        if col.lower() == name_lower:
+            return col
+
+    # 2. Synonym dictionary lookup
+    patterns = _COLUMN_SYNONYMS.get(name_lower, [])
+    for pattern in patterns:
+        for col in columns:
+            if re.search(pattern, col.lower()):
+                return col
+
+    # 3. Substring containment fallback
+    for col in columns:
+        if name_lower in col.lower() or col.lower() in name_lower:
+            return col
+
+    return None
 
 
 def _infer_dtype(series: pd.Series) -> str:
@@ -112,7 +162,11 @@ class CacheExecutor:
     def _op_filter(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
         col = spec["column"]
         if col not in df.columns:
-            raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
+            matched = _fuzzy_match_column(col, list(df.columns))
+            if matched:
+                col = matched
+            else:
+                raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
         op = spec["operator"]
         val = spec.get("value")
 
@@ -150,6 +204,11 @@ class CacheExecutor:
     def _op_sort(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
         sort_specs = spec.get("sort_specs")
         if sort_specs:
+            for s in sort_specs:
+                if s["column"] not in df.columns:
+                    matched = _fuzzy_match_column(s["column"], list(df.columns))
+                    if matched:
+                        s["column"] = matched
             cols = [s["column"] for s in sort_specs]
             missing = [c for c in cols if c not in df.columns]
             if missing:
@@ -157,6 +216,10 @@ class CacheExecutor:
             ascending = [s["direction"] == "asc" for s in sort_specs]
             return df.sort_values(by=cols, ascending=ascending)
         col = spec.get("column")
+        if col is not None and col not in df.columns:
+            matched = _fuzzy_match_column(col, list(df.columns))
+            if matched:
+                col = matched
         if col is None or col not in df.columns:
             raise ValueError(f"Sort column '{col}' not found in data")
         direction = spec.get("direction", "asc")
@@ -166,6 +229,12 @@ class CacheExecutor:
         col = spec.get("column")
         n = spec.get("n", 5)
         if col:
+            if col not in df.columns:
+                matched = _fuzzy_match_column(col, list(df.columns))
+                if matched:
+                    col = matched
+                else:
+                    raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
             return df.nlargest(n, col)
         return df.head(n)
 
@@ -173,11 +242,23 @@ class CacheExecutor:
         col = spec.get("column")
         n = spec.get("n", 5)
         if col:
+            if col not in df.columns:
+                matched = _fuzzy_match_column(col, list(df.columns))
+                if matched:
+                    col = matched
+                else:
+                    raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
             return df.nsmallest(n, col)
         return df.tail(n)
 
     def _op_aggregate(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
         col = spec["column"]
+        if col not in df.columns:
+            matched = _fuzzy_match_column(col, list(df.columns))
+            if matched:
+                col = matched
+            else:
+                raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
         func = spec["agg_func"]
         if func not in _AGG_MAP:
             raise ValueError(f"Unknown agg_func: {func!r}. Must be one of: {list(_AGG_MAP)}")
@@ -185,6 +266,18 @@ class CacheExecutor:
         group_by = spec.get("group_by")
 
         if group_by:
+            # Resolve each group_by column via fuzzy match
+            resolved_group_by = []
+            for gb_col in group_by:
+                if gb_col not in df.columns:
+                    gb_matched = _fuzzy_match_column(gb_col, list(df.columns))
+                    if gb_matched:
+                        resolved_group_by.append(gb_matched)
+                    else:
+                        raise ValueError(f"Group-by column '{gb_col}' not found. Available: {list(df.columns)}")
+                else:
+                    resolved_group_by.append(gb_col)
+            group_by = resolved_group_by
             grouped = df.groupby(group_by)
             return getattr(grouped[col], pandas_func)().reset_index()
 

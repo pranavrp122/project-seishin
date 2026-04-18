@@ -156,6 +156,38 @@ SERVER (AWS — company's own account or demo server)
 
 ---
 
+### Sandboxed Workspace — The Agent Never Touches Your Real Files Until You Say So
+
+This is one of the most important design decisions in Phase 1, and it is permanent.
+
+When Seishin needs to work with your files — finding them, reading them, preparing operations on them — it works with a sandboxed copy of your workspace state. The real files on your machine are never touched until the user explicitly confirms an action. This means:
+
+- The agent can "prepare" a file move, a rename, or an organization task and show you exactly what it plans to do — without any risk of something going wrong while it's thinking
+- You can review, modify, or cancel at any point before anything is committed
+- If the agent makes a mistake or misunderstands, the real file is untouched — the only thing that happened was a preview
+- Destructive operations (moves, renames, organization) are staged in the sandbox first, then applied to the real filesystem only after confirmation
+
+**How it works in practice:**
+
+```
+User: "Organize all my case files by client name"
+
+Agent (in sandbox):
+  → Scans filesystem, builds a full map of what would move where
+  → Prepares the operation entirely in the sandboxed view
+  → Shows user a preview: "I'd move 47 files across 12 folders.
+     Here's the full list — confirm to apply, or cancel."
+
+User reviews → confirms → changes applied to real filesystem
+User reviews → cancels → nothing changed, original files untouched
+```
+
+The same principle applies to emails (5-minute queue after approval), calendar events (shown before created), and any other write operation. **The agent operates on copies and previews. Real changes happen only when the user says go.**
+
+This makes the product safe to give to anyone — including people who are not technically confident — because the worst case is always "nothing happened."
+
+---
+
 ### The Interaction Rules *(Established here. Never change.)*
 
 > **Reads are instant — writes are confirmed.**
@@ -163,6 +195,7 @@ SERVER (AWS — company's own account or demo server)
 
 | Rule | How it works |
 |------|-------------|
+| **Sandbox first** | All file operations are prepared in a sandboxed workspace copy before touching real files. The user sees the full plan before anything is applied. |
 | **Everything stays in the app** | File finds, calendar checks, confirmation cards — all shown inside Seishin. No external windows for these. |
 | **Emails get a full compose view** | Before any email sends, a complete compose panel opens in the app — To, Subject, Body — all editable. The user reads the full email and confirms before it goes into the queue. |
 | **Email send queue — 5-minute delay** | After approval, every email enters a visible countdown queue in the app sidebar. Cancel or re-edit anytime during those 5 minutes. No exceptions, ever. |

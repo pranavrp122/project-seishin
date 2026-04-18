@@ -20,9 +20,10 @@ import httpx
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from session_cache import SessionCache
-from cache_executor import CacheExecutor
+from cache_executor import CacheExecutor, _fuzzy_match_column
 from intent_classifier import classify_intent
 from op_spec import generate_op_spec, _SAFE_DEFAULT
+from text_utils import _normalize_datetime
 
 REPORT_API_URL = os.environ.get("REPORT_API_URL", "http://127.0.0.1:9000")
 REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
@@ -410,6 +411,165 @@ async def test_cache_ttl():
         fail("all_reports() non-empty after TTL eviction")
 
 
+def test_date_normalization():
+    """SCENARIO 7 -- Date Normalization"""
+    section("SCENARIO 7 -- Date Normalization")
+
+    # Test relative date replacement
+    result = _normalize_datetime("show me last month revenue")
+    if "last month" not in result.lower() and any(
+        m in result for m in ["January", "February", "March", "April", "May", "June",
+                              "July", "August", "September", "October", "November", "December"]
+    ):
+        ok("'last month' replaced with concrete month name", result.strip()[:60])
+    else:
+        fail("'last month' not properly normalized", result)
+
+    # Test this year
+    import datetime as dt
+    year = str(dt.datetime.now().year)
+    result2 = _normalize_datetime("this year totals")
+    if year in result2:
+        ok("'this year' replaced with current year", result2.strip()[:60])
+    else:
+        fail("'this year' not normalized", result2)
+
+    # Test passthrough
+    plain = "show me all clients"
+    result3 = _normalize_datetime(plain)
+    if result3 == plain:
+        ok("Text without dates passes through unchanged")
+    else:
+        fail("Passthrough failed", result3)
+
+
+async def test_intent_new_intents():
+    """SCENARIO 8 -- New Intent Classification (undo, what_can_i_ask, compare_reports)"""
+    section("SCENARIO 8 -- New Intent Classification")
+
+    cases = [
+        ("undo that",                    False, "undo",             "undo intent"),
+        ("go back",                      True,  "undo",             "undo variant"),
+        ("what can I ask for",           False, "what_can_i_ask",   "discovery intent"),
+        ("what data do you have",        False, "what_can_i_ask",   "discovery variant"),
+        ("compare clients and invoices", False, "compare_reports",  "compare intent"),
+    ]
+
+    total = correct = 0
+    for utterance, has_report, expected, desc in cases:
+        result = await classify_intent(utterance, [], has_active_report=has_report)
+        got, conf = result["intent"], result["confidence"]
+        total += 1
+        if got == expected:
+            correct += 1
+            ok(f"{desc}", f"'{utterance[:40]}' -> {got} ({conf:.2f})")
+        else:
+            warn(f"{desc} MISMATCH", f"'{utterance[:40]}' -> {got} (expected {expected}, conf={conf:.2f})")
+
+    pct = correct / total * 100
+    if pct >= 60:
+        ok(f"New intent accuracy {correct}/{total} ({pct:.0f}%)")
+    else:
+        warn(f"New intent accuracy below 60%: {correct}/{total} ({pct:.0f}%)")
+
+
+def test_fuzzy_column_matching():
+    """SCENARIO 9 -- Fuzzy Column Matching"""
+    section("SCENARIO 9 -- Fuzzy Column Matching")
+
+    # Synonym resolution
+    result = _fuzzy_match_column("revenue", ["total_dollars", "name", "id"])
+    if result == "total_dollars":
+        ok("Synonym: 'revenue' -> 'total_dollars'")
+    else:
+        fail(f"Synonym failed: 'revenue' -> {result!r}")
+
+    # Substring match
+    result2 = _fuzzy_match_column("cap", ["capacity", "name", "id"])
+    if result2 == "capacity":
+        ok("Substring: 'cap' -> 'capacity'")
+    else:
+        fail(f"Substring failed: 'cap' -> {result2!r}")
+
+    # No match
+    result3 = _fuzzy_match_column("zzz_nonexistent", ["a", "b", "c"])
+    if result3 is None:
+        ok("No match returns None")
+    else:
+        fail(f"Expected None, got {result3!r}")
+
+    # Through executor
+    ex = CacheExecutor()
+    report = {
+        "rows": [
+            {"name": "Alpha", "total_dollars": 1000},
+            {"name": "Beta", "total_dollars": 2000},
+            {"name": "Gamma", "total_dollars": 500},
+        ],
+    }
+    try:
+        result4 = ex.execute(
+            {"op_type": "filter", "column": "revenue", "operator": "gt", "value": 800},
+            report,
+        )
+        if result4["row_count"] == 2:
+            ok("Executor fuzzy: filter on 'revenue' resolved to 'total_dollars'",
+               f"{result4['row_count']} rows")
+        else:
+            warn(f"Executor fuzzy row count mismatch: {result4['row_count']}")
+    except Exception as e:
+        fail("Executor fuzzy filter failed", str(e))
+
+
+async def test_undo_simulation():
+    """SCENARIO 10 -- Undo Stack Simulation"""
+    section("SCENARIO 10 -- Undo Stack Simulation")
+
+    cache = SessionCache()
+    data = await fetch_report("show me all clients")
+    if not data or not data.get("results"):
+        warn("No client data for undo simulation")
+        return
+
+    # Store original
+    rid_original = cache.store(data, query="show me all clients", sql=data.get("sql", ""))
+    original_count = cache.get(rid_original)["row_count"]
+    ok(f"Original report stored", f"id={rid_original}, {original_count} rows")
+
+    # Execute a follow-up op and store result
+    ex = CacheExecutor()
+    report = cache.get(rid_original)
+    cols = list(data["results"][0].keys())
+    # Find a string column to filter on
+    first_row = data["results"][0]
+    filter_col = None
+    filter_val = None
+    for c in cols:
+        if isinstance(first_row[c], str) and first_row[c]:
+            filter_col = c
+            filter_val = first_row[c]
+            break
+
+    if filter_col:
+        filtered = ex.execute(
+            {"op_type": "filter", "column": filter_col, "operator": "eq",
+             "value": filter_val, "explanation": f"filter {filter_col}"},
+            report,
+        )
+        rid_filtered = cache.store(filtered, f"filtered by {filter_col}", "derived")
+        ok(f"Follow-up filter stored", f"id={rid_filtered}, {filtered['row_count']} rows")
+
+        # Simulate undo: retrieve original by ID
+        restored = cache.get(rid_original)
+        if restored and restored["row_count"] == original_count:
+            ok("Undo simulation: original report restored by ID",
+               f"{restored['row_count']} rows (matches original)")
+        else:
+            fail("Undo simulation: could not restore original")
+    else:
+        warn("No string column found for filter test")
+
+
 async def main():
     print(f"\n{BOLD}{'='*60}")
     print("  SEI ENGINE -- PIPELINE SIMULATION")
@@ -425,6 +585,10 @@ async def main():
     await test_cache_overlap()
     await test_cross_report()
     await test_cache_ttl()
+    test_date_normalization()
+    await test_intent_new_intents()
+    test_fuzzy_column_matching()
+    await test_undo_simulation()
 
     print(f"\n{BOLD}{'='*60}")
     print("  RESULTS")

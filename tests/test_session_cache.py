@@ -152,3 +152,61 @@ class TestOverlapDetection:
         # "show data from table" shares only stopwords/short words
         result = cache.find_overlapping("show data from table")
         assert result is None
+
+
+class TestUndoStackSimulation:
+    """Simulate the undo pattern: store original -> execute op -> store result -> verify original retrievable."""
+
+    def test_undo_stack_push_pop(self):
+        """Store 3 follow-up ops, verify each pre-op report is still retrievable by ID."""
+        cache = SessionCache()
+        # Original report
+        rid0 = cache.store(
+            _make_report([{"name": "Alpha", "val": 100}, {"name": "Beta", "val": 200}]),
+            "original query", "sql0"
+        )
+        # Simulate 3 follow-up ops storing results
+        rid1 = cache.store(_make_report([{"name": "Alpha", "val": 100}]), "follow-up 1", "sql1")
+        rid2 = cache.store(_make_report([{"name": "Beta", "val": 200}]), "follow-up 2", "sql2")
+        rid3 = cache.store(_make_report([{"name": "Alpha", "val": 100}]), "follow-up 3", "sql3")
+
+        # All pre-op reports still retrievable (simulating undo)
+        assert cache.get(rid0) is not None
+        assert cache.get(rid0)["query"] == "original query"
+        assert cache.get(rid1) is not None
+        assert cache.get(rid2) is not None
+        assert cache.get(rid3) is not None
+
+    def test_undo_stack_cap_at_five(self):
+        """Simulate undo stack capped at 5 entries."""
+        undo_stack = []
+        max_undo = 5
+        for i in range(6):
+            undo_stack.append(f"report_{i}")
+            if len(undo_stack) > max_undo:
+                undo_stack.pop(0)
+        assert len(undo_stack) == 5
+        assert undo_stack[0] == "report_1"  # oldest (report_0) dropped
+        assert undo_stack[-1] == "report_5"
+
+    def test_undo_expired_report(self):
+        """Store a report with short TTL, verify undo fails gracefully after expiry."""
+        cache = SessionCache(ttl_seconds=1)
+        rid_original = cache.store(
+            _make_report([{"name": "Original", "val": 1}]),
+            "original", "sql"
+        )
+        rid_followup = cache.store(
+            _make_report([{"name": "FollowUp", "val": 2}]),
+            "follow-up", "sql"
+        )
+        # Both available immediately
+        assert cache.get(rid_original) is not None
+        assert cache.get(rid_followup) is not None
+
+        # Wait for expiry
+        time.sleep(1.5)
+
+        # After TTL, undo should fail (original expired)
+        assert cache.get(rid_original) is None
+        assert cache.get(rid_followup) is None

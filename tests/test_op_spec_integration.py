@@ -11,9 +11,10 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import pytest
-from cache_executor import CacheExecutor
+from cache_executor import CacheExecutor, _fuzzy_match_column
 from session_cache import SessionCache
 from op_spec import OP_SPEC_SCHEMA
+from intent_classifier import INTENT_SCHEMA
 
 
 @pytest.fixture
@@ -339,3 +340,42 @@ def test_all_op_types_covered():
     missing = valid_op_types - tested_types
     assert not missing, f"Op types not tested: {missing}"
     assert tested_types == valid_op_types
+
+
+# --- Phase 11.1 additions: fuzzy column NL cases ---
+
+
+def test_fuzzy_column_filter_area(executor, warehouse_report):
+    """NL request using 'area' which fuzzy-matches to 'region'."""
+    result = executor.execute(
+        {"op_type": "filter", "column": "area", "operator": "eq", "value": "West",
+         "explanation": "filter area West"},
+        warehouse_report,
+    )
+    assert result["row_count"] == 3
+
+
+def test_fuzzy_column_top_n_cap(executor, warehouse_report):
+    """NL request using 'cap' which is a substring of 'capacity'."""
+    result = executor.execute(
+        {"op_type": "top_n", "column": "cap", "n": 3,
+         "explanation": "top 3 by cap"},
+        warehouse_report,
+    )
+    assert result["row_count"] == 3
+
+
+def test_intent_schema_has_all_intents():
+    """Verify the extended INTENT_SCHEMA includes all 9 intents + op_chain."""
+    intents = INTENT_SCHEMA["properties"]["intent"]["enum"]
+    assert "undo" in intents
+    assert "what_can_i_ask" in intents
+    assert "compare_reports" in intents
+    assert "new_data_request" in intents
+    assert "follow_up_on_previous" in intents
+    assert "confirm" in intents
+    assert "cancel" in intents
+    assert "list_cached_data" in intents
+    assert "normal_chat" in intents
+    assert len(intents) == 9
+    assert "op_chain" in INTENT_SCHEMA["properties"]

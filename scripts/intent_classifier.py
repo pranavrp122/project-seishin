@@ -32,16 +32,38 @@ INTENT_SCHEMA = {
                 "cancel",
                 "list_cached_data",
                 "normal_chat",
+                "undo",
+                "what_can_i_ask",
+                "compare_reports",
             ],
         },
         "data_query": {"type": ["string", "null"]},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "op_chain": {
+            "type": ["array", "null"],
+            "items": {
+                "type": "object",
+                "properties": {
+                    "op_type": {
+                        "type": "string",
+                        "enum": ["filter", "sort", "top_n", "bottom_n", "aggregate"],
+                    },
+                    "column": {"type": ["string", "null"]},
+                    "direction": {"type": ["string", "null"]},
+                    "n": {"type": ["integer", "null"]},
+                    "value": {},
+                    "operator": {"type": ["string", "null"]},
+                },
+                "required": ["op_type"],
+                "additionalProperties": False,
+            },
+        },
     },
     "required": ["intent", "data_query", "confidence"],
     "additionalProperties": False,
 }
 
-_SAFE_DEFAULT = {"intent": "normal_chat", "data_query": None, "confidence": 0.0}
+_SAFE_DEFAULT = {"intent": "normal_chat", "data_query": None, "confidence": 0.0, "op_chain": None}
 
 
 async def classify_intent(
@@ -62,7 +84,18 @@ async def classify_intent(
     Returns:
         Dict with keys: intent, data_query, confidence.
     """
-    messages = [{"role": "system", "content": INTENT_SYSTEM_PROMPT}]
+    # Build history context block (last 4 non-system turns, D-01)
+    recent = [m for m in history if m.get("role") in ("user", "assistant")][-4:]
+    history_block = ""
+    if recent:
+        lines = [f"  {m['role'].title()}: {m['content'][:100]}" for m in recent]
+        history_block = (
+            "\n\n## Recent Conversation\n"
+            + "\n".join(lines)
+            + "\nUse this to resolve pronouns and references like 'those', 'that', 'compare the two'."
+        )
+
+    messages = [{"role": "system", "content": INTENT_SYSTEM_PROMPT + history_block}]
 
     if has_active_report:
         messages.append(

@@ -534,6 +534,38 @@ async def handler(websocket):
                         # Silence while report is running — deliver result or send update
                         if active_report_task.done():
                             await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
+                            # D-05: Auto-apply op_chain if present
+                            if last_intent_result and last_intent_result.get("op_chain"):
+                                executor_instance = CacheExecutor()
+                                for chain_op in last_intent_result["op_chain"]:
+                                    target = session_cache.get_latest()
+                                    if target:
+                                        chain_col = chain_op.get("column")
+                                        if chain_col and chain_col not in target["columns"]:
+                                            matched = _fuzzy_match_column(chain_col, list(target["columns"].keys()))
+                                            if matched:
+                                                chain_op["column"] = matched
+                                        chain_op.setdefault("explanation", "auto-chained operation")
+                                        try:
+                                            chain_result = executor_instance.execute(chain_op, target)
+                                            new_rid = session_cache.store(
+                                                {"results": chain_result["rows"]},
+                                                query=active_report_query,
+                                                sql=target["sql"],
+                                            )
+                                            await websocket.send(json.dumps({
+                                                "type": "report_log",
+                                                "query": active_report_query,
+                                                "sql": target["sql"],
+                                                "row_count": chain_result["row_count"],
+                                                "results": chain_result["rows"],
+                                                "summary": "",
+                                                "claude_interactions": [],
+                                                "dashboard_b64": "",
+                                            }))
+                                        except Exception as ce:
+                                            print(f"  Op chain error: {ce}")
+                                last_intent_result = None
                             active_report_task = None
                             active_report_query = ""
                         else:
@@ -666,6 +698,7 @@ async def handler(websocket):
                     intent = intent_result["intent"]
                     confidence = intent_result["confidence"]
                     data_query = intent_result["data_query"]
+                    last_intent_result = intent_result  # D-05: store for op_chain after delivery
 
                 if intent == "new_data_request" and confidence >= 0.6:
                     if speculative_op_task is not None:
@@ -874,15 +907,46 @@ async def handler(websocket):
                     )
                     print(f"  Follow-up cached as {new_rid} ({result['row_count']} rows)")
 
+                    # D-03: Push to undo stack
+                    if len(undo_stack) >= 5:
+                        undo_stack.pop(0)
+                    undo_stack.append({
+                        "report_id": new_rid,
+                        "op_spec": op_spec_result,
+                        "pre_op_report_id": target_report["report_id"],
+                        "query_text": user_text,
+                    })
+
                     # Voice the results via Gemma + TTS
                     if result["row_count"] == 0:
-                        voice_messages = list(history) + [{
-                            "role": "user",
-                            "content": (
-                                "[INTERNAL: The filter/operation returned zero results. "
-                                "Let the user know naturally — no matching data. One sentence.]"
-                            ),
-                        }]
+                        # D-07: Auto-suggest broadened filter
+                        suggestion = _suggest_broadened_spec(op_spec_result, target_report)
+                        if suggestion and pending_suggestion_spec is None:
+                            pending_suggestion_spec = suggestion
+                            # Build natural suggestion text
+                            if suggestion.get("operator") == "contains" and op_spec_result.get("operator") == "eq":
+                                hint = f"a broader search for anything containing '{suggestion.get('value')}'"
+                            elif suggestion.get("value") != op_spec_result.get("value"):
+                                hint = f"adjusting the threshold to {suggestion.get('value')}"
+                            else:
+                                hint = "a broader search"
+                            voice_messages = list(history) + [{
+                                "role": "user",
+                                "content": (
+                                    f"[INTERNAL: The filter returned no results. "
+                                    f"Suggest trying: {hint}. Ask if they want you to try that. "
+                                    "Natural, one sentence.]"
+                                ),
+                            }]
+                        else:
+                            pending_suggestion_spec = None  # Don't suggest if already in suggestion loop (Pitfall 5)
+                            voice_messages = list(history) + [{
+                                "role": "user",
+                                "content": (
+                                    "[INTERNAL: The operation returned zero results and no broader "
+                                    "alternative is available. Let the user know definitively. One sentence.]"
+                                ),
+                            }]
                     else:
                         # Build a concise summary of the result for Gemma to voice
                         preview_rows = result["rows"][:5]
@@ -965,6 +1029,364 @@ async def handler(websocket):
                     list_reply = await handle_llm_response(websocket, list_messages, tts_client, _ce)
                     if list_reply:
                         history.append({"role": "assistant", "content": list_reply})
+                    continue
+
+                elif intent == "undo":
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
+                    if not undo_stack:
+                        # Nothing to undo
+                        no_undo_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The user said 'undo' but there's nothing to reverse. "
+                                "Let them know naturally. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        reply = await handle_llm_response(websocket, no_undo_messages, tts_client, _ce)
+                        if reply:
+                            history.append({"role": "assistant", "content": reply})
+                        continue
+
+                    entry = undo_stack.pop()
+                    pre_report = session_cache.get(entry["pre_op_report_id"])
+                    if pre_report is None:
+                        # TTL expired
+                        expired_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The user wants to undo but the original data has expired. "
+                                "Let them know naturally and offer to pull fresh. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        reply = await handle_llm_response(websocket, expired_messages, tts_client, _ce)
+                        if reply:
+                            history.append({"role": "assistant", "content": reply})
+                        continue
+
+                    # Send report_log frame with restored data
+                    await websocket.send(json.dumps({
+                        "type": "report_log",
+                        "query": pre_report["query"],
+                        "sql": pre_report["sql"],
+                        "row_count": pre_report["row_count"],
+                        "results": pre_report["rows"],
+                        "summary": "",
+                        "claude_interactions": [],
+                        "dashboard_b64": "",
+                    }))
+                    # Voice confirmation
+                    undo_messages = list(history) + [{
+                        "role": "user",
+                        "content": (
+                            f'[INTERNAL: You just undid the last operation. Back to the data from: '
+                            f'"{pre_report["query"]}". Let the user know naturally. One sentence.]'
+                        ),
+                    }]
+                    _ce = asyncio.Event()
+                    spoken = await handle_llm_response_text_only(websocket, undo_messages, _ce)
+                    if not spoken:
+                        spoken = f"Done, back to {pre_report['query']}."
+                    history.append({"role": "assistant", "content": spoken})
+                    await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
+                    _ce2 = asyncio.Event()
+                    await tts_full_response(websocket, spoken, tts_client, _ce2)
+                    await websocket.send(json.dumps({"type": "done"}))
+                    continue
+
+                elif intent == "what_can_i_ask":
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
+                    # Try report API /topics endpoint
+                    topics_text = None
+                    try:
+                        async with httpx.AsyncClient() as _hc:
+                            resp = await _hc.get(
+                                f"{REPORT_API_URL}/topics",
+                                headers={"X-API-Key": REPORT_API_KEY} if REPORT_API_KEY else {},
+                                timeout=5.0,
+                            )
+                            if resp.status_code == 200:
+                                topics_data = resp.json()
+                                if isinstance(topics_data, list):
+                                    topics_text = ", ".join(str(t) for t in topics_data[:20])
+                                elif isinstance(topics_data, dict) and topics_data.get("topics"):
+                                    topics_text = ", ".join(str(t) for t in topics_data["topics"][:20])
+                    except Exception:
+                        pass
+
+                    if not topics_text:
+                        # Fallback: hardcoded known domains + session cache
+                        known_domains = "clients, invoices, tax cases, payments, warehouses, orders, products"
+                        cached = session_cache.all_reports()
+                        if cached:
+                            cached_queries = [r["query"] for r in cached]
+                            topics_text = f"{known_domains}. You've already pulled: {', '.join(cached_queries)}"
+                        else:
+                            topics_text = known_domains
+
+                    discovery_messages = list(history) + [{
+                        "role": "user",
+                        "content": (
+                            f"[INTERNAL: The user wants to know what data topics are available. "
+                            f"Available topics: {topics_text}. "
+                            "List these naturally — like telling a colleague what's in the system. "
+                            "Keep it brief and conversational. Don't read a technical list.]"
+                        ),
+                    }]
+                    _ce = asyncio.Event()
+                    reply = await handle_llm_response(websocket, discovery_messages, tts_client, _ce)
+                    if reply:
+                        history.append({"role": "assistant", "content": reply})
+                    continue
+
+                elif intent == "compare_reports":
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
+                    query = data_query or user_text
+                    # Split on "and", "with", "versus", "vs"
+                    parts = re.split(r'\b(?:and|with|versus|vs\.?)\b', query, maxsplit=1, flags=re.IGNORECASE)
+
+                    if len(parts) < 2:
+                        # Can't extract two topics -- ask for clarification
+                        clarify_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: The user wants to compare two things but you couldn't "
+                                "figure out the two topics. Ask them to specify the two things to compare. "
+                                "One sentence, natural.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        reply = await handle_llm_response(websocket, clarify_messages, tts_client, _ce)
+                        if reply:
+                            history.append({"role": "assistant", "content": reply})
+                        continue
+
+                    topic_a = parts[0].strip().lstrip("compare ").strip()
+                    topic_b = parts[1].strip()
+
+                    # Check for >80% word overlap (per RESEARCH.md Pitfall 6)
+                    words_a = set(topic_a.lower().split())
+                    words_b = set(topic_b.lower().split())
+                    if words_a and words_b:
+                        overlap = len(words_a & words_b) / max(len(words_a), len(words_b))
+                        if overlap > 0.8:
+                            # Topics are too similar -- treat as single new_data_request
+                            active_report_query = query
+                            active_report_task = asyncio.create_task(call_report_api(query))
+                            ack_messages = list(history) + [{
+                                "role": "user",
+                                "content": (
+                                    "[INTERNAL: Pulling that data now. Brief ack. One sentence.]"
+                                ),
+                            }]
+                            _ce = asyncio.Event()
+                            ack_reply = await handle_llm_response(websocket, ack_messages, tts_client, _ce)
+                            if ack_reply:
+                                history.append({"role": "assistant", "content": ack_reply})
+                            continue
+
+                    # Voice progress
+                    progress_messages = list(history) + [{
+                        "role": "user",
+                        "content": (
+                            "[INTERNAL: You're about to pull two sets of data to compare them. "
+                            "Give a short natural ack like 'pulling both now'. One sentence.]"
+                        ),
+                    }]
+                    _ce = asyncio.Event()
+                    ack_reply = await handle_llm_response(websocket, progress_messages, tts_client, _ce)
+                    if ack_reply:
+                        history.append({"role": "assistant", "content": ack_reply})
+
+                    # Fire both concurrently (per D-06)
+                    task_a = asyncio.create_task(call_report_api(topic_a))
+                    task_b = asyncio.create_task(call_report_api(topic_b))
+                    try:
+                        res_a, res_b = await asyncio.gather(task_a, task_b)
+                    except Exception as e:
+                        print(f"  Compare fetch error: {e}")
+                        error_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: One or both data pulls failed. Let the user know "
+                                "naturally. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        err_reply = await handle_llm_response(websocket, error_messages, tts_client, _ce)
+                        if err_reply:
+                            history.append({"role": "assistant", "content": err_reply})
+                        continue
+
+                    # Cache both
+                    rid_a = session_cache.store(res_a, query=topic_a, sql=res_a.get("sql") or "")
+                    rid_b = session_cache.store(res_b, query=topic_b, sql=res_b.get("sql") or "")
+                    report_a = session_cache.get(rid_a)
+                    report_b = session_cache.get(rid_b)
+
+                    if not report_a or not report_b or not report_a["rows"] or not report_b["rows"]:
+                        error_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                "[INTERNAL: One of the data pulls returned empty. Let the user know. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        err_reply = await handle_llm_response(websocket, error_messages, tts_client, _ce)
+                        if err_reply:
+                            history.append({"role": "assistant", "content": err_reply})
+                        continue
+
+                    # Find shared column
+                    cols_a = set(report_a["columns"].keys())
+                    cols_b = set(report_b["columns"].keys())
+                    shared_cols = cols_a & cols_b
+                    if not shared_cols:
+                        no_shared_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                f"[INTERNAL: You pulled {topic_a} and {topic_b} but they don't share "
+                                "any column names for comparison. Let the user know naturally. One sentence.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        reply = await handle_llm_response(websocket, no_shared_messages, tts_client, _ce)
+                        if reply:
+                            history.append({"role": "assistant", "content": reply})
+                        continue
+
+                    compare_col = sorted(shared_cols)[0]
+                    executor = CacheExecutor()
+                    try:
+                        result = executor.execute_cross_report(
+                            {"op_type": "cross_report_compare", "compare_column": compare_col, "explanation": f"compare on {compare_col}"},
+                            report_a, report_b,
+                        )
+                    except Exception as e:
+                        print(f"  Cross-report error: {e}")
+                        error_messages = list(history) + [{
+                            "role": "user",
+                            "content": "[INTERNAL: The comparison failed. Let the user know. One sentence.]",
+                        }]
+                        _ce = asyncio.Event()
+                        reply = await handle_llm_response(websocket, error_messages, tts_client, _ce)
+                        if reply:
+                            history.append({"role": "assistant", "content": reply})
+                        continue
+
+                    # Send report_log frame
+                    await websocket.send(json.dumps({
+                        "type": "report_log",
+                        "query": user_text,
+                        "sql": "",
+                        "row_count": result["row_count"],
+                        "results": result["rows"],
+                        "summary": "",
+                        "claude_interactions": [],
+                        "dashboard_b64": "",
+                    }))
+
+                    # Cache comparison result
+                    session_cache.store({"results": result["rows"]}, query=user_text, sql="")
+
+                    # Voice results
+                    preview_rows = result["rows"][:5]
+                    preview_text = json.dumps(preview_rows, default=str)[:500]
+                    voice_messages = list(history) + [{
+                        "role": "user",
+                        "content": (
+                            f"[INTERNAL: Comparison done. Merged {topic_a} and {topic_b} on '{compare_col}'. "
+                            f"Result: {result['row_count']} rows. Preview: {preview_text}\n\n"
+                            "Present the comparison naturally. 2-3 sentences.]"
+                        ),
+                    }]
+                    _ce = asyncio.Event()
+                    spoken = await handle_llm_response_text_only(websocket, voice_messages, _ce)
+                    if not spoken:
+                        spoken = f"Compared {topic_a} and {topic_b} on {compare_col} -- {result['row_count']} matching rows."
+                    history.append({"role": "assistant", "content": spoken})
+                    await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
+                    _ce2 = asyncio.Event()
+                    await tts_full_response(websocket, spoken, tts_client, _ce2)
+                    await websocket.send(json.dumps({"type": "done"}))
+                    continue
+
+                elif intent == "confirm" and pending_suggestion_spec is not None:
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
+                    # Execute the suggested broadened spec
+                    target = session_cache.get_latest()
+                    if target:
+                        executor = CacheExecutor()
+                        try:
+                            result = executor.execute(pending_suggestion_spec, target)
+                            pending_suggestion_spec = None  # Clear after execution
+
+                            await websocket.send(json.dumps({
+                                "type": "report_log",
+                                "query": user_text,
+                                "sql": target["sql"],
+                                "row_count": result["row_count"],
+                                "results": result["rows"],
+                                "summary": "",
+                                "claude_interactions": [],
+                                "dashboard_b64": "",
+                            }))
+
+                            if result["row_count"] > 0:
+                                new_rid = session_cache.store(
+                                    {"results": result["rows"]}, query=user_text, sql=target["sql"]
+                                )
+                                preview = json.dumps(result["rows"][:5], default=str)[:500]
+                                voice_messages = list(history) + [{
+                                    "role": "user",
+                                    "content": (
+                                        f"[INTERNAL: The broader search worked. "
+                                        f"{result['row_count']} rows. Preview: {preview}\n\n"
+                                        "Present naturally. 2-3 sentences.]"
+                                    ),
+                                }]
+                            else:
+                                voice_messages = list(history) + [{
+                                    "role": "user",
+                                    "content": (
+                                        "[INTERNAL: Even the broader search found nothing. "
+                                        "Let the user know definitively. One sentence.]"
+                                    ),
+                                }]
+
+                            _ce = asyncio.Event()
+                            spoken = await handle_llm_response_text_only(websocket, voice_messages, _ce)
+                            if not spoken:
+                                spoken = "Here's what I found with the broader search."
+                            history.append({"role": "assistant", "content": spoken})
+                            await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
+                            _ce2 = asyncio.Event()
+                            await tts_full_response(websocket, spoken, tts_client, _ce2)
+                            await websocket.send(json.dumps({"type": "done"}))
+                        except Exception as e:
+                            print(f"  Suggestion execution error: {e}")
+                            pending_suggestion_spec = None
+                    else:
+                        pending_suggestion_spec = None
+                    continue
+
+                elif intent == "cancel" and pending_suggestion_spec is not None:
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
+                    pending_suggestion_spec = None
+                    cancel_messages = list(history) + [{
+                        "role": "user",
+                        "content": "[INTERNAL: User cancelled the suggestion. Acknowledge briefly. One sentence.]",
+                    }]
+                    _ce = asyncio.Event()
+                    reply = await handle_llm_response(websocket, cancel_messages, tts_client, _ce)
+                    if reply:
+                        history.append({"role": "assistant", "content": reply})
                     continue
 
                 # confirm and cancel intents fall through to normal_chat
@@ -1084,6 +1506,38 @@ async def handler(websocket):
                 # If interrupted, the result will surface on next silence or next clean turn.
                 if active_report_task is not None and active_report_task.done() and not interrupted:
                     await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
+                    # D-05: Auto-apply op_chain if present
+                    if last_intent_result and last_intent_result.get("op_chain"):
+                        executor_instance = CacheExecutor()
+                        for chain_op in last_intent_result["op_chain"]:
+                            target = session_cache.get_latest()
+                            if target:
+                                chain_col = chain_op.get("column")
+                                if chain_col and chain_col not in target["columns"]:
+                                    matched = _fuzzy_match_column(chain_col, list(target["columns"].keys()))
+                                    if matched:
+                                        chain_op["column"] = matched
+                                chain_op.setdefault("explanation", "auto-chained operation")
+                                try:
+                                    chain_result = executor_instance.execute(chain_op, target)
+                                    new_rid = session_cache.store(
+                                        {"results": chain_result["rows"]},
+                                        query=active_report_query,
+                                        sql=target["sql"],
+                                    )
+                                    await websocket.send(json.dumps({
+                                        "type": "report_log",
+                                        "query": active_report_query,
+                                        "sql": target["sql"],
+                                        "row_count": chain_result["row_count"],
+                                        "results": chain_result["rows"],
+                                        "summary": "",
+                                        "claude_interactions": [],
+                                        "dashboard_b64": "",
+                                    }))
+                                except Exception as ce:
+                                    print(f"  Op chain error: {ce}")
+                        last_intent_result = None
                     active_report_task = None
                     active_report_query = ""
     finally:

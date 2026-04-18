@@ -480,6 +480,7 @@ async def handler(websocket):
     try:
         async with httpx.AsyncClient() as tts_client:
             pending_msg = None  # Buffered message from stop-listener
+            pending_overlap_query = None  # Held query awaiting user confirmation
             active_report_task = None   # Background asyncio.Task for call_report_api
             active_report_query = ""    # The original user query being reported on
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
@@ -593,16 +594,51 @@ async def handler(websocket):
                 if not user_text:
                     continue
 
-                history.append({"role": "user", "content": user_text})
+                # --- Overlap confirmation handling ---
+                skip_classification = False
+                speculative_op_task = None
+
+                if pending_overlap_query is not None:
+                    overlap_intent = await classify_intent(user_text, history, bool(session_cache.all_reports()))
+                    if overlap_intent["intent"] == "confirm":
+                        pending_overlap_query = None
+                        history.append({"role": "user", "content": user_text})
+                        print(f"  User confirmed overlap -> follow_up_on_previous")
+                        intent = "follow_up_on_previous"
+                        confidence = 0.95
+                        data_query = None
+                        speculative_op_task = asyncio.create_task(
+                            generate_op_spec(user_text, session_cache.summary())
+                        )
+                        skip_classification = True
+                    else:
+                        saved_query = pending_overlap_query
+                        pending_overlap_query = None
+                        active_report_query = saved_query
+                        active_report_task = asyncio.create_task(call_report_api(saved_query))
+                        # Fall through to normal intent classification for current message
+
+                if not skip_classification:
+                    history.append({"role": "user", "content": user_text})
                 print(f"  User: {user_text}")
 
-                # --- Intent classification ---
-                intent_result = await classify_intent(user_text, history, bool(session_cache.all_reports()))
-                intent = intent_result["intent"]
-                confidence = intent_result["confidence"]
-                data_query = intent_result["data_query"]
+                if not skip_classification:
+                    # --- Intent classification ---
+                    # Speculative op_spec for follow-up latency optimization
+                    has_reports = bool(session_cache.all_reports())
+                    if has_reports:
+                        speculative_op_task = asyncio.create_task(
+                            generate_op_spec(user_text, session_cache.summary())
+                        )
+
+                    intent_result = await classify_intent(user_text, history, has_reports)
+                    intent = intent_result["intent"]
+                    confidence = intent_result["confidence"]
+                    data_query = intent_result["data_query"]
 
                 if intent == "new_data_request" and confidence >= 0.6:
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
                     # Fire report immediately — no confirmation gate
                     query = data_query or user_text
 
@@ -615,15 +651,16 @@ async def handler(websocket):
                             "content": (
                                 f"[INTERNAL: You already pulled data earlier that might be relevant — "
                                 f'the query was: "{overlap_hint}". '
-                                "Mention this briefly and naturally — like 'I already pulled some warehouse data earlier, "
-                                "want me to use that instead?' One sentence. Stay in character.]"
+                                "Ask if they want you to work with that existing data instead of pulling new. "
+                                "One sentence, natural. Stay in character.]"
                             ),
                         }]
                         _ce = asyncio.Event()
                         hint_reply = await handle_llm_response(websocket, hint_messages, tts_client, _ce)
                         if hint_reply:
                             history.append({"role": "assistant", "content": hint_reply})
-                        # Continue with pipeline anyway — hint is informational, not blocking
+                        pending_overlap_query = query
+                        continue  # Do NOT fire call_report_api yet — wait for user response
 
                     active_report_query = query
                     active_report_task = asyncio.create_task(call_report_api(query))
@@ -643,6 +680,8 @@ async def handler(websocket):
                     continue
 
                 elif intent == "new_data_request" and confidence < 0.6:
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
                     # Ambiguous — ask a clarifying question (per INTENT-06)
                     clarify_messages = list(history) + [{
                         "role": "user",
@@ -660,9 +699,12 @@ async def handler(websocket):
 
                 elif intent == "follow_up_on_previous" and session_cache.all_reports():
                     # FOLLOW-02: LLM interprets follow-up via guided_json op spec
-                    op_spec_result = await generate_op_spec(
-                        user_text, session_cache.summary()
-                    )
+                    if speculative_op_task is not None:
+                        op_spec_result = await speculative_op_task
+                    else:
+                        op_spec_result = await generate_op_spec(
+                            user_text, session_cache.summary()
+                        )
 
                     # LLM parse error — voice a natural hint before re-firing
                     if op_spec_result.get("op_type") == "_error":
@@ -816,6 +858,8 @@ async def handler(websocket):
                     continue
 
                 elif intent == "follow_up_on_previous" and not session_cache.all_reports():
+                    if speculative_op_task is not None:
+                        speculative_op_task.cancel()
                     # No cached reports — treat as conversational fallback
                     fallback_messages = list(history) + [{
                         "role": "user",
@@ -832,6 +876,8 @@ async def handler(websocket):
 
                 # confirm and cancel intents fall through to normal_chat
                 # normal_chat falls through to the existing generation phase below
+                if speculative_op_task is not None:
+                    speculative_op_task.cancel()
 
                 # --- Phase B: Concurrent generation + stop listener ---
                 cancel_event = asyncio.Event()

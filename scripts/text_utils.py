@@ -60,6 +60,21 @@ def _quarter_range(now: datetime, offset: int) -> str:
     return f"Q{target_q} {target_year} ({month_ranges[target_q]})"
 
 
+def _strip_json_fences(content: str) -> str:
+    """Strip markdown code fences from LLM JSON output.
+
+    Some models wrap guided_json responses in ```json ... ``` blocks.
+    This strips the fences so json.loads() can parse the content cleanly.
+    """
+    content = content.strip()
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.startswith("json"):
+            content = content[4:]
+        content = content.strip()
+    return content
+
+
 def _normalize_datetime(text: str) -> str:
     """Replace relative date references with concrete dates.
 

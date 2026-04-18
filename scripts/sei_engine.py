@@ -711,6 +711,13 @@ async def handler(websocket):
                     data_query = intent_result["data_query"]
                     last_intent_result = intent_result  # D-05: store for op_chain after delivery
 
+                # Debug: show classified intent in chat (TEXT_MODE)
+                if TEXT_MODE:
+                    await websocket.send(json.dumps({
+                        "type": "sentence",
+                        "text": f"(intent: {intent}, confidence: {confidence:.2f})"
+                    }))
+
                 if intent == "new_data_request" and confidence >= 0.6:
                     if speculative_op_task is not None:
                         speculative_op_task.cancel()

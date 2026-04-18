@@ -13,6 +13,7 @@ import time
 import httpx
 
 from system_prompts import build_cache_summary_block
+from text_utils import _strip_json_fences
 
 # --- Configuration (same env vars as sei_engine.py, self-contained) ---
 LLM_URL = os.environ.get("SEI_LLM_URL", "http://127.0.0.1:8000")
@@ -184,7 +185,7 @@ async def generate_op_spec(user_text: str, cache_summary: list[dict]) -> dict:
             resp.raise_for_status()
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        content = resp.json()["choices"][0]["message"]["content"]
+        content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
         result = json.loads(content)
 
         print(

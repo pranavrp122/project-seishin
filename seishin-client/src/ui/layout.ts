@@ -1,5 +1,6 @@
 import { renderChat } from './chat.ts';
 import { renderReportLog } from './report-log.ts';
+import { renderMetrics } from './metrics.ts';
 
 /**
  * Text-mode layout — no waveform, no mic button.
@@ -49,6 +50,15 @@ export function renderLayout(parent: HTMLElement): void {
   const mainContent = document.createElement('div');
   mainContent.id = 'main-content';
   mainContent.className = 'main-content';
+
+  // Top bar with metrics (TTFT etc)
+  const topBar = document.createElement('div');
+  topBar.className = 'top-bar';
+  const metricsContainer = document.createElement('div');
+  metricsContainer.className = 'metrics-container';
+  renderMetrics(metricsContainer);
+  topBar.appendChild(metricsContainer);
+  mainContent.appendChild(topBar);
 
   // View area
   const viewArea = document.createElement('div');

@@ -12,6 +12,7 @@ import time
 import httpx
 
 from intent_prompt import INTENT_SYSTEM_PROMPT
+from text_utils import _strip_json_fences
 
 # --- Configuration (same env vars as sei_engine.py, self-contained) ---
 LLM_URL = os.environ.get("SEI_LLM_URL", "http://127.0.0.1:8000")
@@ -131,7 +132,7 @@ async def classify_intent(
             resp.raise_for_status()
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        content = resp.json()["choices"][0]["message"]["content"]
+        content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
         result = json.loads(content)
 
         print(f"  Intent latency: {elapsed_ms:.0f}ms")

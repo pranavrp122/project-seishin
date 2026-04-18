@@ -853,20 +853,15 @@ async def handler(websocket):
                             op_spec_result["columns"] = [resolved_cols.get(c, c) for c in op_spec_result["columns"]]
 
                     if missing_cols:
-                        # Missing column — fallback to new_data_request with voice hint
-                        fallback_messages = list(history) + [{
-                            "role": "user",
-                            "content": (
-                                f"[INTERNAL: The user asked about columns ({', '.join(missing_cols)}) "
-                                "that don't exist in the cached data. Let them know naturally "
-                                "that you'll need to pull fresh data for that. One sentence.]"
-                            ),
-                        }]
-                        _ce = asyncio.Event()
-                        fb_reply = await handle_llm_response(websocket, fallback_messages, tts_client, _ce)
-                        if fb_reply:
-                            history.append({"role": "assistant", "content": fb_reply})
-                        query = data_query or user_text
+                        # Missing column — fire a new data request using the previous query
+                        # context + what the user just asked, so the report API has enough
+                        # information to fetch the right data (e.g. "what r their names?" alone
+                        # is meaningless without knowing they were asking about active customers).
+                        prev_query = target_report.get("query", "")
+                        if prev_query:
+                            query = f"Based on '{prev_query}': {user_text}"
+                        else:
+                            query = data_query or user_text
                         active_report_query = query
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue

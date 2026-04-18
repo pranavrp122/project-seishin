@@ -118,46 +118,96 @@ For a tax dispute company handling client IRS notices, financial disclosures, an
 
 ## 3. Phase 1 — MVP Deploy
 
-> **Deployable product.** Voice assistant that can query the company database, manipulate results by voice, and run basic reports. First paying customer possible at end of this phase.
+> **Deployable product.** Voice assistant that can query the company database, manipulate results by voice, search and move files, check calendar, and draft emails — with full visual transparency on every action. First paying customer possible at end of this phase.
+
+### Core UX Principles (Established in Phase 1, Apply Forever)
+
+These rules govern how every feature works across all phases:
+
+**1. The agent is not a background process.**
+The app is open or it's off. When the user closes it, nothing runs. No silent daemons, no background syncing, no processes the user didn't start. This is intentional — it keeps the user in control and avoids surprises.
+
+**2. Every action has a visual.**
+When the agent is working on something, the relevant native window opens in front of the user. Drafting an email → Outlook or Gmail compose window pops up, fully editable. Moving a file → File Explorer/Finder opens to the destination. Opening a document → the document opens. The user never has to wonder what's happening — they can see it and touch it.
+
+**3. Email send queue — 5-minute delay.**
+No email ever sends the instant the user says "send it." It goes into a send queue with a 5-minute countdown, visible in the app. User can edit or cancel at any point during that window. After 5 minutes it sends automatically. This exists because "wait, not that one" is a real scenario and the stakes in tax dispute communications are high.
+
+**4. Writes require explicit confirmation — reads are instant.**
+The agent queries data, searches files, reads documents, checks calendars without asking. It pauses and shows the user before: sending anything, moving or deleting anything, creating calendar events, updating case records.
+
+**5. Audit log for everything.**
+Every action — query, file operation, email sent, calendar event created — is logged locally with timestamp, user, and what happened. Exportable for compliance reviews.
+
+---
 
 ### What Gets Built
 
 **Infrastructure (pending AWS quota):**
 - Gemma 4 27B on EC2 g6e.xlarge (L40S) in company's AWS VPC — intent classification + conversation
-- Parakeet TDT 0.6b v2 on EC2 g5.xlarge — ASR (audio stays in company's VPC, not third-party cloud)
+- Parakeet TDT 0.6b v2 on EC2 g5.xlarge — ASR (audio stays in company's VPC)
 - Fish Speech S2 Pro on same GPU — TTS
 - Claude Haiku via Amazon Bedrock — SQL generation (already live)
 - ALB + WebSocket endpoint
-- CDK stack for BYOC (Bring Your Own Cloud) deployment — company deploys into their own AWS account
+- CDK stack for BYOC deployment — company runs everything in their own AWS account
 
 **Client app:**
-- Silero VAD stays on laptop (2MB, CPU — detects speech, prevents streaming silence)
+- Silero VAD on laptop (2MB, CPU — detects speech start/end, prevents streaming silence)
 - Audio streams to VPC over WebSocket
-- No models, no GPU, no setup on the laptop
+- OpenClaw daemon — installed as part of the app, NOT a background service, starts and stops with the app
+- No models, no GPU needed on the laptop
 
-**Core capabilities (already built, just need AWS):**
+**Database capabilities (already built):**
 - Voice → company database query → results voiced back
-- Follow-up manipulation: filter, sort, top N, aggregate, pivot, undo — all sub-100ms, no re-querying
-- 9 intents, natural language, history-aware, fuzzy column matching, date normalization
+- Follow-up manipulation: filter, sort, top N, aggregate, pivot, undo — sub-100ms, no re-querying
+- 9 intents, history-aware, fuzzy column matching, date normalization
+
+**Basic local operations (Phase 1 OpenClaw scope):**
+| Intent | Trigger | What happens |
+|--------|---------|-------------|
+| `find_file` | "find the Nguyen engagement letter" | ripgrep searches local filesystem, results voiced, File Explorer opens to the folder |
+| `move_file` | "move that to the Rivera case folder" | File Explorer opens showing source and destination — user confirms visually, then move executes |
+| `get_calendar` | "what do I have today?" | Reads calendar, voices the schedule |
+| `draft_email` | "draft a follow-up to Rivera" | Email Specialist Agent drafts, Outlook/Gmail compose window opens automatically with draft pre-filled — user edits directly in the native app |
+
+**Email send queue:**
+- User reviews the email in the native compose window (fully editable)
+- Says "send it" or clicks send in the compose window
+- Email goes into the send queue — visible countdown in the app: "Sending in 4:58..."
+- User can say "cancel that email" or click cancel in the app at any point during the 5 minutes
+- After 5 minutes, sends automatically via OpenClaw OAuth
+- Logged to audit file: drafted at X, queued at Y, sent at Z (or cancelled)
 
 ### Who Can Use It
 
 | Role | What they can do |
 |------|-----------------|
-| Case Manager | Query active cases by status, amount owed, assigned staff |
-| Executive / Partner | Pull revenue reports, case volume, staff load, overdue invoices |
-| Document Reviewer | Query what's been uploaded per case, find missing documents |
+| Case Manager | Query active cases, find local files, check calendar, draft client emails |
+| Executive / Partner | Pull revenue reports, case volume, overdue invoices |
+| Document Reviewer | Query what's uploaded per case, find missing documents, search local case files |
 | IT Department | Deploy and manage the CDK stack in company's AWS account |
 
 ### Demo Workflow
 
 > "Show me all active levy cases where the IRS response is due this week"
 
-Agent queries the database, voices back: "You have 4 levy cases with responses due this week. Nguyen is Friday, Chen and Park are Thursday, Rivera has no response filed yet. Want me to sort them by priority?"
+Agent queries the database, voices: "You have 4 levy cases with responses due this week. Nguyen is Friday, Chen and Park are Thursday, Rivera has no response filed yet. Want me to sort them by priority?"
 
 > "Sort by amount owed"
 
-Sub-100ms. No DB call. CacheExecutor sorts the cached result.
+Sub-100ms. CacheExecutor sorts. No DB call.
+
+> "Find the Nguyen engagement letter"
+
+File Explorer opens on the user's screen. ripgrep has already found it: `~/Documents/Cases/Nguyen/Nguyen_EL_2024.pdf`. Agent voices: "Found it — Nguyen engagement letter, March 2024, in your Cases folder."
+
+> "Draft an email to Nguyen asking for their bank statements"
+
+Outlook compose window opens on screen. Draft is pre-filled with the correct client name, professional tone, document request language. User can edit it directly. Agent voices: "Draft is open in Outlook — I've pre-filled it. Edit anything you want, then say 'send it' or just hit send."
+
+User tweaks the wording directly in Outlook, says "send it."
+
+App shows: "Sending in 5:00 — say 'cancel' to stop." Countdown visible. After 5 minutes, gone.
 
 ### Cost at This Phase (20 users)
 
@@ -172,59 +222,60 @@ Sub-100ms. No DB call. CacheExecutor sorts the cached result.
 
 ---
 
-## 4. Phase 2 — Office Automation Layer
+## 4. Phase 2 — Full Office Automation + Client Portal
 
-> **Personal assistant on the laptop.** Agent can now work with files on the user's machine, draft and send emails, manage calendar — alongside the company database queries from Phase 1.
+> **Deeper office automation and client portal connectivity.** Builds on Phase 1's basic file/email/calendar with more advanced operations, calendar writes, bulk email workflows, and the ability to query what clients have uploaded to the portal.
 
 ### What Gets Built
 
-**OpenClaw integration:**
-- OpenClaw daemon bundled in the laptop installer (no separate setup)
-- Runs silently in the background as a system service
-- Pre-configured on install — user just logs in with SSO
+**Advanced email workflows:**
+- Bulk draft mode — "draft follow-ups to all clients with missing documents" generates N emails, each opens in a separate compose tab, user reviews and queues them individually
+- Email templates per case type (IRS notice acknowledgment, document request, OIC status update) — specialist agent picks and fills the right template
+- Reply drafting — agent reads an incoming email and drafts a response in the same thread, opening the reply window directly
+- Send queue visible in the app sidebar: list of queued emails, time remaining on each, one-tap cancel per email
 
-**New intents added:**
-| Intent | Trigger | Action |
-|--------|---------|--------|
-| `find_file` | "find the Nguyen engagement letter" | ripgrep/fd searches local filesystem |
-| `draft_email` | "draft a follow-up to Rivera" | Specialist email agent drafts, user reviews by voice |
-| `send_email` | "send it" after review | OpenClaw sends via Gmail/Outlook OAuth — ONLY after voice confirm |
-| `get_calendar` | "what do I have today?" | Reads calendar, voices schedule |
-| `schedule_meeting` | "set up a call with Martinez Thursday 2pm" | Creates calendar event |
-| `move_file` | "move that to the Rivera case folder" | Staged move — requires voice confirm |
+**Calendar write operations:**
+- Create meetings — calendar invite opens for user to review before confirming
+- Reschedule — existing event shown with proposed new time, user confirms
+- Block time — "block Thursday afternoon for the Chen hearing prep"
+- All calendar writes open the native calendar app (Google Calendar in Chrome or Outlook calendar) so the user sees exactly what's being created
 
-**Client portal document access:**
-- Connect to the company's client portal database
-- When client uploads a document, it's indexed and queryable
-- "Has Nguyen uploaded their 433-A yet?" → checks portal, answers instantly
+**Advanced file operations:**
+- Bulk file organization — "sort everything in my downloads into the right case folders" — shows a preview list of what will move where before doing anything
+- File rename with case reference insertion
+- Search across network drives and shared folders, not just local machine
+- Open file directly — "open the Martinez 433-A" → document opens in the default app (PDF viewer, Word, etc.)
 
-**Confirmation gate (non-negotiable):**
-- Email: NEVER sends without explicit voice "yes, send it"
-- File moves: staged to a temp location first, 30-second grace period, then final
-- Calendar events: previewed aloud before creating
-- Everything logged to an audit file
+**Client portal connectivity:**
+- Connect to the company's client portal database (read-only)
+- Query what each client has uploaded, when, and what's still missing
+- "Has Nguyen uploaded their 433-A yet?" → instant answer from portal DB
+- "Show me all clients with incomplete document checklists" → pulls from portal, voices the list
+- New portal uploads trigger a notification (Phase 5 adds proactive push; Phase 2 shows it on next app open)
 
 ### Specialist Agents Introduced (Phase 2)
 
-Each task now routes to a purpose-built agent with its own system prompt optimized for that job. The main LLM acts as an orchestrator/router.
-
 **Email Specialist Agent**
-System prompt focused on: professional tone for tax dispute context, appropriate urgency signals, never includes unverified case details, always flags when it's unsure of a fact.
+Knows tax dispute communication norms. Never includes unverified figures. Picks the right tone (urgent vs routine vs empathetic). Cites the case reference in every outbound email. Flags when it's unsure of a fact rather than guessing.
 
 **Calendar Specialist Agent**
-System prompt focused on: scheduling conflicts, correct time zones, client-facing vs internal meeting language.
+Handles timezone correctness, scheduling conflict detection, client-facing vs internal language, and IRS hearing/deadline context.
 
-### Example Workflow — Document Request Email
+### Example Workflow — Bulk Document Requests
 
-> "Draft a document request to the Nguyen family — we need their 2023 bank statements and their most recent pay stubs"
+Case manager has 6 clients all missing documents with deadlines approaching.
 
-Main LLM identifies task → routes to **Email Specialist Agent** → specialist pulls case context from portal → drafts email with correct client name, case reference, specific documents requested.
+> "Draft document request emails to everyone with incomplete checklists due this week"
 
-Agent: "Here's the draft: 'Dear Ms. Nguyen, to continue moving forward on your case, we need two additional documents uploaded to your portal: your 2023 bank statements (all accounts) and your most recent two pay stubs. Please upload these at your earliest convenience. If you have any trouble, call us at [number]. Thank you, [caseworker name].' Want me to send it?"
+Agent hits the portal DB, identifies 6 cases with gaps. Routes to Email Specialist Agent 6 times (concurrent). Six Outlook compose windows open on screen — one per client, each pre-filled with the correct client name, specific missing documents, and deadline reference.
 
-User: "Send it."
+Case manager reviews each one, tweaks the tone on two of them, closes one (that client just called), says "queue the rest."
 
-OpenClaw sends via Outlook. Logged.
+Five emails in the send queue. App sidebar shows: "5 emails sending in 5:00 — tap any to cancel."
+
+All five send five minutes later. Each logged.
+
+Total time for the case manager: 3 minutes instead of 45.
 
 ---
 

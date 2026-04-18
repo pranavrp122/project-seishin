@@ -6,7 +6,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import pytest
-from cache_executor import CacheExecutor
+from cache_executor import CacheExecutor, _fuzzy_match_column
 
 
 @pytest.fixture
@@ -390,3 +390,62 @@ class TestEdgeCases:
                 {"op_type": "cross_report_compare", "compare_column": "name"},
                 sample_report,
             )
+
+
+# --- FUZZY COLUMN MATCHING tests ---
+
+
+class TestFuzzyColumnMatching:
+    """Tests for _fuzzy_match_column synonym dictionary and fallback logic."""
+
+    def test_fuzzy_exact_match(self):
+        assert _fuzzy_match_column("revenue", ["revenue", "name"]) == "revenue"
+
+    def test_fuzzy_exact_case_insensitive(self):
+        assert _fuzzy_match_column("Revenue", ["revenue", "name"]) == "revenue"
+
+    def test_fuzzy_synonym_hit(self):
+        assert _fuzzy_match_column("revenue", ["total_dollars", "name"]) == "total_dollars"
+
+    def test_fuzzy_synonym_sales(self):
+        assert _fuzzy_match_column("sales", ["total_dollars", "name"]) == "total_dollars"
+
+    def test_fuzzy_date_synonym(self):
+        assert _fuzzy_match_column("date", ["created_at", "name"]) == "created_at"
+
+    def test_fuzzy_customer_synonym(self):
+        assert _fuzzy_match_column("customer", ["client_name", "id"]) == "client_name"
+
+    def test_fuzzy_substring_fallback(self):
+        assert _fuzzy_match_column("capacity", ["max_capacity", "name"]) == "max_capacity"
+
+    def test_fuzzy_no_match(self):
+        assert _fuzzy_match_column("nonexistent", ["a", "b", "c"]) is None
+
+    def test_fuzzy_spaces_to_underscores(self):
+        assert _fuzzy_match_column("client name", ["client_name", "id"]) == "client_name"
+
+    def test_filter_with_fuzzy_column(self, executor, sample_report):
+        """Filter using synonym column name 'area' resolves to 'region'."""
+        result = executor.execute(
+            {"op_type": "filter", "column": "area", "operator": "eq", "value": "West"},
+            sample_report,
+        )
+        assert result["row_count"] == 3
+
+    def test_sort_with_fuzzy_column(self, executor, sample_report):
+        """Sort using synonym column name 'area' resolves to 'region'."""
+        result = executor.execute(
+            {"op_type": "sort", "column": "area", "direction": "asc"},
+            sample_report,
+        )
+        assert result["rows"][0]["region"] == "East"
+
+    def test_top_n_with_fuzzy_column(self, executor, sample_report):
+        """Top N using synonym column name 'amount' resolves to 'revenue'."""
+        result = executor.execute(
+            {"op_type": "top_n", "column": "amount", "n": 3},
+            sample_report,
+        )
+        assert result["row_count"] == 3
+        assert result["rows"][0]["revenue"] == 4000

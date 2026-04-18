@@ -41,17 +41,17 @@ By the final phase: the agent prepares work overnight and presents ready-to-revi
 
 The foundation is complete and running today.
 
-### The Live Stack
+### Current Implementation
 
 | Component | What it does | Status |
 |-----------|-------------|--------|
-| **Voice pipeline** | Speech → Parakeet ASR → Gemma 4 LLM → Fish Speech TTS → audio out. Low-latency voice responses. | ✅ Live |
-| **Data layer** | Natural language → SQL (via Claude Haiku) → company database → results voiced back | ✅ Live |
-| **Follow-up engine** | Filters, sorts, aggregates on cached results with no re-query to the database | ✅ Live |
-| **Intent system** | 9 intent types classified in real time (query, follow-up, compare, undo, confirm, cancel, and more) | ✅ Live |
-| **OpenClaw** | Local automation framework — handles file ops, email OAuth, calendar connections. Starts and stops with the app. Not a background process. | ✅ Integrated |
-| **Quality safeguards** | History-aware context, fuzzy column matching, date normalization, compound requests, zero-result guidance | ✅ Live |
-| **Test suite** | 114 tests passing across unit, integration, and E2E | ✅ Passing |
+| **Voice pipeline** | Speech → ASR → language model → text-to-speech → audio out. Low-latency voice responses. | ✅ Implemented |
+| **Data layer** | Natural language → SQL → company database → results voiced back | ✅ Implemented |
+| **Follow-up engine** | Filters, sorts, aggregates on cached results with no re-query to the database | ✅ Implemented |
+| **Intent system** | 9 intent types classified in real time (query, follow-up, compare, undo, confirm, cancel, and more) | ✅ Implemented |
+| **Quality safeguards** | History-aware context, fuzzy column matching, date normalization, compound requests, zero-result guidance | ✅ Implemented |
+| **Test suite** | 114 tests passing across unit, integration, and E2E | ✅ Implemented |
+| **OpenClaw** | Local automation framework — file ops, email OAuth, calendar connections | 🔲 Phase 1 |
 
 ### What's Pending
 AWS GPU quota approval (submitted). Once approved, the system moves from local hardware into the company's own AWS account — their infrastructure, their data, their control.

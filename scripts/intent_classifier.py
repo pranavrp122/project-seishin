@@ -86,7 +86,7 @@ async def classify_intent(
         Dict with keys: intent, data_query, confidence.
     """
     # Build history context block (last 4 non-system turns, D-01)
-    recent = [m for m in history if m.get("role") in ("user", "assistant")][-4:]
+    recent = [m for m in history if m.get("role") in ("user", "assistant")][-25:]
     history_block = ""
     if recent:
         lines = [f"  {m['role'].title()}: {m['content'][:100]}" for m in recent]

@@ -565,13 +565,13 @@ async def handler(websocket):
                 else:
                     try:
                         if active_report_task is not None:
-                            raw = await asyncio.wait_for(websocket.recv(), timeout=8.0)
+                            raw = await asyncio.wait_for(websocket.recv(), timeout=12.0)
                         else:
                             raw = await websocket.recv()
                     except ConnectionClosed:
                         break
                     except asyncio.TimeoutError:
-                        # Silence while report is running — deliver result or send update
+                        # Silence while report is running — deliver result or send one update
                         if active_report_task.done():
                             await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
                             if last_intent_result:
@@ -580,20 +580,9 @@ async def handler(websocket):
                             active_report_task = None
                             active_report_query = ""
                         else:
-                            # Report still running — generate a natural progress update
-                            progress_messages = list(history) + [{
-                                "role": "user",
-                                "content": (
-                                    "[INTERNAL: The data pull is still running. "
-                                    "Give a short natural in-character update — something like 'still on it' "
-                                    "or 'almost there' but in your own words. One sentence. "
-                                    "Vary your phrasing each time — never repeat yourself.]"
-                                ),
-                            }]
-                            _ce = asyncio.Event()
-                            update_reply = await handle_llm_response(websocket, progress_messages, tts_client, _ce)
-                            if update_reply:
-                                history.append({"role": "assistant", "content": update_reply})
+                            # Report still running — one short update, no LLM call needed
+                            await websocket.send(json.dumps({"type": "sentence", "text": "Still working on it..."}))
+                            await websocket.send(json.dumps({"type": "done"}))
                         continue
 
                     # Binary frame: streaming PCM chunk or legacy full WAV
@@ -699,7 +688,10 @@ async def handler(websocket):
                 if not skip_classification:
                     # --- Intent classification ---
                     # Speculative op_spec for follow-up latency optimization
-                    has_reports = bool(session_cache.all_reports())
+                    # Report in cache OR one currently running = follow_up_on_previous is valid
+                    has_reports = bool(session_cache.all_reports()) or (
+                        active_report_task is not None and not active_report_task.done()
+                    )
                     if has_reports:
                         speculative_op_task = asyncio.create_task(
                             generate_op_spec(user_text, session_cache.summary())

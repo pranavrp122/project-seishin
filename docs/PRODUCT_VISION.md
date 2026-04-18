@@ -45,9 +45,9 @@ The foundation is complete and running today.
 
 | Component | What it does | Status |
 |-----------|-------------|--------|
-| **Voice pipeline** | Speech → Parakeet ASR → Gemma 4 LLM → Fish Speech TTS → audio out. First response under 1.5 seconds. | ✅ Live |
+| **Voice pipeline** | Speech → Parakeet ASR → Gemma 4 LLM → Fish Speech TTS → audio out. Low-latency voice responses. | ✅ Live |
 | **Data layer** | Natural language → SQL (via Claude Haiku) → company database → results voiced back | ✅ Live |
-| **Follow-up engine** | Filters, sorts, aggregates on cached results in under 100ms — no re-query | ✅ Live |
+| **Follow-up engine** | Filters, sorts, aggregates on cached results with no re-query to the database | ✅ Live |
 | **Intent system** | 9 intent types classified in real time (query, follow-up, compare, undo, confirm, cancel, and more) | ✅ Live |
 | **OpenClaw** | Local automation framework — handles file ops, email OAuth, calendar connections. Starts and stops with the app. Not a background process. | ✅ Integrated |
 | **Quality safeguards** | History-aware context, fuzzy column matching, date normalization, compound requests, zero-result guidance | ✅ Live |
@@ -81,15 +81,13 @@ The gap at 11% exists because every AI product in this space is text and GUI. **
 | Harvey AI | $1,000+/user/mo (20-seat min) | Priced out of most firms, legal-only, text-only |
 | TaxGPT | ~$1,600/user/yr | Research-only, no company data connection |
 | Microsoft Copilot for Finance | $18–30/user/mo | Requires enterprise ERP stack, not tax-specific |
-| Amazon Quick Suite | AWS pricing | Ingests data into AWS index — compliance exposure |
+| Amazon Quick Suite | AWS pricing | Ingests data into AWS index, no voice interface |
 
-Every major competitor either can't connect to a company's actual data, or they require ingesting that data into a third-party cloud. For companies handling client tax information, this creates real legal exposure:
-
-> **IRC §7216** requires written client consent before client data is used for anything outside direct tax services. Most competitor architectures are structurally incompatible with this.
+Every major competitor either can't connect to a company's actual data, or requires ingesting that data into a third-party cloud — and every single one is text and GUI only.
 
 ### Our Differentiation
 
-We query the company's own systems on demand. Nothing is indexed, copied, or stored outside their infrastructure. Client data stays in their AWS account, accessed through their own credentials. This is not just a privacy feature — it's the compliance answer that lets us operate where competitors cannot.
+We query the company's own systems on demand. Nothing is indexed, copied, or stored outside their infrastructure. Client data stays in their AWS account, accessed through their own credentials. Combined with a voice-first interface that no competitor has, this is a product that simply doesn't exist in the market today.
 
 ---
 
@@ -118,14 +116,14 @@ We query the company's own systems on demand. Nothing is indexed, copied, or sto
 
 #### Database Queries — Instant, Conversational
 
-Any case metric, accessible by voice. Results in 2–3 seconds. Every follow-up (filter, sort, compare) runs in under 100ms against cached data — no re-query.
+Any case metric, accessible by voice. Results come back quickly. Every follow-up (filter, sort, compare) runs against the already-retrieved data — no re-query.
 
 ```
 "Show me all cases in investigation phase"
   → voiced results
 
 "Filter to only ones with IRS deadlines this week"
-  → 100ms, no DB call
+  → fast, no DB call
 
 "Sort by amount owed"
   → instant
@@ -213,6 +211,21 @@ Permissions are automatic — the voice interface scopes every answer to what th
 
 ### What Phase 2 Adds
 
+#### Specialist Agents — First Introduced Here
+
+Phase 2 is where the specialist agent system begins. Rather than the main LLM trying to handle every task, specific task types now route to a dedicated agent with its own optimized system prompt. The agent database starts small and grows with every phase.
+
+**Agents added in Phase 2:**
+
+| Agent | Called when | What it's optimized for |
+|-------|------------|------------------------|
+| **Email Specialist** | Any email drafting request | Tax dispute communication tone, correct urgency signals, cites case reference, never guesses unverified facts |
+| **Calendar Specialist** | Any scheduling request | Timezone handling, conflict detection, client-facing vs. internal language |
+
+The pattern: main LLM classifies the intent → routes to the right specialist → specialist executes with its purpose-built system prompt → result surfaces in the app for user review. More agents are added each phase as new task types are introduced.
+
+---
+
 #### File Write Operations
 | What you say | What happens |
 |-------------|-------------|
@@ -298,25 +311,25 @@ Being able to watch the agent navigate Chrome live builds trust — users see ex
 4. Searches local machine for working files on this case
 5. Cross-references Salesforce document checklist against what's actually on file
 
-**Result, voiced in ~3 seconds:**
+**Result, voiced back in a few seconds:**
 
 > *"Case 4521 — Chen estate, active resolution. Revenue officer assigned last month. 12 documents in storage: original notice, 3 years of returns, the 433-A, 7 correspondence items. Checklist shows 2023 bank statements outstanding — but the client uploaded something to the portal 18 minutes ago that hasn't been classified yet. Want me to check if that's them?"*
 
-**Previously: 8–10 minutes of manual navigation across 4 systems. Now: one sentence, 3 seconds.**
+**Previously: 8–10 minutes of manual navigation across 4 systems. Now: one sentence, a few seconds.**
 
 > **Note on CRM flexibility:** The connector architecture supports Salesforce by default because it's the most common CRM in this sector. Other systems (HubSpot, custom CRMs, practice management platforms) are supported through additional connectors built on the same pattern.
 
 ---
 
-## 7. Phase 4 — Specialist Agents + Hallucination Checking
+## 7. Phase 4 — Specialist Agent Expansion + Hallucination Checking
 
-> **Goal:** Every task routes to a purpose-built specialist. Every output is verified against source documents before the user hears it. This is the phase where the product becomes genuinely transformative.
+> **Goal:** The specialist agent system introduced in Phase 2 now covers every meaningful task type in tax resolution. Hallucination checking is added as a second verification layer on every output. This is the phase where the product becomes genuinely transformative.
 
 ---
 
 ### How the Architecture Works
 
-The main language model becomes a coordinator. When a user makes a request, it identifies the task type, retrieves the right specialist from a vector database, injects the relevant case context, and lets the specialist execute.
+The specialist agent pattern started in Phase 2 with email and calendar. Phase 4 scales it to the full roster of tax resolution tasks, backed by a vector database that retrieves the right agent for any request. The main language model acts as a coordinator — it classifies the task, retrieves the right specialist, injects the relevant case context, and lets the specialist execute.
 
 ```
 User: "Draft an OIC for case 4521"
@@ -345,7 +358,18 @@ Adding a new specialist = write a system prompt + add a database record. No code
 
 ---
 
-### Specialist Agent Roster
+### Specialist Agent Roster — Full Phase 4 Expansion
+
+Agents are stored in a vector database. The orchestrator embeds the user's request, retrieves the best-matching specialist, and calls it with the right context. Adding a new agent = write a system prompt + add a record. No code change.
+
+**Carried forward from Phase 2:**
+
+| Agent | Added in |
+|-------|---------|
+| Email Specialist | Phase 2 |
+| Calendar Specialist | Phase 2 |
+
+**New agents added in Phase 4:**
 
 | Agent | Handles |
 |-------|---------|
@@ -369,8 +393,8 @@ Adding a new specialist = write a system prompt + add a database record. No code
 
 Every specialist output runs through a verification pass. The checker cross-references every specific claim against the document it came from. Unverifiable claims are tagged explicitly — the user sees exactly what's confirmed and what needs their judgment.
 
-- Adds ~200ms to response time
-- That 200ms is the most important part of the system
+- Adds a small amount of processing time per response
+- Worth every millisecond for content that may be submitted to the IRS
 
 **Agent maintenance:** IRS National Standard expense tables update annually. Specialist system prompts require scheduled review when IRS rules change — this is planned operational overhead, not a surprise cost.
 

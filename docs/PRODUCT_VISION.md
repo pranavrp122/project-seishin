@@ -45,7 +45,7 @@ The technical foundation is complete and running. Here is what exists today:
 
 **The intent system.** The agent understands 9 types of requests — new data queries, follow-ups on previous results, comparisons between data sets, undo, discovery, data listing, confirm, cancel, and general conversation. All classified in real time by the language model.
 
-**OpenClaw.** An open-source personal automation framework that runs on the user's laptop alongside the voice interface. It handles local operations — finding and opening files, drafting emails in Outlook or Gmail, reading calendars. It connects to email accounts via standard OAuth (the same secure authorization used by every email client). In Seishin, OpenClaw starts when the app starts and stops when the app closes. It is not a background process.
+**OpenClaw.** An open-source personal automation framework that runs on the user's laptop alongside the voice interface. It handles local operations — finding and opening files, connecting to email accounts via OAuth, reading and writing calendars. OpenClaw manages the underlying email delivery (Gmail API, SMTP) and calendar API connections. The visual presentation of emails and actions happens inside the Seishin app itself — OpenClaw is the execution engine, Seishin's UI is what the user sees and edits. In Seishin, OpenClaw starts when the app starts and stops when the app closes. It is not a background process.
 
 **Quality safeguards already in place.** History-aware classification (understands "those" and "that" in context), fuzzy column matching ("revenue" finds `total_dollars`), date normalization ("last quarter" becomes real dates), compound request detection, and zero-result guidance that suggests a broader search rather than just reporting no results.
 
@@ -81,11 +81,15 @@ For a company handling sensitive client tax information, putting that data into 
 
 These rules are established in Phase 1 and never change, regardless of how capable the system becomes in later phases.
 
-**Reads are instant, writes are confirmed.** The agent queries, searches, reads, and retrieves freely. Before it sends, moves, creates, or modifies anything, it pauses and shows the user exactly what it is about to do. The user approves. Then it happens.
+**Reads are instant, writes are confirmed.** The agent queries, searches, reads, and retrieves freely. Before it sends, moves, creates, or modifies anything, it pauses and shows the user exactly what it is about to do — inside the Seishin app. The user approves. Then it happens.
 
-**Every action has a visual.** When the agent drafts an email, the Outlook or Gmail compose window opens on screen with the content pre-filled. The user edits it directly in the app they already use. When it locates a file, File Explorer opens to that folder. The agent never operates invisibly.
+**Everything stays in the app.** Rather than opening external windows (Outlook, File Explorer, native calendar), the agent shows what it is about to do directly within Seishin's interface. Before a file move, a confirmation card appears in the app: "Moving `Nguyen_433A.pdf` from Downloads → Cases/Nguyen/." Before a calendar event, a structured event card shows the title, time, attendees, and description. The user sees the full picture without leaving the agent.
 
-**Email send queue — 5-minute delay.** No email sends the instant the user approves. It enters a visible queue with a countdown. Cancel or edit at any point during those 5 minutes. Given the stakes of client and IRS communications, this is permanent.
+**Emails get a full compose view within the app.** Email is the most consequential write action in this workflow — messages go to clients and to the IRS. Rather than trusting a voice description or opening a third-party compose window, Seishin renders a complete email compose panel inside the app: To, From, Subject, and Body all visible and editable, styled to look and feel like a real email. The user reads the full structure, edits any field directly, and then approves. This pattern is established in products like Spark AI, Fyxer, and Microsoft's Power Apps agent approval cards — we are applying it to the tax resolution context with full in-app control.
+
+Technically, this is built as a React component inside the Tauri desktop app. OpenClaw handles the email OAuth connection and actual delivery (Gmail API / SMTP) in the background. The compose view is our own UI — which means it works consistently regardless of whether the company uses Outlook, Gmail, or any other email provider. We are not dependent on or limited by any external email client.
+
+**Email send queue — 5-minute delay.** After the user approves in the compose view, the email enters a visible queue with a countdown. Cancel or edit at any point during those 5 minutes. Given the stakes of client and IRS communications, this is permanent.
 
 **Audit log on everything.** Every query, file access, and email sent is logged with timestamp, user, and action. Available for compliance export.
 
@@ -107,18 +111,18 @@ Each follow-up — another filter, a sort, a comparison — executes in under 10
 
 **Local file search and document opening**
 
-- "Find the investigation file for case 4521" → File Explorer opens to the folder
-- "Open the Chen 433-A" → document opens in PDF viewer or Word
-- "Find all documents I worked on last week" → listed by date, opens on selection
+- "Find the investigation file for case 4521" → app shows a file card: filename, folder path, last modified. Click or say "open it" to launch in the default application.
+- "Open the Chen 433-A" → document opens in the default viewer (PDF reader, Word, etc.) directly from the app
+- "Find all documents I worked on last week" → listed by date in the app panel, open any by voice or click
 
 Note: File *moving* and *organizing* are intentionally deferred to Phase 2. Phase 1's local operations are read-only (find and open) to keep the first deployment focused and low-risk. Phase 2 adds write operations once the confirmation patterns are proven in production.
 
 **Email drafting (no file moves yet)**
 
-- "Draft a status update to the client on case 4521" → Outlook/Gmail compose window opens, pre-filled with the correct client name, professional tone, and relevant case reference
-- User edits directly in the native compose window
-- Says "send it" → 5-minute queue starts, visible in the app sidebar
-- Cancel anytime during the countdown
+- "Draft a status update to the client on case 4521" → in-app email compose panel opens showing: To, Subject, and full Body, pre-filled with the correct client name, professional tone, and case reference
+- User reads the full email structure, edits any field directly in the panel
+- Says "send it" or clicks Send → 5-minute queue starts, visible in the app sidebar
+- Cancel or re-edit anytime during the countdown
 
 **Calendar read**
 
@@ -139,7 +143,7 @@ No dashboard. No navigation. The information is there.
 
 **Case Manager**
 
-Opens the agent. Hears what needs attention. Asks by voice. Gets instant answers. Drafts client emails with the compose window pre-filled. The daily information retrieval that used to take 20-30 minutes in the morning takes 5.
+Opens the agent. Hears what needs attention. Asks by voice. Gets instant answers. Drafts client emails — the full compose view appears in the app, pre-filled and ready to edit. The daily information retrieval that used to take 20-30 minutes takes 5.
 
 **Executive — Monday Morning Revenue Review**
 
@@ -190,17 +194,17 @@ The voice interface respects these boundaries automatically. An executive asking
 ### What Phase 2 Also Adds
 
 **File write operations (held back from Phase 1).**
-- "Move this to the Chen case folder" → File Explorer opens showing source and destination, user confirms, then the move executes
+- "Move this to the Chen case folder" → app shows a confirmation card: source path, destination path, filename. User confirms in the app, then the move executes.
 - "Organize my downloads by case number" → preview list of what will move where, user confirms, then bulk move
 - "Rename this to include the case number" → shows proposed new name, user confirms
 
 **Calendar write operations.**
-- "Schedule a call with the Chen investigation team Thursday at 2pm" → Google Calendar or Outlook event form opens pre-filled, user confirms before it's created
+- "Schedule a call with the Chen investigation team Thursday at 2pm" → app shows an event card: title, date/time, attendees, description. User confirms in the app, then the event is created via calendar API.
 - "Block Friday morning for hearing prep on case 4521" → same flow
 - "Reschedule my 3pm to next week" → shows proposed change, user confirms
 
 **Bulk email workflows.**
-- "Draft document request emails to every investigation-phase client missing their financial disclosures" → agent queries the portal database, identifies the subset, opens an Outlook compose window for each client simultaneously. Each draft is independently editable. The user reviews, adjusts what they need, closes any they want to handle differently, queues the rest. All with individual cancel options in the send queue sidebar.
+- "Draft document request emails to every investigation-phase client missing their financial disclosures" → agent queries the portal database, identifies the subset, and opens a scrollable email queue panel inside the app — one compose card per client, each showing To, Subject, and Body pre-filled. Each card is independently editable. The user scrolls through, tweaks what they need, removes any they want to handle separately, and approves the rest. All queued with individual countdowns and cancel buttons in the app sidebar.
 
 **Client portal connectivity (read-only).**
 - "Has Chen uploaded their 433-A?" → instant answer from portal database

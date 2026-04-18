@@ -114,6 +114,19 @@ We query the company's own systems on demand. Nothing is indexed, copied, or sto
 
 ### What Phase 1 Delivers
 
+#### OpenClaw Integration
+
+Phase 1 includes the full integration of OpenClaw into the Seishin desktop app. OpenClaw is bundled directly into the installer — no separate setup, no background service. It starts when Seishin opens and stops when Seishin closes.
+
+**What OpenClaw enables in Phase 1:**
+- Email OAuth connection to Gmail or Outlook (whichever the company uses) — handles authentication and delivery
+- Local file search via ripgrep
+- Calendar read access (Google Calendar or Outlook)
+
+The Seishin app owns all the UI — compose panels, confirmation cards, the send queue. OpenClaw is the execution layer underneath. This separation means the interface stays consistent regardless of which email provider or calendar system the company uses.
+
+---
+
 #### Database Queries — Instant, Conversational
 
 Any case metric, accessible by voice. Results come back quickly. Every follow-up (filter, sort, compare) runs against the already-retrieved data — no re-query.

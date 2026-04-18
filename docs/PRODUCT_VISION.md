@@ -10,45 +10,50 @@
 2. [What We've Built](#2-what-weve-built)
 3. [The Market Opportunity](#3-the-market-opportunity)
 4. [Phase 1 — Voice Intelligence Layer](#4-phase-1--voice-intelligence-layer)
-5. [Phase 2 — Office Automation + Client Portal](#5-phase-2--office-automation--client-portal)
+5. [Phase 2 — Office Automation + Access Control](#5-phase-2--office-automation--access-control)
 6. [Phase 3 — Unified Company Data](#6-phase-3--unified-company-data)
 7. [Phase 4 — Specialist Agents + Hallucination Checking](#7-phase-4--specialist-agents--hallucination-checking)
 8. [Phase 5 — Mobile + Proactive Push](#8-phase-5--mobile--proactive-push)
 9. [Phase 6 — Full Agentic Orchestration](#9-phase-6--full-agentic-orchestration)
 10. [Phase 7 — Enterprise Hardening](#10-phase-7--enterprise-hardening)
 11. [How It All Fits Together](#11-how-it-all-fits-together)
+12. [Features to Specify Before Build Begins](#12-features-to-specify-before-build-begins)
 
 ---
 
 ## 1. The Vision
 
-Tax resolution is a deeply human business. Clients come in scared — they have IRS notices, wage garnishments, liens on their homes. The people who help them are skilled professionals: enrolled agents, CPAs, attorneys who know the tax code inside out. The work they do is genuinely valuable.
+Tax resolution is a deeply human business. Clients come in scared — IRS notices, wage garnishments, liens on their homes. The professionals who help them are genuinely skilled: enrolled agents, CPAs, attorneys who know the tax code and the collections process inside out. The work they do matters.
 
-But the work is also buried in logistics. Hours every day go into searching for documents, switching between systems, chasing clients for information, drafting the same types of emails for the thousandth time, pulling the same reports that management requests every Monday morning. For a company running hundreds or thousands of cases simultaneously, this is not a small problem — it is the central bottleneck between the people on staff and the outcomes they can deliver.
+But the work is buried in logistics. Every day, hours go into searching for documents, switching between systems, chasing clients for missing information, drafting the same types of communications for the thousandth time, and pulling the reports that management asks for every Monday morning. For a company running hundreds or thousands of cases simultaneously, this is not a small problem. It is the central bottleneck between the people on staff and the outcomes they can deliver.
 
-**Seishin is an AI agent that handles the logistics so the people can focus on the work.**
+**Seishin is an AI agent that handles the logistics so the professionals can focus on the work.**
 
-It lives on each person's laptop. You speak to it like you'd speak to a highly capable assistant. It can pull any case from the database, find any file on your machine or in the company's storage, draft any communication, surface any deadline, and — once you confirm — take action. Every role in the company gets their own agent that knows their context, respects their permissions, and operates within boundaries that the company controls.
+It lives on each person's laptop. You speak to it the way you would speak to a highly capable assistant. It pulls any case, finds any file, drafts any communication, surfaces any deadline — and once you confirm, it acts. Every role gets an agent that knows their context, respects their access level, and operates within boundaries the company controls.
 
-The interface is voice because speaking is the fastest way to communicate and because this software is meant to be used while working — not as another window to stare at. By Phase 6, the agent will do the prep work for the day before the user even opens it, presenting ready-to-review outputs the moment they sit down. By the final phase, the entire company is running on it.
+The interface is voice because speaking is the fastest way to communicate, and because this software is designed to be used while working — not as another window to manage. By the final phase, the agent will prepare work overnight and present ready-to-review outputs the moment the user sits down. Every decision still belongs to the person.
 
 ---
 
 ## 2. What We've Built
 
-The technical foundation is complete and running. Here is what is live today:
+The technical foundation is complete and running. Here is what exists today:
 
-**The voice pipeline:** User speaks → audio transcribed by Parakeet ASR → Gemma 4 (27B parameter LLM) classifies intent and generates response → Fish Speech synthesizes a natural voice → audio plays back. Full round trip. First audio response in under 1.5 seconds.
+**The voice pipeline.** User speaks → audio transcribed by Parakeet (speech recognition model) → Gemma 4 (27 billion parameter language model) classifies the request and generates a response → Fish Speech converts the text to a natural-sounding voice → audio plays back. Full round trip, first audio response in under 1.5 seconds.
 
-**The data layer:** Natural language queries are converted to SQL by Claude Haiku and run against the company database. Results are returned, voiced, and cached in memory. Follow-up commands — "filter to just the active ones," "sort by amount owed," "top 10" — execute in under 100 milliseconds against the cached data without re-querying the database. This is what makes the conversation feel instant.
+**The data layer.** Natural language questions are converted to SQL by Claude Haiku (a fast, efficient language model from Anthropic) and run against the company database. Results are returned and voiced back. Follow-up commands — "filter to just the active ones," "sort by amount owed," "top 10" — execute in under 100 milliseconds against the already-retrieved data without re-querying the database. This is what makes the conversation feel instant rather than like waiting for a report.
 
-**The intent system:** The agent understands 9 types of requests — new data queries, follow-ups on previous results, comparisons between two data sets, undo, discovery, data listing, confirm, cancel, and general conversation. All classified in real time.
+**The intent system.** The agent understands 9 types of requests — new data queries, follow-ups on previous results, comparisons between data sets, undo, discovery, data listing, confirm, cancel, and general conversation. All classified in real time by the language model.
 
-**Quality safeguards built in from day one:** History-aware classification (understands "those" and "that" referring to prior results), fuzzy column matching (says "revenue" and gets `total_dollars`), date normalization ("last quarter" becomes real dates), compound request detection, and zero-result guidance that suggests a broader search rather than just saying nothing was found.
+**OpenClaw.** An open-source personal automation framework that runs on the user's laptop alongside the voice interface. It handles local operations — finding and opening files, drafting emails in Outlook or Gmail, reading calendars. It connects to email accounts via standard OAuth (the same secure authorization used by every email client). In Seishin, OpenClaw starts when the app starts and stops when the app closes. It is not a background process.
 
-**Tests:** 114 passing across unit, integration, and end-to-end simulation.
+**Quality safeguards already in place.** History-aware classification (understands "those" and "that" in context), fuzzy column matching ("revenue" finds `total_dollars`), date normalization ("last quarter" becomes real dates), compound request detection, and zero-result guidance that suggests a broader search rather than just reporting no results.
 
-What is waiting: AWS GPU quota approval (requested). Once approved, the system moves from running on local hardware to deploying into the company's own AWS account — their data, their infrastructure, their control.
+**Tests.** 114 passing across unit, integration, and end-to-end simulation.
+
+**What is pending.** AWS GPU quota approval (submitted). Once approved, the system moves from local hardware to the company's own AWS account — their infrastructure, their data, their control.
+
+**Note on pre-Phase 4 outputs.** Until Phase 4 introduces automated hallucination checking, the user is the verification layer. This is an acceptable and deliberate design choice: every write action (sending, moving, filing) requires explicit confirmation before it happens. The user reviews before anything goes out. Phase 4 adds a second layer of machine verification on top of that — it does not replace the human, it assists them.
 
 ---
 
@@ -56,320 +61,351 @@ What is waiting: AWS GPU quota approval (requested). Once approved, the system m
 
 The AI-in-accounting market is valued at $10.9 billion in 2026 and growing at 44% per year. AI adoption among accounting and tax firms jumped from 9% to 41% in a single year. The demand is real and accelerating.
 
-But voice AI adoption in financial services sits at just 11% — despite 91% of those same companies deploying AI in other forms. The gap exists because every AI product in this space is text and GUI. Nobody has built a voice-first interface for tax and financial professionals.
+Voice AI adoption in financial services sits at just 11% — despite 91% of those same companies deploying AI in other forms. The gap exists because every AI product built for this space is text and GUI. No one has built a voice-first interface for tax and financial professionals.
 
-**The competitive landscape makes this clear:**
+**The competitive landscape is clear:**
 
-Every major player — Thomson Reuters CoCounsel, Harvey AI, TaxGPT, Microsoft Copilot for Finance, Amazon Quick Suite — is a text chat interface. They are also either too expensive for mid-market companies, locked into specific ecosystems, or require ingesting company data into a third-party cloud. For a company handling sensitive client tax information, putting that data into an external AI index creates real compliance exposure under IRC §7216 and IRS Publication 1075.
+Every major player — Thomson Reuters CoCounsel ($75-500/user/month), Harvey AI ($1,000+/user/month, 20-seat minimum), TaxGPT, Microsoft Copilot for Finance — is a text chat interface. They are also either prohibitively expensive for most companies, locked into specific software ecosystems, or they require ingesting company data into a third-party cloud.
 
-Our model is different: the agent queries the company's own data sources on demand and returns results. Nothing is indexed, nothing is copied, nothing is stored outside the company's own infrastructure. The company's data stays in the company's AWS account. This is not just a privacy feature — it is a compliance feature that directly addresses the legal exposure that makes competitors difficult to deploy in regulated financial services environments.
+For a company handling sensitive client tax information, putting that data into an external AI index creates real compliance exposure. IRC §7216 requires written client consent before client information is used for anything beyond direct tax services. IRS Publication 1075 imposes strict controls on all Federal Tax Information. Most competitor products are structurally incompatible with these requirements.
 
-Combined with voice-first interaction and a per-person agent model, this is a product that does not exist in the market today.
+**Our model is different.** The agent queries the company's own data sources on demand and returns results. Nothing is indexed, nothing is copied, nothing is stored outside the company's own infrastructure. The client data stays in the company's AWS account, accessed through the company's own credentials. This is not just a privacy feature — it is the compliance answer that makes deployment possible where competitors cannot go.
 
 ---
 
 ## 4. Phase 1 — Voice Intelligence Layer
 
-> *What gets deployed first. A complete proof of concept that delivers immediate value to every role — and establishes the foundation that every subsequent phase builds on.*
+> *First deployment. Proof of concept that delivers immediate value to every role from day one. Nothing here is experimental — it is the complete foundation that every subsequent phase builds on.*
 
-### What This Is
+### The Core Interaction Principles
 
-Phase 1 gives every person in the company a voice interface to their data. They can ask any question about the case portfolio, filter and slice the results naturally, find files on their machine, check their calendar, and draft emails that open directly in Outlook or Gmail. The agent is a desktop application — not a background process, not a browser extension. It opens when you want it and closes when you don't. When it's open, it is fully attentive.
+These rules are established in Phase 1 and never change, regardless of how capable the system becomes in later phases.
 
-This phase establishes the non-negotiable interaction principles that govern every feature in every phase that follows:
+**Reads are instant, writes are confirmed.** The agent queries, searches, reads, and retrieves freely. Before it sends, moves, creates, or modifies anything, it pauses and shows the user exactly what it is about to do. The user approves. Then it happens.
 
-**Reads are instant, writes are confirmed.** The agent queries, searches, reads, and retrieves with no interruption. Before it sends anything, moves anything, or creates anything, it pauses and shows the user exactly what it is about to do.
+**Every action has a visual.** When the agent drafts an email, the Outlook or Gmail compose window opens on screen with the content pre-filled. The user edits it directly in the app they already use. When it locates a file, File Explorer opens to that folder. The agent never operates invisibly.
 
-**Every action has a visual.** When the agent drafts an email, the native Outlook or Gmail compose window opens on screen with the draft pre-filled. The user edits it directly in the app they already know. When it finds a file, File Explorer opens to the folder. The agent never operates in a black box.
+**Email send queue — 5-minute delay.** No email sends the instant the user approves. It enters a visible queue with a countdown. Cancel or edit at any point during those 5 minutes. Given the stakes of client and IRS communications, this is permanent.
 
-**Email send queue — 5-minute delay.** No email sends the instant the user approves. It enters a visible queue with a countdown. The user can edit or cancel at any time during those 5 minutes. Given the stakes of IRS-related client communications, this is a permanent guardrail, not a temporary limitation.
-
-**Audit log on everything.** Every query made, every file accessed, every email sent — logged with timestamp, user, and action. Available for compliance export.
-
-### What It Can Do
-
-**Company database queries — instant, natural language**
-
-Every case management metric the company tracks is now accessible by voice. A case manager who used to open Salesforce, run a report, wait for it to load, and export it to Excel to filter it — now just asks. The results come back in 2-3 seconds and can be refined conversationally without rerunning anything.
-
-Examples:
-- "Show me all cases currently in the investigation phase"
-- "Which cases have IRS response deadlines this week"
-- "Filter those to just the ones without a filed response"
-- "How many cases are in resolution right now versus last month"
-- "Who has the highest caseload on the resolution team"
-
-Each follow-up — another filter, a sort, a comparison — executes against the already-retrieved data in under 100 milliseconds. The conversation flows like talking to someone who has the whole database memorized.
-
-**Local file operations**
-
-- "Find the investigation file for case 4521" → File Explorer opens to the exact folder
-- "Find all documents I worked on last week" → results listed by date, Explorer opens on selection
-- "Move that to the Chen case folder" → File Explorer shows source and destination, user confirms, done
-
-**Email drafting**
-
-- "Draft a status update to this client" → Outlook compose window opens, draft pre-filled with the correct client name, case reference, and appropriate professional tone
-- User edits directly in Outlook, says "send it"
-- 5-minute queue starts. Visible countdown in the app sidebar.
-
-**Calendar**
-
-- "What do I have today?" → schedule voiced back
-- "When is the next available time to schedule a call with the investigation team?" → checks calendar, suggests times
-
-**Limited proactive — session start briefing**
-
-When the agent opens each morning, before the user says anything, it automatically checks the database and surfaces the most important items. This is the first seed of what becomes a full proactive intelligence system in later phases. At Phase 1, it is simple and database-only:
-
-> *"Morning. Quick update: 4 cases have IRS deadlines this week, and 6 clients still haven't uploaded the documents your team requested. Want to start with the deadlines or the missing documents?"*
-
-The user does not have to ask. The agent already looked.
+**Audit log on everything.** Every query, file access, and email sent is logged with timestamp, user, and action. Available for compliance export.
 
 ---
 
-### Who Uses It — Phase 1 Roles in Action
+### What Phase 1 Delivers
+
+**Company database queries — instant, conversational**
+
+Any case management metric is now accessible by voice. A case manager who previously opened the CRM, navigated to a report, waited for it to load, and exported it to filter it — now just asks. Results in 2-3 seconds, refineable in conversation without re-running anything.
+
+- "Show me all cases currently in the investigation phase"
+- "Which cases have IRS response deadlines this week"
+- "Filter to only the ones where we haven't filed a response yet"
+- "How many cases are in resolution right now versus last month"
+- "Who on the resolution team has the highest active caseload"
+
+Each follow-up — another filter, a sort, a comparison — executes in under 100 milliseconds against the already-retrieved data.
+
+**Local file search and document opening**
+
+- "Find the investigation file for case 4521" → File Explorer opens to the folder
+- "Open the Chen 433-A" → document opens in PDF viewer or Word
+- "Find all documents I worked on last week" → listed by date, opens on selection
+
+Note: File *moving* and *organizing* are intentionally deferred to Phase 2. Phase 1's local operations are read-only (find and open) to keep the first deployment focused and low-risk. Phase 2 adds write operations once the confirmation patterns are proven in production.
+
+**Email drafting (no file moves yet)**
+
+- "Draft a status update to the client on case 4521" → Outlook/Gmail compose window opens, pre-filled with the correct client name, professional tone, and relevant case reference
+- User edits directly in the native compose window
+- Says "send it" → 5-minute queue starts, visible in the app sidebar
+- Cancel anytime during the countdown
+
+**Calendar read**
+
+- "What do I have today?" → schedule voiced back
+- "When's my next available time this week?" → reads calendar, suggests times
+
+**Proactive — session start briefing (Phase 1 form)**
+
+When the agent opens, before the user says anything, it checks the database and surfaces the most important items automatically. This is the first, simplest version of what grows into a full proactive intelligence system over later phases. At Phase 1 it is database-only:
+
+> *"Morning. 4 cases have IRS deadlines this week, and 6 clients haven't uploaded the documents your team requested yet. Want to start with the deadlines?"*
+
+No dashboard. No navigation. The information is there.
+
+---
+
+### Who Uses It — Phase 1 in Action
 
 **Case Manager**
 
-A case manager's morning used to start with 20 minutes of navigating between Salesforce, the document portal, their email, and their local files just to understand what needed their attention. With Phase 1, they open the app and hear a briefing. They ask follow-up questions by voice. They find files by name. They draft client emails with a compose window that appears already written.
+Opens the agent. Hears what needs attention. Asks by voice. Gets instant answers. Drafts client emails with the compose window pre-filled. The daily information retrieval that used to take 20-30 minutes in the morning takes 5.
 
-The most immediately valuable workflow: preparing for a client call. Instead of opening three systems and spending 10 minutes assembling context, they say "pull up everything on case 4521" and hear a summary in 3 seconds. Then: "draft a pre-call email to the client confirming the appointment." Outlook opens. They scan it, hit send. Queue starts.
+**Executive — Monday Morning Revenue Review**
 
-**Executive / VP Level (Revenue Operations Example)**
-
-An executive does not need to know about individual cases. They need to know whether the business is performing. Phase 1 gives them that by voice.
-
-> *Executive opens the app Monday morning.*
+> *Executive opens the app.*
 >
-> *Agent: "Morning. Quick update: you have 847 active cases. 23 have IRS deadlines this week. Investigation-phase cases are up 12% from last month, which is ahead of the intake volume trend. Resolution closures last week: 31. Average days to close in Q1 so far: 94, versus 108 same time last year. Anything you want to dig into?"*
+> *Agent: "Morning. You have 847 active cases. Investigation-phase volume is up 12% from last month — ahead of intake trends. Resolution closures last week: 31. Average days to close this quarter: 94, down from 108 this time last year. 4 cases have IRS deadlines this week, 2 without filed responses yet."*
 >
-> *Executive: "Show me resolution closures broken down by resolution type this quarter."*
+> *Executive: "Show me resolution closures broken down by type this quarter."*
 >
-> *Instant results. "We have 41 installment agreements, 28 offers in compromise, 19 currently not collectible, 14 penalty abatements. Want me to compare that to Q4?"*
+> *Agent: "41 installment agreements, 28 offers in compromise, 19 currently not collectible, 14 penalty abatements. Want me to compare that to Q4?"*
 >
-> *"Yeah compare it."*
+> *Executive: "Yes."*
 >
-> *Sub-second. The agent already has last quarter cached. "OICs are up 34% quarter over quarter. Everything else is roughly flat."*
+> *Agent: "OICs are up 34% quarter over quarter. Everything else roughly flat."*
 
-No dashboard. No report. No waiting. The executive got a full Monday morning business briefing in 4 minutes.
+No dashboard. No waiting for a report. Full business picture in 3 minutes.
 
-This is the value that sells Phase 1.
+This is the demonstration that sells the product.
 
 ---
 
-## 5. Phase 2 — Office Automation + Client Portal
+## 5. Phase 2 — Office Automation + Access Control
 
-> *Builds directly on Phase 1. Every feature in Phase 2 is only possible because Phase 1's infrastructure — the voice pipeline, the intent system, the database connectivity, and OpenClaw for local operations — is already in place.*
+> *Builds on Phase 1's foundation in two critical ways: it enables the full team to use the system simultaneously with proper permission boundaries, and it adds the write operations (file moves, calendar events, bulk email) that Phase 1 deliberately held back.*
 
-### What Phase 2 Adds
+### Why Access Control Comes Here, Not Phase 7
 
-**Multi-user support.** Phase 1 can run for a single user. Phase 2 enables the full company — hundreds of users, concurrent sessions, each person with their own isolated context, history, and undo stack while sharing access to the same underlying data.
+Deploying a multi-user system without role-based access control is not acceptable in a regulated financial services company. A case manager should not see executive financial data. An executive should not accidentally access case files outside their purview. Senior and junior staff have different levels of data access.
 
-**Client portal connectivity.** The company's client portal — where clients upload documents, receive communications, and track their case status — becomes queryable by voice. Case managers can ask in real time what has and hasn't been submitted, without logging into a separate system.
+Phase 2 solves this before enabling concurrent team use. Permissions inherit from the company's existing SSO provider (Okta, Google Workspace, or Microsoft Entra) — the role definitions and data access boundaries already configured in the company's identity system flow directly into the agent. No parallel permission system to maintain.
 
-- "Has Chen uploaded their 433-A?" → instant answer
-- "Show me all clients in the investigation phase who haven't submitted their bank statements" → voiced list in 2 seconds
-- "Which clients uploaded documents in the last 24 hours?" → instant
+**Role tiers established in Phase 2:**
 
-**Bulk email workflows with full visual control.** Building on Phase 1's single-email drafting, Phase 2 enables batch operations. "Draft document request emails to every client in investigation who is missing their financial disclosures" — the agent hits the portal database, identifies the subset, and opens an Outlook compose window for each client simultaneously. Each is fully pre-filled and independently editable. The user reviews, edits as needed, closes any they want to handle differently, and queues the rest. All in the send queue, all with individual cancel options.
+| Role | What they can access |
+|------|---------------------|
+| Case Manager | Assigned cases only, client communications, their own local files |
+| Senior Manager / Team Lead | Department-level case data, team workload distribution, escalations |
+| Department Head / VP | Full department portfolio, performance metrics, capacity data |
+| Executive / C-Suite | Company-wide business metrics — volume, revenue, performance trends. Not individual case detail unless they drill in. |
+| IT Administrator | System configuration and audit logs, no access to case data |
 
-**Calendar write operations.** Phase 1 reads the calendar. Phase 2 can create and modify events. The Google Calendar or Outlook event form opens pre-filled — the user reviews it before it's created. Nothing is scheduled without the user seeing it first.
+The voice interface respects these boundaries automatically. An executive asking "how many cases are overdue?" gets a company-wide answer. A case manager asking the same question gets an answer scoped to their assigned cases.
 
-**Advanced file operations.** Search across network drives and shared folders. Bulk organization with a preview list before any moves happen. Open any document directly — "open the Martinez 433-A" opens the file in the default application.
+**Concurrency model.** All users connect to the same inference server running in the company's AWS VPC. Each user's session is isolated — their conversation history, their cached data results, and their undo stack are private. The underlying data sources are shared. This is the same model as any multi-user SaaS: one backend, isolated sessions.
 
-**Proactive briefing — Phase 2 form.** The session-start briefing now includes portal activity alongside the database summary:
+---
 
-> *"Morning. Overnight: 4 clients uploaded documents — Rivera sent bank statements, Chen sent their W-2, two others submitted items I'll need a reviewer to classify. 4 cases have IRS deadlines this week. 11 clients are past the 2-week mark with outstanding document requests. Want to start with the new uploads or the overdue requests?"*
+### What Phase 2 Also Adds
+
+**File write operations (held back from Phase 1).**
+- "Move this to the Chen case folder" → File Explorer opens showing source and destination, user confirms, then the move executes
+- "Organize my downloads by case number" → preview list of what will move where, user confirms, then bulk move
+- "Rename this to include the case number" → shows proposed new name, user confirms
+
+**Calendar write operations.**
+- "Schedule a call with the Chen investigation team Thursday at 2pm" → Google Calendar or Outlook event form opens pre-filled, user confirms before it's created
+- "Block Friday morning for hearing prep on case 4521" → same flow
+- "Reschedule my 3pm to next week" → shows proposed change, user confirms
+
+**Bulk email workflows.**
+- "Draft document request emails to every investigation-phase client missing their financial disclosures" → agent queries the portal database, identifies the subset, opens an Outlook compose window for each client simultaneously. Each draft is independently editable. The user reviews, adjusts what they need, closes any they want to handle differently, queues the rest. All with individual cancel options in the send queue sidebar.
+
+**Client portal connectivity (read-only).**
+- "Has Chen uploaded their 433-A?" → instant answer from portal database
+- "Show me all investigation-phase clients who haven't submitted their bank statements" → voiced list in 2 seconds
+- New portal uploads appear in the morning briefing
+
+**Proactive — Phase 2 form.**
+Morning briefing now includes portal activity alongside database summary:
+
+> *"Morning. Overnight: Rivera submitted bank statements, Chen sent a W-2, two other clients uploaded documents that need classification. 4 cases have IRS deadlines this week. 11 clients are past the 2-week mark on outstanding document requests. Where do you want to start?"*
 
 ---
 
 ## 6. Phase 3 — Unified Company Data
 
-> *The product becomes genuinely different from anything else available. One voice command spans every system the company uses simultaneously — CRM, document storage, client portal, financial database, and the user's own local files.*
+> *The product becomes genuinely different from anything else available. One voice command spans every system the company uses simultaneously. The technical foundation from Phases 1 and 2 — the intent system, the permission layer, the session architecture — is what makes this possible.*
 
 ### What Phase 3 Adds
 
-**Salesforce connector.** Every case record, contact, task, call log, and status update in Salesforce becomes queryable by voice. Users see only the cases and data they have permission to access — permissions inherit from the company's existing Salesforce profiles and role hierarchy. Nothing new to configure for data governance.
+**Salesforce connector.** Every case record, contact, task, call log, and status update in Salesforce becomes queryable by voice. Users see only the cases and data their Salesforce profile permits — the existing role hierarchy maps directly. No new access configuration needed.
 
-**AWS S3 connector.** All documents stored in the company's S3 buckets — scanned IRS mail, case files, uploaded client documents, correspondence — become searchable by case, by document type, by date. Read-only. Scoped to the company's own buckets.
+**AWS S3 connector.** All documents in the company's S3 storage — scanned IRS mail, case files, uploaded client documents, correspondence — become searchable by case, type, and date. Read-only. Scoped to the company's own buckets.
 
-**Unified result merger.** When a query spans multiple sources, results are merged before the voice response. The user hears a coherent answer, not a system-by-system readout.
+**Unified result merger.** When a query spans multiple systems, results are merged before the voice response. The user hears a coherent answer, not a system-by-system readout.
 
-### The Hybrid Query — The Core Differentiator
+**Fallback behavior.** If a connector is unreachable (network issue, API timeout), the agent voices which sources it could and could not reach, delivers the partial result, and flags what may be incomplete. It never silently returns incomplete data as if it were complete. If the query cannot be answered with sufficient confidence, it says so.
 
-This is the feature that cannot be replicated by any competitor. One spoken sentence can simultaneously query Salesforce, S3, the client portal, the internal database, and the user's local machine — and return a single unified answer.
+### The Hybrid Query
+
+One spoken sentence simultaneously queries the CRM, document storage, client portal, internal database, and local machine — and returns a single unified answer. No other product in this space can do this.
 
 > *"Pull up everything we have on case 4521"*
 
 The agent simultaneously:
 1. Pulls the case record from Salesforce — status, assigned staff, timeline, tasks
-2. Lists all documents in S3 for this case, sorted by date
-3. Checks the client portal — what has been uploaded, what is missing per the checklist
-4. Searches the user's local machine for any working files with this case number
+2. Lists all documents in S3 for this case by date
+3. Checks the client portal — what has been uploaded, what the checklist still requires
+4. Searches the user's local machine for any working files related to this case
 5. Cross-references the Salesforce document checklist against what is actually on file
 
-Result, spoken in approximately 3 seconds:
+Voiced back in approximately 3 seconds:
 
-> *"Case 4521 — Chen estate, currently in active resolution. The IRS assigned a revenue officer last month. You have 12 documents in storage: the original notice, 3 years of returns, the 433-A, and 7 correspondence items. The checklist still shows the 2023 bank statements as outstanding — however, I can see the client uploaded something to the portal 18 minutes ago that I haven't classified yet. Want me to check if that's the bank statements?"*
+> *"Case 4521 — Chen estate, active resolution. Revenue officer assigned last month. 12 documents in storage: original notice, 3 years of returns, the 433-A, 7 correspondence items. The checklist shows 2023 bank statements still outstanding — but the client uploaded something to the portal 18 minutes ago that hasn't been classified yet. Want me to check if that's the bank statements?"*
 
-**Every data source. One answer. Three seconds.**
+**Every data source. One answer. Three seconds.** Previously: 8-10 minutes of manual navigation across multiple systems.
 
-Competitors either cannot do this at all, or require ingesting all of that data into a third-party cloud index — creating the IRC §7216 compliance problem. We query each source directly using the company's own credentials. Nothing is copied or stored outside their infrastructure.
-
-### Document Review Specialist Agent
-
-Phase 3 introduces the first specialist agent: the **Document Review Agent**. When documents are uploaded or found, this agent classifies them by type (IRS notice, 433-A, bank statement, pay stub, tax return), extracts key figures, and flags what is still missing for the specific resolution path this case is on (OIC requires different documents than an installment agreement). The result is voiced in plain language with specific gaps called out.
+**Note on CRM flexibility.** Phase 3 specifies Salesforce because it is the most common CRM in this sector. The connector architecture is designed to support other systems — HubSpot, custom CRMs, or practice management platforms — through additional connectors built on the same pattern. A company not on Salesforce is not excluded; they are a Phase 3 connector build rather than a Phase 3 include.
 
 ---
 
 ## 7. Phase 4 — Specialist Agents + Hallucination Checking
 
-> *Every task now routes to a purpose-built specialist. The main LLM becomes a coordinator. Hallucination checking runs on every output before it reaches the user — no number, date, or figure is presented unless it can be sourced back to a verified document.*
+> *Every meaningful task now routes to a purpose-built specialist agent. The main language model becomes a coordinator. And every output is verified against source documents before the user hears it — no number, date, or figure is presented unless it can be traced back to a specific document.*
 
-### The Architecture Shift
+### The Architecture
 
-In Phases 1-3, the main language model handles everything. Phase 4 introduces a specialist agent layer. When a user makes a request, the orchestrator identifies what type of task it is, retrieves the right specialist agent from a vector database, injects the relevant case context, and lets the specialist execute. Each specialist has a system prompt that is deeply optimized for its job.
+The main language model classifies the task type, retrieves the appropriate specialist agent from a vector database, injects the relevant case context, and lets the specialist execute. Each specialist has a system prompt that is deeply optimized for its specific job. The vector database stores each agent as a record: name, description, task types, the full system prompt, required context fields, and expected output format.
 
-The vector database stores each agent as a record: name, description, task types, the full system prompt, required context fields, and expected output format. Adding a new specialist requires writing its system prompt and adding a record — no code change needed.
+Adding a new specialist requires writing its system prompt and adding a record to the database — no code change required. The system grows with the company's needs.
 
 ```
 User: "Draft an Offer in Compromise for case 4521"
 
 Orchestrator:
   → Identifies: OIC drafting task
-  → Vector search: retrieves OIC Calculator & Drafter (highest relevance match)
-  → Fetches context: 433-A from portal, income/expense data from DB, total liability from Salesforce
-  → Calls specialist with full context injected
+  → Vector search retrieves: OIC Calculator & Drafter
+  → Fetches context: 433-A from portal, income data from DB, liability from Salesforce
+  → Calls specialist with full context
 
 OIC Calculator & Drafter:
   → Applies IRS Reasonable Collection Potential formula
   → Calculates monthly disposable income
-  → Derives offer amount with appropriate cushion
-  → Drafts Form 656 cover letter citing every figure from source data
+  → Derives offer amount with cushion above RCP
+  → Drafts Form 656 cover letter, every figure cited from source
 
 Hallucination Checker:
-  → Verifies every dollar amount against the source document it came from
-  → Verifies every date against case records
+  → Verifies each dollar amount against the source document it came from
+  → Verifies each date against case records
   → Verifies client name and case number against Salesforce
-  → Tags anything that cannot be sourced: [unverified — please confirm]
+  → Tags unverifiable claims: [unverified — please confirm]
 
-Result voiced to user. Document opens in Word for review.
+Result voiced. Document opens in Word.
 ```
 
 ### The Specialist Agent Roster
 
 | Agent | What It Handles |
 |-------|----------------|
-| **IRS Response Letter Writer** | CP2000, CP503, CP504, levy release, audit response — IRS formatting, deadlines, required regulatory language |
-| **OIC Calculator & Drafter** | Reasonable Collection Potential math, 433-A analysis, offer recommendation, Form 656 and cover letter |
-| **CDP Hearing Preparer** | Collection Due Process arguments, hearing prep, supporting documentation checklist |
-| **Penalty Abatement Writer** | First-time abatement, reasonable cause arguments, correct form and submission process |
-| **Installment Agreement Drafter** | Streamlined vs non-streamlined, eligibility check, monthly payment calculation, Currently Not Collectible consideration |
+| **IRS Response Letter Writer** | CP2000, CP503, CP504, levy release, audit response — correct IRS formatting, deadlines, required language |
+| **OIC Calculator & Drafter** | Reasonable Collection Potential math, 433-A analysis, offer amount, Form 656 and cover letter |
+| **CDP Hearing Preparer** | Collection Due Process arguments, hearing preparation, supporting documentation checklist |
+| **Penalty Abatement Writer** | First-time abatement, reasonable cause arguments, correct form and process |
+| **Installment Agreement Drafter** | Streamlined vs non-streamlined eligibility, payment calculation, Currently Not Collectible consideration |
 | **Financial Disclosure Analyzer** | 433-A/433-B analysis, IRS National Standard expense allowances, income verification, net equity |
-| **Client Communication Agent** | Status updates, document request letters, intake welcome emails, hearing instructions — client-facing tone |
-| **New Client Intake Agent** | Case type identification from uploaded documents, initial liability summary, recommended resolution path |
-| **Case Status Summarizer** | Clean, factual summaries for partner reviews, internal handoffs, client updates |
+| **Document Review Agent** | Classifies document types (W-2, 1099, IRS notice, 433-A, bank statement), extracts key figures, flags what is missing for each resolution path |
+| **Client Communication Agent** | Status updates, document requests, welcome emails, hearing prep instructions — client-facing tone |
+| **New Client Intake Agent** | Case type identification from uploaded documents, liability summary, recommended resolution path |
+| **Case Status Summarizer** | Factual summaries for partner reviews, internal handoffs, client updates |
 | **Deadline Tracker Agent** | IRS calendar awareness, response windows, statute of limitations, extension deadlines |
 
-### Hallucination Checking — Why This Matters
+Note: The Document Review Agent is introduced here, as part of the full specialist framework, rather than in Phase 3. Phase 3's unified data access is a prerequisite — the Document Review Agent needs to pull documents from S3 and the portal simultaneously to do its job properly.
 
-Every other AI product in this space has the same problem: the model is trained on general knowledge and will confidently generate plausible-sounding numbers that are wrong. In tax resolution, a wrong figure in an OIC submission or an IRS response letter is not a minor error — it can harm the client's case.
+### Hallucination Checking — Why This Is Non-Negotiable
 
-Every output from a specialist agent runs through a verification step before reaching the user. The checker cross-references each specific claim against the source documents retrieved for that task. A liability figure must match the case database. An income figure must match the 433-A from the portal. An IRS notice date must match the scanned notice in S3. If it cannot be verified, it is tagged explicitly. The user sees exactly what is confirmed and what needs their judgment.
+Tax resolution professionals are liable for what they submit to the IRS. A language model trained on general knowledge will sometimes generate plausible-sounding figures that are wrong. In this domain, a wrong number in an OIC or a misquoted liability in an IRS response is not a minor error.
 
-This adds approximately 200 milliseconds to response time. For content that may be submitted to the IRS, it is the most important 200 milliseconds in the system.
+Every specialist agent output runs through a verification pass before reaching the user. The checker cross-references each specific claim against the source document it was derived from. If it cannot find the source, it tags the claim explicitly. The user sees exactly what is confirmed and what requires their judgment.
+
+This adds approximately 200 milliseconds to the response time. It is the most important 200 milliseconds in the system.
+
+**Note on agent maintenance.** IRS National Standard expense tables are updated annually. Revenue officer assignment procedures change. New resolution programs emerge. The specialist agent system prompts require maintenance as IRS rules evolve. This is planned operational overhead — a scheduled review and update cycle for each agent's system prompt, triggered by IRS rule changes or annual policy updates.
 
 ---
 
 ### Phase 4 in Action — Tax Professional Example
 
-A senior enrolled agent is working on an OIC for a complex case. Historically this takes 90 minutes: pulling the 433-A, running the RCP calculation manually, looking up the current IRS National Standards for the client's county, drafting the cover letter, verifying everything lines up.
+A senior enrolled agent needs to prepare an OIC. Historically: 90 minutes to pull the 433-A, run the RCP calculation, look up National Standards for the county, draft the cover letter, and verify everything aligns.
 
-> *"Draft an Offer in Compromise for case 4521. Client's income has changed since we last ran the numbers."*
+> *"Draft an Offer in Compromise for case 4521. The client's income changed since we last ran numbers."*
 
-Agent pulls: 433-A from portal (uploaded 2 weeks ago), current income from the most recent pay stubs, IRS National Standards for Orange County (current year), total liability from the database.
+Agent pulls the updated 433-A from the portal, most recent pay stubs, current IRS National Standards for the client's county, and total liability from the database. The OIC specialist runs the math. The hallucination checker verifies every figure.
 
-OIC agent runs the math. Hallucination checker verifies each figure against its source. Word opens with the completed Form 656 cover letter pre-populated.
+> *"Based on the updated 433-A and current IRS expense standards for this county, Reasonable Collection Potential comes to $11,200. I'd recommend offering $12,500 — 10% above RCP, which typically moves faster. Everything in the draft has been verified against source documents. One item I couldn't confirm: the vehicle equity field was left blank on the 433-A. You'll want to address that before filing."*
 
-> *"Based on the updated 433-A and current IRS expense standards for this county, the Reasonable Collection Potential comes to $11,200. I'd recommend offering $12,500 — that's a 10% cushion above RCP, which tends to move faster. Every figure in the draft has been verified against the source documents. The one I couldn't confirm is the client's vehicle equity — that field was left blank on the 433-A. You'll want to address that before filing."*
-
-The draft is on screen. One unresolved item flagged. The enrolled agent reviews, addresses the vehicle equity question, confirms, queues. Done in 12 minutes instead of 90.
+Word opens with the completed Form 656 cover letter. One unresolved item flagged. The enrolled agent reviews, resolves the vehicle equity question, confirms, queues. Done in 12 minutes instead of 90.
 
 ---
 
 ## 8. Phase 5 — Mobile + Proactive Push
 
-> *The agent stops waiting to be opened. Push notifications reach users wherever they are. The morning briefing arrives before the workday starts. WhatsApp integration means the agent is accessible from any phone without installing anything new.*
+> *The agent stops waiting to be opened. Alerts reach users wherever they are. The morning briefing arrives before the workday begins. Builds on Phase 4's complete intelligence layer — push notifications are only valuable when the underlying intelligence is reliable.*
 
 ### What Phase 5 Adds
 
-**Mobile app (iOS and Android).** A lightweight app that mirrors the desktop experience. Tap to speak, see transcription, hear the response. Full access to every capability from Phases 1-4. SSO login. Secure connection to the company's VPC.
+**Mobile app (iOS and Android).** A lightweight app that mirrors the desktop experience. Tap to speak, see transcription, hear response. Full access to every Phase 1-4 capability from any phone. SSO login. Encrypted connection to the company's VPC.
 
-**Messaging platform integration via OpenClaw.** The agent connects to WhatsApp, iMessage, and other platforms the company uses. A case manager can send a WhatsApp message asking "has Chen uploaded their 433-A yet?" from their car between appointments and get an instant answer. No additional app required.
+Note on infrastructure: The mobile app requires the backend to be accessible as a service over HTTPS — not just via local network. This means the Phase 5 build includes configuring a secure API gateway in the company's AWS account that the mobile app connects to. This is standard AWS infrastructure; the effort is in the configuration and security review, not novel engineering.
 
-**Push notifications — proactive without requiring the app to be open.**
+**Messaging platform integration (WhatsApp Business API).** Via OpenClaw's messaging connectors, the agent connects to WhatsApp Business. Case managers can send a message from their phone — "has Chen uploaded their 433-A yet?" — and get an instant answer without opening an app. Platform note: iMessage does not provide a public API for third-party integrations and is not supported. WhatsApp Business API is the primary mobile messaging channel for Phase 5; other platforms (Telegram, Slack) can be added on the same connector pattern.
 
-| What triggers it | What the user receives |
-|-----------------|----------------------|
-| IRS deadline within 48 hours | Alert with case number, deadline, current document status |
+**Push notifications.** The agent monitors connected data sources and pushes alerts when something requires human attention.
+
+| Trigger | What gets sent |
+|---------|---------------|
+| IRS deadline within 48 hours | Alert: case, deadline, current document status |
 | Client uploads to portal | "New documents from [client] — [X items] uploaded" |
-| Case dormant for 3+ weeks | Flag for case manager and supervisor |
-| New IRS notice detected in S3 | Alert with notice type, response window, assigned staff |
-| Uncontacted new intake after 24 hours | Alert for intake team |
+| Case dormant for 3+ weeks | Flag for case manager and their supervisor |
+| New IRS notice found in S3 | Notice type, response window, assigned staff |
+| Uncontacted new intake after 24 hours | Alert to intake team |
 
-**Delivered to:** phone notification, WhatsApp/iMessage, or the desktop app — user configures preference.
+**Proactive morning briefing — pushed to phone.**
 
-**Proactive morning briefing — pushed, not pulled.** At a configured time each weekday morning, before the user opens any application, the agent assembles a briefing from all connected sources and delivers it to their phone.
+At a configured time each weekday morning, before the user opens any application, the agent assembles a briefing from all connected sources and delivers it to their phone.
 
 > *Agent, 8:00am via WhatsApp:*
-> *"Morning. This week: 6 IRS deadlines — 2 need responses that aren't drafted yet. 14 clients uploaded documents over the weekend. Pipeline update: 847 active cases, 31 in resolution closing range. 3 enrolled agents are over capacity based on current caseloads. I'll flag anything urgent as it comes in — have a good week."*
+>
+> *"Morning. This week: 6 IRS deadlines — 2 need responses that haven't been started. 14 clients uploaded documents over the weekend. Pipeline: 847 active cases, 31 approaching resolution close. 3 enrolled agents are over capacity. I'll flag anything urgent as it comes in."*
 
-The user reads this before they even open their laptop. They arrive at their desk already knowing what matters. That is the value.
+The user reads this before their laptop is open. They arrive knowing what matters.
+
+**Proactive — Phase 5 form.** Suggestions now include specific tasks by name, because the specialist agents from Phase 4 exist to execute them:
+
+> *"The Nguyen CDP response is due Friday and I can draft it now — I have everything I need. Want me to start?"*
 
 ---
 
 ## 9. Phase 6 — Full Agentic Orchestration
 
-> *The complete vision. The agent knows what needs doing, works through the day alongside the user, handles all preparation and logistics automatically, and brings the human in only for the decisions that require human judgment. Every action — every single one — still confirmed before execution.*
+> *The complete vision. The agent works through the day alongside the user — preparing, drafting, tracking, and executing the logistics of every case. The human makes every decision. The agent handles everything else. Every write still confirmed before execution.*
 
 ### How It Works
 
-When the user opens the agent (or when their morning briefing arrives), the agent has already done the morning's preparatory work. It has read every case with upcoming deadlines, reviewed every overnight upload, checked the calendar for the day, and assembled ready-to-review outputs. The user is not starting from scratch — they are reviewing and approving work that has already been prepared.
+When the user opens the agent, it has already completed the morning's preparatory work: read every case with upcoming deadlines, reviewed overnight uploads, checked the calendar, and assembled ready-to-review outputs. The user reviews and approves work that has already been prepared — they are not starting from scratch.
 
-The core rule has not changed from Phase 1: **reads are automatic, writes require confirmation.** The scope of "reads" has simply expanded. The agent can now do everything involved in preparing a task — pulling data, reading documents, drafting letters, calculating figures, researching relevant IRS guidance — entirely on its own. It only stops when it is about to do something that affects the outside world.
+The rule has not changed since Phase 1: reads are automatic, writes are confirmed. The scope of automatic reads has simply grown to include everything involved in preparing a task — pulling data, reading documents, drafting, calculating, cross-referencing. The agent stops when it is about to affect something outside the system.
 
 ### The Morning Workflow
 
 > *Case manager opens the agent at 9am.*
 >
-> *Agent: "Morning. I've done some prep. For the Chen case — CDP hearing is Thursday and the prep document is ready for your review, I just need you to look it over. For the Nguyen case — bank statements just came in and I've already analyzed them, income looks slightly higher than what was on the 433-A, which may affect the OIC calculation. I've flagged the discrepancy in a note. For the new Park intake from this morning — I've classified the documents, identified this as an installment agreement case, and drafted the welcome email. 3 minutes to review these and you'll have cleared most of your morning queue."*
+> *Agent: "Morning. I've done some prep. For the Chen case — CDP hearing is Thursday and the response is drafted and ready for your review. For Nguyen — bank statements came in overnight and the income is slightly higher than what was on the 433-A, which may affect the OIC calculation. I've flagged the discrepancy in a note. For the Park intake from this morning — I've classified the documents, identified this as an installment agreement case, and drafted the welcome email. About 3 minutes to review these three and you'll have cleared the morning queue."*
 >
 > *Case manager: "Start with Chen."*
 >
-> *Agent: "The CDP response draft is open in Word. I've built the argument around economic hardship — it's the strongest angle given the financial disclosure. Every figure has been verified against the 433-A. There's one item I wasn't sure about: the client mentioned a rental property on the intake form but I don't have documentation for it in S3. I've flagged it in the document. Everything else is sourced."*
+> *Agent: "CDP response is open in Word. Argument is built around economic hardship — strongest angle given the financial disclosure. All figures verified. One flag: the client mentioned a rental property on intake but there's no documentation for it in storage. Flagged in the document."*
 >
-> *Case manager reviews, addresses the rental property flag, confirms to queue for attorney review.*
+> *Case manager reviews, resolves the rental property question, confirms to queue for attorney review.*
 >
-> *Total time: 8 minutes. Historically: 45.*
+> *Total time: 8 minutes. Previously: 45.*
 
 ### State Persistence
 
-If a workflow is interrupted — the user takes a call, closes the laptop, steps away — the agent saves its state. When they return:
+If a workflow is interrupted — the user takes a call, closes the laptop, steps away — the agent saves its state completely. When they return:
 
-> *"Welcome back. You were in the middle of the Chen CDP response — the draft is ready and you'd reviewed it to the rental property flag. The Thursday deadline is now 38 hours away. Want to continue?"*
+> *"Welcome back. You were reviewing the Chen CDP response — you'd gotten to the rental property flag. The Thursday hearing is now 38 hours away. Want to continue?"*
 
 Nothing is lost. Every workflow is resumable.
 
 ### Full Case Lifecycle Support
 
-From intake to resolution, the agent supports every phase of case management:
+**Intake.** New client documents arrive → agent classifies them, identifies the resolution path, drafts the welcome message and intake questionnaire, routes to the correct team based on case type and current capacity.
 
-**Intake.** New client's documents come in. Agent classifies them, identifies the resolution path, drafts the welcome message and intake questionnaire, routes to the correct team based on case type and current team capacity.
+**Active case.** Tracks the document checklist → surfaces missing items → drafts IRS correspondence → prepares for hearings → monitors for IRS responses → flags deadlines before they become crises.
 
-**Active case.** Tracks the document checklist, surfaces missing items, drafts IRS correspondence, prepares for hearings, monitors for IRS responses in S3, flags deadlines before they become crises.
-
-**Resolution.** Drafts final resolution documents, coordinates the signature workflow, closes the case in Salesforce, generates the client-facing resolution summary.
+**Resolution.** Drafts final documents → coordinates signature workflow → closes the case in Salesforce → generates the client-facing resolution summary.
 
 At every step: the human confirms. The agent prepares.
 
@@ -377,74 +413,106 @@ At every step: the human confirms. The agent prepares.
 
 ## 10. Phase 7 — Enterprise Hardening
 
-> *The product is ready for any company at any scale. Role-based access, full administrative control, SOC 2 alignment, and self-service deployment so new customers can be onboarded without engineering time.*
+> *The product is ready to be sold to any company at any scale. Self-service deployment, comprehensive administrative control, and the operational infrastructure needed for a regulated enterprise.*
 
 ### What Phase 7 Adds
 
-**Full role-based access control.** Every user has a defined role — Case Manager, Senior Manager, Department Head, Executive, IT Administrator — and their data access, agent capabilities, and notification scope are tied to that role. Permissions inherit from the company's existing SSO provider (Okta, Google Workspace, or Microsoft Entra) — no parallel permission system to maintain.
+**Admin dashboard (web interface).** Separate from the voice interface — this is the control panel for IT and operations teams. User provisioning, role assignment, data source configuration (which Salesforce org, which S3 buckets, which portal database), approved specialist agent list, usage analytics per user and feature, audit log export, and cost tracking per user per month.
 
-**Admin dashboard (web interface).** IT and operations teams manage the system here. User provisioning, role assignment, data source configuration, approved agent roster, usage analytics per user and per feature, audit log export, and cost tracking. Everything accessible to the people responsible for running the system, without requiring them to use the voice interface.
+**Enhanced SOC 2 alignment.** The architecture from Phase 1 has always been SOC 2-compatible by design: all access authenticated and permission-checked, full audit trail, data never leaves the company's infrastructure. Phase 7 formalizes this with documentation, penetration testing, and incident response procedures. SOC 2 Type II certification is pursued after first enterprise contracts are signed.
 
-**Enterprise-grade security compliance:**
-- Full audit trail on every query, action, and confirmation — exportable for compliance review
-- All data processing within the company's own AWS VPC — nothing leaves their infrastructure
-- Encryption in transit (TLS 1.3) and at rest (AWS KMS, customer-controlled keys)
-- SOC 2 Type II architectural alignment — not certified at launch, positioned for certification after first enterprise contracts are signed
+**Self-service deployment package.** A CDK stack (automated infrastructure setup for AWS) that a new customer can deploy with a single command and a configuration file. The company specifies their Salesforce organization, S3 bucket, portal database, and SSO provider. The system builds itself in their AWS account. They pay AWS for the underlying compute costs.
 
-**Self-service deployment.** A new customer can deploy the full stack into their own AWS account using the provided CDK package — one command, one configuration file. The company pays AWS directly for infrastructure costs. We charge a software license on top.
+**Team-level briefings for executives.** Portfolio-level morning briefings for department heads and executives — not individual case status, but cross-team performance metrics, capacity distribution, deadline exposure across the operation, and trend data week over week.
 
-**Team-level proactive intelligence.** Department heads and executives receive portfolio-level briefings — not individual case details, but cross-team performance, capacity distribution, deadline exposure across the whole operation, and trend analysis week over week.
+### Phase 7 in Action — Operations Example
+
+An operations director is onboarding a new department of 40 case managers. Previously this would require IT tickets, manual permission setup in multiple systems, and a full-day onboarding session.
+
+> *IT Administrator opens the admin dashboard.*
+>
+> *Selects "Add Department" → links to the company's Okta group for the new team → sets data access scope to their case queue in Salesforce → assigns the Case Manager role tier → configures notification preferences.*
+>
+> *All 40 users receive SSO login instructions. The agent is available on their desktop the same day. Permissions automatically inherit from the Okta group — if someone changes roles later, their access updates instantly.*
+
+No engineering work. No custom configuration per user. 40 users onboarded in an afternoon.
 
 ---
 
 ## 11. How It All Fits Together
 
-The seven phases are not separate products. Each one is a layer that is only possible because the previous layer exists. Here is how the progression works:
+### Phase Dependencies — Why This Order
 
-| Phase | What It Requires From Before | What It Unlocks |
-|-------|------------------------------|----------------|
-| **Phase 1** | The voice pipeline + DB connector we've already built | Voice queries, file ops, email drafting, basic morning summary |
-| **Phase 2** | Phase 1's OpenClaw integration + DB connectivity | Multi-user, bulk operations, portal access, richer briefings |
-| **Phase 3** | Phase 2's multi-user architecture + SSO layer | Salesforce + S3 connectors, hybrid queries across all sources |
-| **Phase 4** | Phase 3's unified data access + all sources connected | Specialist agents that can pull from any source, hallucination checking |
-| **Phase 5** | Phase 4's complete intelligence layer | Push notifications and mobile — delivery of smart content to any device |
-| **Phase 6** | Phase 5's proactive foundation | Overnight prep work, full workflow orchestration, lifecycle management |
-| **Phase 7** | Phase 6's full capability set | Enterprise-ready packaging, admin control, SOC 2, multi-company deployment |
+Each phase is only buildable because the previous one exists. The sequence is not arbitrary.
 
-**Phase 1 is a proof of concept that is genuinely useful.** A company deploys it and immediately sees every employee spend less time searching for information and more time doing their actual work. The morning briefing alone — instant, accurate, requiring no action — is a daily demonstration of what the product is becoming.
-
-**Phase 4 is where it becomes transformative.** Specialist agents with verified outputs mean professionals can produce IRS-quality documents in a fraction of the time, with confidence in the numbers.
-
-**Phase 6 is the full vision.** The agent does the prep. The professional does the work.
-
----
+| Phase | Requires from before | What it enables next |
+|-------|---------------------|---------------------|
+| **1** | Voice pipeline + DB connector (built) | The query/response loop that all future features ride on |
+| **2** | Phase 1 infrastructure + OpenClaw for local ops | Multi-user requires permission boundaries; write ops require confirmed patterns from Phase 1 |
+| **3** | Phase 2 permission layer + multi-user architecture | Unified cross-source queries require knowing *who* is asking and *what they can see* |
+| **4** | Phase 3 data access (all sources connected) | Specialist agents need to pull from every source to do their jobs |
+| **5** | Phase 4 intelligence layer (reliable, verified outputs) | Push notifications only have value when the underlying intelligence can be trusted |
+| **6** | Phase 5 proactive foundation | Agentic overnight prep is Phase 5 proactive expanded to full task preparation |
+| **7** | Phase 6 complete capability set | Enterprise packaging is the last layer — it wraps a complete product, not a partial one |
 
 ### The Proactive Intelligence Progression
 
-One thread runs through all phases — the system's ability to surface what matters without being asked. Here is how it evolves:
+One thread runs through all phases — the system's ability to surface what matters without being asked.
 
 | Phase | What "proactive" means |
 |-------|----------------------|
-| 1 | App opens → 3-item DB summary voiced automatically |
+| 1 | App opens → automatic 3-item DB summary |
 | 2 | Summary expands to include portal activity and overnight uploads |
-| 3 | Full cross-source briefing: every system checked, items ranked by urgency |
-| 4 | Specific task suggestions: "I can draft this now — want me to start?" |
+| 3 | Full cross-source briefing: every system, items ranked by urgency |
+| 4 | Specific task suggestions with specialist agent readiness: "I can draft this now" |
 | 5 | Pushed to phone before the user opens anything |
 | 6 | Work prepared overnight, ready for review at session start |
-| 7 | Portfolio-level briefings distributed to team leads and executives |
+| 7 | Portfolio briefings distributed to team leads and executives |
+
+### Deployment Timeline
+
+| Phase | What a company has at this stage | Estimated timeline |
+|-------|--------------------------------|-------------------|
+| Phase 1 | Voice queries, file find/open, email drafts, session briefing | Ready once AWS quota approved (~3 weeks) |
+| Phase 2 | Full team deployment, file moves, bulk email, portal access, access control | +4 weeks |
+| Phase 3 | Salesforce + S3 + hybrid queries across all sources | +4-6 weeks |
+| Phase 4 | Specialist agents per task type, verified outputs | +6-8 weeks |
+| Phase 5 | Mobile app, WhatsApp push, proactive alerts | +4 weeks |
+| Phase 6 | Overnight prep, full workflow orchestration | +6-8 weeks |
+| Phase 7 | Self-service deployment, admin dashboard, enterprise packaging | +4-6 weeks |
+
+**Total to full product: approximately 9 months from Phase 1 deployment.**
+
+Phase 1 closes pilot deals. Phase 4 is where it becomes transformative for professionals. Phase 6 is the complete vision.
 
 ---
 
-### Why This Product Wins
+## 12. Features to Specify Before Build Begins
 
-No existing product combines all of the following:
+The following items require decisions before the relevant phase can be implemented cleanly. They are called out here so they are addressed in planning rather than discovered mid-build.
 
-- **Voice-first interface** built for professionals who have their hands full and can't be at a keyboard
-- **Personal + company data unified** — one query reaches local files, CRM, document storage, and client portal simultaneously
-- **Stateless query model** — we query your existing systems, we don't ingest your data. Your client information never leaves your infrastructure. This is the compliance answer to every competitor's problem.
-- **User orchestrates, not the system** — every write confirmed by voice. Liability stays with the professional. The agent accelerates; the human decides.
-- **Specialist agents per task** — not one model trying to do everything, but purpose-built intelligence for each job, with verified outputs
-- **Proactive by design** — the agent knows what matters before you ask, and it keeps getting better at knowing
+**Before Phase 2:**
+- Define the exact role tier model: how many tiers, what data each tier can access, how role assignment works in the SSO provider of the first customer
+- Specify the multi-user session concurrency model: maximum concurrent sessions, session timeout behavior, cache isolation approach
+- Define the audit log schema: what fields are required, what format, what retention policy
+
+**Before Phase 3:**
+- Map the first customer's Salesforce schema: which objects represent cases, contacts, documents, and tasks. The connector is configurable but the initial mapping requires a schema review session with the customer's Salesforce admin.
+- Confirm S3 bucket structure: prefix conventions, document naming, access patterns
+- Define what happens when a connector is unavailable: partial results with explicit flagging, or query failure with error message
+
+**Before Phase 4:**
+- Decide the vector database: pgvector (on existing RDS) vs. Pinecone vs. Weaviate. Trade-off is operational simplicity (pgvector) vs. search quality at scale (dedicated vector DB)
+- Define the agent maintenance process: who reviews specialist system prompts, how often, what triggers an update (IRS rule change, new case type, observed output quality issue)
+- Set the hallucination checker confidence threshold: at what certainty level does a figure get passed vs. flagged
+
+**Before Phase 5:**
+- Register a WhatsApp Business API account: requires Facebook Business Manager verification, typically 2-4 weeks. Start this process during Phase 4 to avoid delay.
+- Define notification delivery rules: which roles get which notification types, quiet hours, escalation if no response to a critical deadline alert
+
+**Before Phase 6:**
+- Define the overnight prep scope: which tasks does the agent prepare without being asked? Too broad creates noise; too narrow misses the value. Start with the highest-frequency task types from Phase 4 usage data.
+- Specify state persistence storage: where is session state saved, how long is it retained, what is restored on reconnect
 
 ---
 

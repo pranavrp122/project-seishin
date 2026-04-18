@@ -1,747 +1,628 @@
-# Seishin — Product Vision, Architecture & Roadmap
+# Seishin — Full Product Vision & Phased Roadmap
 
-> Full guide capturing everything: what we built, where we're going, the pivot, the market research, the architecture, the business case, and the agentic workflow vision. Written April 2026.
+> Voice-first AI agent for tax dispute companies. Personal + company data, user-orchestrated, AWS-native. Written April 2026.
 
 ---
 
 ## Table of Contents
 
-1. [What Seishin Is](#1-what-seishin-is)
-2. [What We've Built So Far](#2-what-weve-built-so-far)
-3. [OpenClaw Research](#3-openclaw-research)
-4. [The Product Pivot](#4-the-product-pivot)
-5. [Market Research](#5-market-research)
-6. [Use Cases — Tax Dispute Company](#6-use-cases--tax-firm)
-7. [Technical Architecture](#7-technical-architecture)
-8. [Model Setup](#8-model-setup)
-9. [The Agentic Workflow Vision](#9-the-agentic-workflow-vision)
-10. [Business Case](#10-business-case)
-11. [Billing & Pricing](#11-billing--pricing)
-12. [Full Roadmap](#12-full-roadmap)
-13. [What I Think](#13-what-i-think)
+1. [Current State — What We Have](#1-current-state--what-we-have)
+2. [Market Research](#2-market-research)
+3. [Phase 1 — MVP Deploy](#3-phase-1--mvp-deploy)
+4. [Phase 2 — Office Automation Layer](#4-phase-2--office-automation-layer)
+5. [Phase 3 — Company Data Integration](#5-phase-3--company-data-integration)
+6. [Phase 4 — Specialist Agent Architecture](#6-phase-4--specialist-agent-architecture)
+7. [Phase 5 — Mobile & Proactive Intelligence](#7-phase-5--mobile--proactive-intelligence)
+8. [Phase 6 — Full Agentic Orchestration](#8-phase-6--full-agentic-orchestration)
+9. [Phase 7 — Enterprise Hardening & Scale](#9-phase-7--enterprise-hardening--scale)
 
 ---
 
-## 1. What Seishin Is
+## 1. Current State — What We Have
 
-Seishin is a real-time voice AI companion that lets users speak naturally to retrieve business data, manipulate it, and take action on it — all through a voice interface, with responses delivered in a natural AI voice.
-
-The original core pipeline:
-
-```
-User speaks on laptop
-  -> whisper.cpp (local ASR) transcribes
-  -> WebSocket to server
-  -> Gemma 4 27B (local vLLM) classifies intent + generates response
-  -> Fish Speech TTS converts text to audio
-  -> Audio streamed back to laptop
-```
-
-On top of that: a report pipeline where natural language queries get turned into SQL by Claude Haiku, run against a business database, and the results voiced back — with the ability to filter, sort, aggregate, and manipulate the data through follow-up voice commands without re-querying the database.
-
----
-
-## 2. What We've Built So Far
-
-### Current Tech Stack
+### The Stack
 
 | Component | What it does | Model / Tech | Where it runs |
 |-----------|-------------|--------------|---------------|
 | Client app | Voice capture, playback | Tauri (Rust) | User's laptop |
-| ASR | Audio to text | Parakeet TDT (cloud endpoint currently) | Cloud — Phase 8 moves to VPC |
+| ASR | Audio → text | Parakeet TDT (cloud endpoint currently) | Cloud — moves to VPC in Phase 1 |
 | Intent classification | Classifies what user wants | Gemma 4 27B NVFP4 via vLLM | Local RTX 5090 |
-| Conversation / personality | Miyako persona, natural responses | Gemma 4 27B NVFP4 via vLLM | Local RTX 5090 |
-| SQL generation | NL to SQL for reports | Claude Haiku 4.5 | Anthropic cloud |
-| Report manipulation | Filter, sort, aggregate on cached data | CacheExecutor (pure pandas) | Server, no LLM |
-| TTS | Text to voice audio | Fish Speech S2 Pro INT8 | Local RTX 5090 |
+| Conversation / personality | Natural voice responses | Gemma 4 27B NVFP4 via vLLM | Local RTX 5090 |
+| SQL generation | NL → SQL for reports | Claude Haiku 4.5 | Anthropic cloud |
+| Report manipulation | Filter, sort, aggregate on cached data | CacheExecutor (pure pandas) | Server, no LLM needed |
+| TTS | Text → voice audio | Fish Speech S2 Pro INT8 | Local RTX 5090 |
 
 ### Phases Completed
 
-- **Phase 10**: LLM-native intent detection — replaced regex with Gemma guided_json
-- **Phase 11**: Session cache + LLM-guided data operations — 9 op types via pandas, no re-querying DB on follow-ups, 81 tests passing
-- **Phase 11.1**: Natural language UX hardening — 8 features, 114 tests passing
+- **Phase 10**: LLM-native intent detection — Gemma replaces regex, guided JSON output
+- **Phase 11**: Session cache + LLM-guided data operations — 9 op types via pandas, no re-querying DB on follow-ups
+- **Phase 11.1**: Natural language UX hardening — 8 features (history-aware intent, fuzzy column matching, undo stack, compound requests, date normalization, discovery intent, zero-result guidance, cold-start cross-report compare)
+- **Tests**: 114 passing across unit, integration, and E2E simulation
 
-### Intent System (9 Intents)
+### Intent System (9 Intents Live)
 
-| Intent | Trigger | What happens |
-|--------|---------|-------------|
-| `new_data_request` | "show me clients" | Pulls fresh report from DB |
-| `follow_up_on_previous` | "filter to VIP" | Applies op to cached data via pandas |
-| `compare_reports` | "compare clients with invoices" | Concurrent dual fetch then cross-report merge |
-| `undo` | "go back", "undo that" | TTL-aware restore from 5-op stack |
-| `what_can_i_ask` | "what data do you have?" | Queries report API for available topics |
-| `list_cached_data` | "what did I pull?" | Voices active session reports |
-| `confirm` | "yes", "do it" | Executes pending suggestion spec |
-| `cancel` | "never mind" | Clears pending spec |
-| `normal_chat` | everything else | Conversation |
+| Intent | Example trigger | What happens |
+|--------|----------------|-------------|
+| `new_data_request` | "show me open cases" | Pulls fresh report from DB |
+| `follow_up_on_previous` | "filter to just levies" | Applies op to cached data, no DB call |
+| `compare_reports` | "compare those with last month" | Concurrent dual fetch → cross-report merge |
+| `undo` | "go back" | Restores previous cached report |
+| `what_can_i_ask` | "what data do you have?" | Voices available report types |
+| `list_cached_data` | "what did I pull?" | Voices current session reports |
+| `confirm` | "yes, do it" | Executes pending action |
+| `cancel` | "never mind" | Clears pending action |
+| `normal_chat` | anything else | Conversation |
 
-### Session Cache — How Follow-ups Work
+### How Follow-ups Work
 
-When a report is delivered, the rows, column metadata, SQL, and query are stored in a SessionCache per session. Follow-up voice commands ("sort those by amount", "only show paid ones", "top 5") run through CacheExecutor — pure pandas operations, no LLM, no DB call, sub-100ms response. Results are cached as a new report enabling unlimited chaining. Session cache holds up to 10 reports, evicts by TTL (10 min), supports cross-report compare when two reports share a join column.
+When a report is delivered, rows + column metadata + SQL + query are cached in SessionCache. Follow-up commands ("sort by amount", "only show active", "top 5") run through CacheExecutor — pure pandas, no LLM, no DB call, sub-100ms. Results cache as a new report, enabling unlimited chaining. Capped at 10 reports per session, 10-minute TTL.
 
----
+### What's Waiting
 
-## 3. OpenClaw Research
-
-### What OpenClaw Is
-
-https://openclaw.ai/ — open-source personal AI assistant, 350K+ GitHub stars, one of the fastest growing open-source projects ever. Created by Peter Steinberger in late 2025. Now stewarded by a non-profit after Steinberger joined OpenAI.
-
-Core concept: A local-first AI agent gateway that runs as a permanent daemon on your machine and connects to any messaging platform as its UI. You chat to it on WhatsApp, it executes on your computer.
-
-### Capabilities
-
-- Full filesystem read/write + shell execution
-- Email — Gmail, Outlook via Microsoft Graph OAuth (production-ready, already built)
-- Browser control + web scraping
-- Calendar — Google Calendar, Outlook
-- 4,000+ community skills on ClawHub marketplace
-- Persistent memory (SOUL.md, AGENTS.md workspace config)
-- Self-writes and hot-reloads its own skills
-- Supports Claude, GPT, Gemini, local LLMs interchangeably
-
-### Architecture
-
-- TypeScript/Node.js daemon on port 18789
-- Skills are SKILL.md markdown files in ~/.openclaw/workspace/skills/
-- Install: npm install -g openclaw@latest && openclaw onboard
-- Sandboxing: sandbox.mode "non-main" runs non-main sessions in Docker with configurable tool allowlists
-
-### Security Note
-
-Cisco found a third-party ClawHub skill performing data exfiltration via prompt injection. For enterprise: use only verified skills, Docker sandbox mode, no ClawHub marketplace access — company-controlled skill whitelist only.
-
-### Why It Fits
-
-OpenClaw handles the hard parts of office automation already. Seishin provides the voice layer OpenClaw doesn't have. The integration is a bridge: Seishin's server sends tool_call JSON to OpenClaw's sessions API, OpenClaw executes locally, result comes back.
+- AWS G-quota request submitted (g6e.xlarge for Gemma 4 + Fish Speech)
+- Phase 7 (cloud GPU), Phase 8 (local ASR in VPC), Phase 9 (TTS quality), Phase 12 (demo readiness) all planned and ready to execute once quota is approved
 
 ---
 
-## 4. The Product Pivot
-
-### Why We Pivoted
-
-Amazon released Quick Suite — AWS's agentic AI platform connecting to 90+ data sources, 1,000+ MCP integrations, agentic automation, being deployed to 120,000+ users (DXC Technology). It directly competes with "voice + database search."
-
-### What The Product Becomes
-
-A personal AI agent per user with two domains:
-
-**Personal domain** — the user's own laptop files, email, calendar, local documents
-
-**Company domain** — permission-gated access to Salesforce, S3, databases, practice management, SharePoint
-
-The agent unifies both. One voice command spans both simultaneously:
-
-> "Pull up everything we have on the Martinez estate case"
-
-Hits Salesforce for the case record, S3 for attached documents, searches local machine for local copies, checks email thread — returns a unified view voiced back naturally. That does not exist anywhere right now.
-
-### Why This Is Different From Quick Suite
-
-| | Amazon Quick Suite | Our product |
-|--|--|--|
-| How it works | Copies data into AWS vector index | Queries original sources on demand, returns results |
-| Where data lives at rest | AWS cloud (replicated, indexed) | Original systems (S3, Salesforce, laptop) |
-| Privacy model | Trust AWS | Nothing stored — stateless query |
-| Local laptop access | No | Yes — OpenClaw |
-| Voice interface | No | Yes |
-| Who acts | Autonomous | User says go |
-| Compliance burden | AWS BAA, data residency reviews | Lighter — querying existing authorized systems |
-| Personal + company unified | No | Yes |
-
-**The key distinction:** Quick Suite ingest-index-search vs our query-on-demand-return-forget. For a tax dispute company handling client SSNs and financial data, putting that into an AWS vector store triggers IRC Section 7216, IRS Publication 1075, and the FTC Safeguards Rule. Querying S3 and Salesforce on-demand using existing IAM credentials is a completely different compliance conversation.
-
-### The Pitch
-
-"Quick Suite puts your company's data in Amazon's cloud and lets an AI act on your behalf. We give each person on your team their own private AI assistant that lives on their computer, knows their cases and their email, and only acts when they say so by voice. For tax professionals handling client financial data, that's not a nice-to-have — it's a requirement."
-
----
-
-## 5. Market Research
+## 2. Market Research
 
 ### Market Size
 
-- AI in accounting market: $10.9B in 2026, 44.6% CAGR toward $68.75B by 2031
-- Tax preparation services TAM: $36.9B in 2026
-- AI adoption in accounting: jumped from 9% to 41% in a single year (2024-2025)
-- Voice AI market: $47.5B by 2034 (34.8% CAGR)
-- Voice AI adoption in finance: 11% despite 91% overall AI adoption — massive gap
+| Market | Size (2026) | Growth |
+|--------|-------------|--------|
+| AI in accounting/tax | $10.9B | 44.6% CAGR → $68.75B by 2031 |
+| Tax preparation services TAM | $36.9B | — |
+| Voice AI market | $47.5B by 2034 | 34.8% CAGR |
+
+AI adoption in accounting firms jumped from **9% → 41% in a single year** (2024-2025). Voice AI adoption in finance sits at just **11%** despite 91% overall AI adoption — that gap is the opportunity.
 
 ### Competitor Landscape
 
-| Competitor | Price | Key Limitation |
-|-----------|-------|----------------|
-| Thomson Reuters CoCounsel | $75-500/user/mo | Locked to TR ecosystem, no voice |
-| Harvey AI | $1,000-1,200/user/mo, 20-seat min ($288K/yr entry) | Absurdly expensive, legal-only, no voice |
-| TaxGPT | ~$1,600/user/yr | Research-only, text-only |
-| Intuit Assist | Bundled | Locked to Intuit ecosystem, limited prompts, no voice |
-| Canopy Tax | ~$142/user/mo | AI features nascent, no voice |
-| TaxDome | $50-83/user/mo | Analytics dashboards only, minimal AI |
-| Microsoft Copilot for Finance | $18-30/user/mo | Requires enterprise ERP stack, not tax-specific, no voice |
-| Glean | ~$45-65/user/mo, $60K minimum | Not vertical-specific, no voice, expensive |
+| Competitor | Price | What it does | Key gap we fill |
+|-----------|-------|-------------|----------------|
+| Thomson Reuters CoCounsel | $75-500/user/mo | Tax research, memo drafting | No voice, locked to TR ecosystem |
+| Harvey AI | $1,000-1,200/user/mo (20-seat min, $288K/yr entry) | Legal document analysis | Absurdly expensive, no voice, legal-only |
+| TaxGPT | ~$1,600/user/yr | Tax research co-pilot | Research-only, text-only, no company data |
+| Intuit Assist | Bundled w/ QuickBooks | Transaction categorization, AI chat | Locked to Intuit ecosystem, no voice |
+| Canopy Tax | ~$142/user/mo | Practice management + nascent AI | AI features immature, no voice |
+| TaxDome | $50-83/user/mo | Practice management | Analytics dashboards only, minimal AI |
+| Microsoft Copilot for Finance | $18-30/user/mo | Reconciliation, variance analysis | Requires enterprise ERP, not tax-specific, no voice |
+| Amazon Quick Suite | AWS pricing | Agentic enterprise search, 90+ connectors | Indexes all data into AWS cloud, no voice, no laptop access |
 
 ### The White Space
 
-No competitor has a voice-first interface for tax professionals. Every product is text/GUI-based. Voice in finance sits at 11% adoption despite 91% AI adoption overall. The 5-50 person tax dispute company has no affordable, AI-native, voice-first assistant connected to their actual data.
+**No competitor has a voice-first interface for tax dispute professionals.** Every product is text/GUI. The 5-50 person tax dispute company is completely underserved — Harvey charges $288K/yr minimum, TaxGPT is research-only, Quick Suite requires trusting AWS with client data (which triggers IRC §7216).
 
-### Pain Points (Data)
+### Why "Stateless Query" Beats "Ingest and Index"
 
-- 60% of accountants spend too much time on manual tasks (Dext survey)
+Amazon Quick Suite's model: copies your company data into an AWS vector index. Our model: queries original sources on demand, returns results, stores nothing.
+
+For a tax dispute company handling client IRS notices, financial disclosures, and tax returns: putting that into a third-party index triggers **IRC §7216** (client consent required for any non-tax-prep use of their data), **IRS Publication 1075** (controls for Federal Tax Information), and the **FTC Safeguards Rule**. Querying S3 and Salesforce via existing IAM credentials is a completely different compliance conversation.
+
+### Pain Points (Research Data)
+
+- 60% of accountants spend too much time on manual tasks (Dext, 2025)
 - Knowledge workers spend 8-10 hours/week searching for information (McKinsey)
-- Accountants spend ~25% of workweek on repetitive data retrieval
-- Thomson Reuters: 60-70% time reduction in multi-jurisdiction tax returns using AI
-- 56% of CEOs report zero measurable ROI from AI despite record spending (PwC, Jan 2026) — the rework problem
+- Tax professionals spend ~25% of their week on repetitive data retrieval
+- 56% of CEOs report zero measurable ROI from AI despite record spending (PwC, Jan 2026) — the root cause is rework from AI that doesn't check itself
+- Thomson Reuters: 60-70% time reduction in multi-jurisdiction cases using AI
 
-### Key Compliance Requirements for Tax Dispute Companys
+### Compliance Requirements for Selling to Tax Dispute Companies
 
-- **IRC Section 7216** — Client data can only be used for tax prep; any other use requires explicit written consent
-- **IRS Publication 1075** — Strengthened controls for all Federal Tax Information recipients
-- **IRS Publication 4557** — Mandatory Written Information Security Plan (WISP)
-- **FTC Safeguards Rule** — Tax preparers classified as covered financial institutions
-- **SOC 2 Type II** — Not legally required but expected by firms for vendor due diligence
-
----
-
-## 6. Use Cases — Tax Dispute Company
-
-Clients upload their documents (IRS notices, tax returns, financial statements, correspondence) through a client portal. The agent has access to that portal database alongside internal case management, so every workflow below pulls from both what the company holds internally and what the client has submitted.
+- **IRC §7216** — Client data can only be used for tax prep; any other use requires written client consent
+- **IRS Publication 1075** — Strengthened controls for all Federal Tax Information recipients (Jan 2025)
+- **FTC Safeguards Rule** — Tax preparers are classified as covered financial institutions
+- **SOC 2 Type II** — Not legally required but expected by every firm's procurement process
 
 ---
 
-### Workflow 1: Morning Case Review (Case Manager)
+## 3. Phase 1 — MVP Deploy
 
-The case manager starts their day without opening a single system.
+> **Deployable product.** Voice assistant that can query the company database, manipulate results by voice, and run basic reports. First paying customer possible at end of this phase.
 
-> **Agent:** "Good morning. You have 14 active cases. Three need attention today — the Nguyen levy case response is due to the IRS by Friday, the Okafor Offer in Compromise has been in negotiation for 6 months and hasn't had a touch in 3 weeks, and the Rivera audit has a new document uploaded to the portal overnight. Want to start with Rivera since something just came in?"
+### What Gets Built
 
-> **Case manager:** "Yeah what did they upload?"
+**Infrastructure (pending AWS quota):**
+- Gemma 4 27B on EC2 g6e.xlarge (L40S) in company's AWS VPC — intent classification + conversation
+- Parakeet TDT 0.6b v2 on EC2 g5.xlarge — ASR (audio stays in company's VPC, not third-party cloud)
+- Fish Speech S2 Pro on same GPU — TTS
+- Claude Haiku via Amazon Bedrock — SQL generation (already live)
+- ALB + WebSocket endpoint
+- CDK stack for BYOC (Bring Your Own Cloud) deployment — company deploys into their own AWS account
 
-> **Agent:** "They uploaded a 2021 bank statement and what looks like a CP2000 notice. The CP2000 is from March — we didn't have that on file. Want me to pull the full case and flag this as a new IRS notice?"
+**Client app:**
+- Silero VAD stays on laptop (2MB, CPU — detects speech, prevents streaming silence)
+- Audio streams to VPC over WebSocket
+- No models, no GPU, no setup on the laptop
 
-> **Case manager:** "Yes, flag it and draft an acknowledgment to the client that we received it."
+**Core capabilities (already built, just need AWS):**
+- Voice → company database query → results voiced back
+- Follow-up manipulation: filter, sort, top N, aggregate, pivot, undo — all sub-100ms, no re-querying
+- 9 intents, natural language, history-aware, fuzzy column matching, date normalization
 
-> **Agent:** "Flagged. Here's the draft: 'Hi Mr. Rivera, we've received the documents you uploaded — thank you. We've noted the CP2000 notice and will be in touch within 2 business days with next steps.' Want me to send that?"
+### Who Can Use It
 
-> **Case manager:** "Send it."
+| Role | What they can do |
+|------|-----------------|
+| Case Manager | Query active cases by status, amount owed, assigned staff |
+| Executive / Partner | Pull revenue reports, case volume, staff load, overdue invoices |
+| Document Reviewer | Query what's been uploaded per case, find missing documents |
+| IT Department | Deploy and manage the CDK stack in company's AWS account |
 
-> **Agent:** "Sent. Moving on — the Nguyen levy response. Want me to pull what we have?"
+### Demo Workflow
 
----
+> "Show me all active levy cases where the IRS response is due this week"
 
-### Workflow 2: Preparing an IRS Response (Tax Dispute Specialist)
+Agent queries the database, voices back: "You have 4 levy cases with responses due this week. Nguyen is Friday, Chen and Park are Thursday, Rivera has no response filed yet. Want me to sort them by priority?"
 
-A specialist is preparing a response to an IRS levy notice for a client.
+> "Sort by amount owed"
 
-> **Specialist:** "Pull everything we have on the Nguyen case — I need to prep the CDP hearing response."
+Sub-100ms. No DB call. CacheExecutor sorts the cached result.
 
-> **Agent:** "Nguyen case — Collection Due Process hearing, levy on wages. Client uploaded their financial statements last Tuesday. We have the original CP504, the levy notice, 3 years of tax returns, and the financial disclosure form 433-A. Still missing the 2023 bank statements — the client hasn't uploaded those yet. IRS deadline is Friday."
-
-> **Specialist:** "We need those bank statements. Draft a message to the client — urgent, we need them by tomorrow."
-
-> **Agent:** "Draft: 'Hi Ms. Nguyen, urgent — we need your 2023 bank statements uploaded to the portal by tomorrow morning to meet your Friday IRS deadline. If you need help uploading them, call us at [number].' Want me to send that through the portal?"
-
-> **Specialist:** "Yes. Also what's her current balance owed?"
-
-> **Agent:** "According to the case file, total tax debt is $47,200 across 2021 and 2022. She's on an installment agreement that lapsed in September. That's what triggered the levy."
-
-> **Specialist:** "Got it. What arguments have we used on similar CDP cases in the last year?"
-
-> **Agent:** "We've handled 9 CDP hearings in the last 12 months. Most successful argument has been economic hardship combined with installment agreement reinstatement — used in 6 cases, 5 resulted in levy release. Want me to pull one of those case files as a reference?"
-
----
-
-### Workflow 3: Offer in Compromise Review (Senior Negotiator)
-
-> **Negotiator:** "What's the status on all our active Offers in Compromise?"
-
-> **Agent:** "You have 7 active OICs. Two are overdue for follow-up — the Okafor case hasn't been touched in 3 weeks and the IRS typically responds within 6 months, which puts us at the window now. The Santos OIC was submitted 2 months ago, no response yet. The other 5 are within normal timelines. Want me to draft a status check letter to the IRS on Okafor?"
-
-> **Negotiator:** "What did we submit for Okafor — what was the offer amount?"
-
-> **Agent:** "Offer submitted was $8,500 on a total liability of $134,000. Based on the 433-A they uploaded, monthly income was $3,200 and allowable expenses were $2,950, so the reasonable collection potential came out to $6,600. We padded it slightly to $8,500."
-
-> **Negotiator:** "And the IRS hasn't countered?"
-
-> **Agent:** "No record of a counter. Last note on the case was from 3 weeks ago — a call log from Marcus saying the assigned revenue officer hadn't responded. Want me to draft a follow-up to the IRS and add a task to call them tomorrow?"
-
-> **Negotiator:** "Do both."
-
----
-
-### Workflow 4: New Client Intake (Intake Coordinator)
-
-A new client just signed and uploaded their documents to the portal.
-
-> **Agent:** "New client alert — James Whitfield signed the engagement letter 20 minutes ago and uploaded 4 documents to the portal: a CP14 balance due notice for $23,400, two years of tax returns (2021, 2022), and what looks like a wage garnishment notice."
-
-> **Intake coordinator:** "What type of case is this shaping up to be?"
-
-> **Agent:** "Based on the documents: $23,400 balance due with a garnishment already active suggests we're in active collections. The CP14 is from 8 months ago so the IRS has had time to escalate. Likely needs either an installment agreement to stop the garnishment or a hardship currently-not-collectible filing depending on his income. We don't have a 433-A yet."
-
-> **Intake coordinator:** "Assign it to Sarah and send Whitfield a welcome message asking him to fill out the financial disclosure form."
-
-> **Agent:** "Assigned to Sarah. Draft for Whitfield: 'Welcome — we've reviewed your documents and have everything we need to get started. To move forward, please complete the financial disclosure form in your portal under the Documents tab. This helps us determine the best resolution strategy for your case. Let us know if you have any questions.' Send it?"
-
-> **Intake coordinator:** "Send it."
-
----
-
-### Workflow 5: End-of-Day Portfolio Check (Managing Partner)
-
-> **Partner:** "Give me a quick rundown of where we stand this week."
-
-> **Agent:** "This week: 3 IRS responses filed, 2 OICs submitted, 1 levy release secured for the Park case. Outstanding: 4 cases have deadlines in the next 7 days — Nguyen CDP on Friday is the most urgent. 6 clients uploaded documents this week that haven't been reviewed yet. Revenue: $47,800 invoiced this week, $12,300 collected. You have 2 new leads in the intake queue that haven't been contacted. Want me to send those leads a first-touch email?"
-
----
-
-## 7. Technical Architecture
-
-### Laptop App — Thin Client
-
-The Seishin client is already a Tauri app (seishin-client/src-tauri/). With the pivot it becomes purely a thin client — no models running locally.
-
-```
-LAPTOP APP (~50MB installer)
-- Silero VAD (2MB, CPU) — detects speech start/end, avoids streaming silence
-- Audio streamer — PCM to WebSocket to AWS, audio frames back
-- OpenClaw daemon (bundled in installer) — local file/email/calendar
-- SSO login — company credentials
-```
-
-VAD stays local because it's 2MB, runs on CPU, and prevents streaming silence. Everything else goes to AWS. Audio streaming to the company's VPC is no different from any other company data going to AWS — same perimeter.
-
-IT deployment: push via Jamf (Mac) or Intune (Windows). No user setup beyond SSO login.
-
-### AWS Architecture — Company's VPC
-
-```
-COMPANY AWS ACCOUNT (VPC)
-
-ALB + WebSocket endpoint
-  Receives audio stream from laptop apps
-
-EC2 g5.xlarge (A10G 24GB GPU) — shared inference
-  Parakeet TDT 0.6b v2 (ASR) — audio to text, ~1GB VRAM
-  Fish Speech S2 Pro INT8 (TTS) — text to audio, ~4GB VRAM
-
-Amazon Bedrock
-  Claude Haiku 4.5 — intent classification, SQL generation, email drafting
-  Claude Sonnet 4.5 — conversation, personality, complex multi-step planning
-
-Lambda functions — connector orchestration, permission checks
-
-Company's existing infrastructure (no changes needed)
-  S3 — documents, case files
-  Salesforce — cases, contacts, tasks
-  RDS/Aurora — databases
-  SharePoint / Google Drive
-```
-
-### How Local File Operations Work
-
-OpenClaw runs as a background daemon on the user's laptop (bundled in installer). When the server needs a local operation, it sends a structured message back over the WebSocket:
-
-```json
-{"type": "tool_call", "tool": "find_file", "params": {
-  "query": "Martinez engagement letter",
-  "paths": ["~/Documents", "~/Downloads"]
-}}
-```
-
-OpenClaw executes, returns:
-
-```json
-{"type": "tool_result", "files": [{
-  "name": "Martinez_EL_2025.pdf",
-  "path": "~/Documents/Cases/Martinez/",
-  "modified": "2025-03-14"
-}]}
-```
-
-Server voices the result: "Found it — Martinez engagement letter, in your Cases folder, last modified March 14th."
-
-For email and calendar: same pattern. OpenClaw holds Gmail/Outlook OAuth tokens on the laptop. Server tells it what to draft. User confirms by voice. OpenClaw sends.
-
-### BYOC (Bring Your Own Cloud) Deployment
-
-```bash
-cdk deploy SeishinStack \
-  --context company=acme-tax \
-  --context s3_bucket=acme-documents \
-  --context salesforce_org=https://acme.salesforce.com \
-  --context sso_provider=okta
-```
-
-Everything runs in the company's AWS account — their VPC, their encryption keys, their CloudTrail. AI models access S3 and RDS via existing IAM roles. AWS bill on their existing invoice. Security team reviews a CDK stack, not a SaaS vendor.
-
-### Intent Routing
-
-| User says | Intent | Execution |
-|-----------|--------|-----------|
-| "Find the engagement letter I saved last week" | LOCAL | OpenClaw on laptop |
-| "Pull up all Q1 invoices over $10k" | COMPANY_DATA | Report pipeline to DB |
-| "Get everything we have on the Martinez case" | HYBRID | Salesforce + S3 + local search |
-| "Draft a follow-up to the client" | LOCAL | OpenClaw drafts, user confirms |
-| "What documents are we missing for this case" | HYBRID | Salesforce checklist vs S3 vs local |
-
----
-
-## 8. Model Setup
-
-### Full Model Map
-
-| Task | Model | Where | Approx cost/query |
-|------|-------|-------|-------------------|
-| Audio to text | Parakeet TDT 0.6b v2 | EC2 g5.xlarge (VPC) | ~$0 fixed |
-| Intent classification | Claude Haiku 4.5 via Bedrock | Managed | ~$0.001 |
-| Conversation / personality | Claude Sonnet 4.5 via Bedrock | Managed | ~$0.003 |
-| SQL generation | Claude Haiku 4.5 via Bedrock | Managed | ~$0.005 |
-| Email drafting | Claude Haiku 4.5 via Bedrock | Managed | ~$0.008 |
-| Multi-step planning | Claude Sonnet 4.5 via Bedrock | Managed | ~$0.015 |
-| Report manipulation | CacheExecutor (Python/pandas) | Server | $0 |
-| Text to audio | Fish Speech S2 Pro INT8 | EC2 g5.xlarge (same GPU) | ~$0 fixed |
-| File / email / calendar | OpenClaw | User's laptop | $0 |
-
-### Why Bedrock Over Self-Hosted Gemma
-
-Gemma 4 is not on Bedrock. For the enterprise BYOC model, Bedrock is recommended because:
-- No GPU management for the LLM tier
-- Scales automatically
-- The company doesn't need a dedicated GPU just for LLM (only for ASR + TTS on g5.xlarge)
-- Claude on Bedrock supports structured output via tool_use, replacing guided_json
-
-### Cost Estimate — 20-User Tax Dispute Company
+### Cost at This Phase (20 users)
 
 | Component | Monthly |
 |-----------|---------|
-| EC2 g5.xlarge spot (8hr/day weekdays) — Parakeet + Fish Speech | ~$72 |
-| Bedrock Claude Haiku (intent, SQL, email — high volume) | ~$80 |
-| Bedrock Claude Sonnet (conversation — lower volume) | ~$120 |
-| ALB + API Gateway + Lambda + networking | ~$50 |
-| **Total AWS cost** | **~$320/mo** |
-| **Per user** | **~$16/user/mo** |
+| EC2 g5.xlarge spot (8hr/day weekdays) — Parakeet + Fish Speech + Gemma | ~$280 |
+| Bedrock Claude Haiku — SQL generation | ~$40 |
+| ALB + networking | ~$30 |
+| **Total AWS** | **~$350/mo (~$17/user)** |
 
-Charge $99-149/seat — 85-90% gross margin.
+**Charge $99/seat → ~83% gross margin.**
 
 ---
 
-## 9. The Agentic Workflow Vision
+## 4. Phase 2 — Office Automation Layer
 
-### What This Is
+> **Personal assistant on the laptop.** Agent can now work with files on the user's machine, draft and send emails, manage calendar — alongside the company database queries from Phase 1.
 
-Not a query tool. Not a chatbot. An AI chief of staff that:
-1. Knows what needs to happen today (reads calendar, tickets, emails, case statuses)
-2. Works through it step by step
-3. Executes reads automatically without interrupting the user
-4. Pauses and confirms before any permanent action
-5. Keeps the human as the decision-maker on everything that matters
+### What Gets Built
 
-**The rule: reads are free, writes require a voice confirmation.**
+**OpenClaw integration:**
+- OpenClaw daemon bundled in the laptop installer (no separate setup)
+- Runs silently in the background as a system service
+- Pre-configured on install — user just logs in with SSO
 
-### The Morning Flow
+**New intents added:**
+| Intent | Trigger | Action |
+|--------|---------|--------|
+| `find_file` | "find the Nguyen engagement letter" | ripgrep/fd searches local filesystem |
+| `draft_email` | "draft a follow-up to Rivera" | Specialist email agent drafts, user reviews by voice |
+| `send_email` | "send it" after review | OpenClaw sends via Gmail/Outlook OAuth — ONLY after voice confirm |
+| `get_calendar` | "what do I have today?" | Reads calendar, voices schedule |
+| `schedule_meeting` | "set up a call with Martinez Thursday 2pm" | Creates calendar event |
+| `move_file` | "move that to the Rivera case folder" | Staged move — requires voice confirm |
 
-```
-Agent reads (no approval needed):
-  calendar events, open tickets, unread emails,
-  outstanding case tasks, upcoming deadlines
+**Client portal document access:**
+- Connect to the company's client portal database
+- When client uploads a document, it's indexed and queryable
+- "Has Nguyen uploaded their 433-A yet?" → checks portal, answers instantly
 
-Agent presents:
-  "Good morning. You have 4 meetings today.
-   Your highest priority: the Wilson estate case
-   has a deadline Friday and we're still missing
-   the trust amendment. You have 23 emails — 3
-   need responses today. Want me to start on Wilson?"
+**Confirmation gate (non-negotiable):**
+- Email: NEVER sends without explicit voice "yes, send it"
+- File moves: staged to a temp location first, 30-second grace period, then final
+- Calendar events: previewed aloud before creating
+- Everything logged to an audit file
 
-User: "Yeah"
+### Specialist Agents Introduced (Phase 2)
 
-Agent works through steps, surfaces action:
-  "I found Sarah Wilson's email from Tuesday where
-   she said she'd send it yesterday. Here's a
-   follow-up draft — want me to read it?"
+Each task now routes to a purpose-built agent with its own system prompt optimized for that job. The main LLM acts as an orchestrator/router.
 
-User: "Read it"    ->    Agent reads it.
+**Email Specialist Agent**
+System prompt focused on: professional tone for tax dispute context, appropriate urgency signals, never includes unverified case details, always flags when it's unsure of a fact.
 
-User: "Send it"    ->    Agent sends. Logs it. Moves on.
+**Calendar Specialist Agent**
+System prompt focused on: scheduling conflicts, correct time zones, client-facing vs internal meeting language.
 
-  "Sent. You have the Peterson call in 45 minutes.
-   Want me to pull their prep summary?"
-```
+### Example Workflow — Document Request Email
 
-### The Full Workflow Loop
+> "Draft a document request to the Nguyen family — we need their 2023 bank statements and their most recent pay stubs"
 
-```
-MORNING KICK-OFF
-  Read: calendar, open tickets, unread emails, case deadlines
-  Plan: Claude Sonnet builds prioritized daily task list
-  Present: "Here's your day. Want to start with X?"
+Main LLM identifies task → routes to **Email Specialist Agent** → specialist pulls case context from portal → drafts email with correct client name, case reference, specific documents requested.
 
-FOR EACH TASK
-  Decompose into atomic steps (read vs write)
-  Execute read steps automatically (no interruption)
-  On write step: pause, one-sentence summary to user
-    "Sending follow-up to Sarah Wilson — yes?"
-  User confirms/modifies/skips by voice
-  Execute, log to audit trail
-  Move to next step
+Agent: "Here's the draft: 'Dear Ms. Nguyen, to continue moving forward on your case, we need two additional documents uploaded to your portal: your 2023 bank statements (all accounts) and your most recent two pay stubs. Please upload these at your earliest convenience. If you have any trouble, call us at [number]. Thank you, [caseworker name].' Want me to send it?"
 
-STATE MANAGEMENT
-  Current task + completed steps persisted
-  If session interrupted, resume on reconnect:
-    "Welcome back. You were working on the Wilson case.
-     We'd just sent the trust amendment follow-up.
-     Want to continue?"
-  Audit log: every action, timestamp, who approved
-```
+User: "Send it."
 
-### Example — The Full Loop
+OpenClaw sends via Outlook. Logged.
 
-User: "Pull up everything we have on the Martinez estate case and tell me where we stand"
+---
+
+## 5. Phase 3 — Company Data Integration
+
+> **Unified personal + company data.** One voice command can now span the user's laptop, the client portal, Salesforce, S3, and the internal database simultaneously. The "hybrid query" — the thing nobody else can do.
+
+### What Gets Built
+
+**Connectors:**
+
+| Source | What's accessible | Permission model |
+|--------|------------------|-----------------|
+| Salesforce | Cases, contacts, tasks, call logs, case status | User sees only cases they're assigned to (configurable) |
+| AWS S3 | Case documents, uploaded client files, scanned mail | Scoped to company's S3 bucket, prefix-based per case |
+| Client portal DB | Everything clients have uploaded, submission history | Read-only, per-case permission |
+| Internal SQL DB | Financial data, invoices, case financials | Existing report pipeline |
+
+**Permission layer:**
+- SSO login (Okta, Google Workspace, Microsoft Entra)
+- User permissions inherit from company's existing IAM roles and Salesforce profiles
+- Every query is permission-checked before execution — no override
+- Audit log: every data source accessed, every file touched, by whom, at what time
+
+**Unified result merger:**
+When a query spans multiple sources, results are combined into a single coherent response before being voiced. The user never hears "checking Salesforce... now checking S3... now checking portal" — they just hear the answer.
+
+### The Hybrid Query
+
+This is the core differentiator at this phase. One spoken sentence can simultaneously hit the user's laptop, Salesforce, S3, and the client portal.
+
+> "Pull up everything we have on the Nguyen case"
 
 Agent:
-1. Queries Salesforce — case record, status, assigned staff, task list
-2. Queries S3 — lists documents sorted by date
-3. Searches local machine — any local Martinez files
-4. Checks email thread — last 3 emails with client
-5. Cross-references Salesforce document checklist vs S3 contents
+1. Queries Salesforce → case record, status, assigned staff, outstanding tasks
+2. Queries S3 → lists all documents for this case by date
+3. Queries client portal → what the client has uploaded, what's still missing
+4. Searches local laptop → any local notes or working files
+5. Cross-references Salesforce document checklist vs what's actually on file
 
-Result voiced back:
-> "The Martinez estate case is in review stage, assigned to you and Lisa. We have 12 documents in S3 — the will, trust agreement, 3 years of returns, and various supporting docs. We're missing the 2024 brokerage statement and the amended trust from March. Lisa emailed the client about both on Tuesday and hasn't heard back. Your last call with them was April 2nd. Want me to draft a follow-up?"
+Result voiced back in ~3 seconds:
+> "The Nguyen levy case is in active negotiation. You have 8 documents in S3 — the original levy notice, 3 years of returns, the 433-A, and two call logs. Still missing: the 2023 bank statements and the pay stubs you requested. The client uploaded the pay stubs 20 minutes ago but the bank statements aren't in yet. Your last call with them was Tuesday. Want me to draft a follow-up?"
 
-That interaction replaced:
-- Opening Salesforce (2 min)
-- Navigating to case documents in S3 (3 min)
-- Searching local files (2 min)
-- Checking email thread (3 min)
-- Cross-referencing checklist (5 min)
+That replaced: opening Salesforce (2 min), navigating S3 (3 min), checking portal (2 min), searching local files (2 min). **9 minutes → 3 seconds.**
 
-**15 minutes → 30 seconds.**
+### Document Specialist Agent Introduced
 
-### Workflow Types for a Tax Dispute Company
-
-**Morning briefing**
-"Here's what's on today: 3 client calls, 5 open cases due this week, 12 emails needing responses. Highest priority is the Wilson estate — deadline Friday, missing the trust amendment. Want to start there?"
-
-**Case prep before a call**
-"Your 10am call is with Martinez in 22 minutes. I've pulled the case file. Last contact was 2 weeks ago — you sent a document request. They've uploaded their W-2 and 1099-INT since then. Still missing the Schedule K-1 from their S-Corp. I've drafted a quick reminder. Want me to send it before the call?"
-
-**Document processing**
-When a client emails documents: "Sarah Johnson just sent 4 attachments — W-2, 1099-DIV, mortgage interest statement, and a document I don't recognize. I've filed the first three to the Johnson case in S3. The fourth looks like it might be a K-1. Want me to flag it for review?"
-
-**Communication management**
-"You have 19 unread emails. 3 need action today: the IRS notice for Peterson needs a response by Thursday, the Chen family is asking about their refund status, and your 2pm is asking to reschedule. Want me to handle the reschedule?"
-
-**Deadline monitoring**
-"Heads up: 3 extension deadlines this Friday — Peterson, Chen, and the Westbrook Trust. All three have returns in prep. Peterson's is furthest along and needs partner review. Want me to flag it?"
-
-### Why "User Orchestrates" Is Right For Professional Services
-
-A CPA's professional liability insurance requires human judgment on every action. "The AI did it without my approval" is not a legal defense for a licensed professional. But "I approved each step, here's the audit log showing my voice confirmation" is completely defensible.
-
-The confirmation gate isn't just a safety feature — it's a liability and compliance feature. Enterprise buyers in professional services will specifically ask "who approved the action?" You need a clear answer.
-
-### What's Technically Needed
-
-**Planning layer** — Claude Sonnet ingests full context (calendar + open tickets + emails + case statuses) and builds a prioritized daily task list. One large-context call.
-
-**Task decomposition** — Each task broken into steps labeled read or write. Agent executes reads silently, queues writes for confirmation.
-
-**State persistence** — Task state, completed steps, pending confirmations stored server-side. Session interrupted → reconnects → resumes from exact position.
-
-**Confirmation UX** — One sentence, one-word confirm. Target under 5 seconds per confirmation. Voice makes this fast — a spoken "yes" is 0.5 seconds.
-
-**Undo for write actions** — Email saved to drafts for 30 seconds before actual send. File moves go to staging location before final placement. Every write logged with prior state for recovery.
+**Document Review Agent**
+System prompt optimized for: identifying document types (IRS notices, 433-A, pay stubs, bank statements, tax returns), extracting key figures (total liability, income, expenses), flagging missing required documents for specific case types (OIC vs CDP vs installment agreement).
 
 ---
 
-## 10. Business Case
+## 6. Phase 4 — Specialist Agent Architecture
 
-### ROI Math
+> **Purpose-built agents for every task.** The main LLM becomes a router/orchestrator. Every meaningful task is handled by a specialist agent with its own system prompt, context, and self-checking logic. Hallucination checking runs on every output before it reaches the user.
 
-For a 20-person tax dispute company, each person saves 2 hours/day of prep and admin:
+### Architecture
 
-- 20 people x 2 hours/day x 250 working days = 10,000 hours/year recovered
-- At $50/hr loaded cost = $500,000/year in recovered capacity
-- Cost: $149/seat x 20 users = $35,760/year
-- **ROI: 14x**
+```
+User voice input
+  → Main LLM (orchestrator)
+      Classifies task type
+      Retrieves specialist from vector DB
+      Injects relevant case context
+  → Specialist Agent (e.g. OIC Drafter)
+      Executes task with specialized prompt
+      Cites every fact from source data
+  → Hallucination Checker
+      Cross-references all numbers/dates/names against retrieved source documents
+      Flags anything it can't verify
+  → Main LLM (presenter)
+      Voices result to user
+      Flags any uncertainties
+```
 
-That's what closes enterprise deals.
+### Specialist Agent Roster (Tax Dispute Company)
 
-### Who Buys This
+Each agent is stored as a record in a vector database (pgvector on RDS, or Pinecone). The orchestrator embeds the task description, retrieves the most relevant specialist, and calls it with the right context.
 
-**Beachhead:**
-- 5-50 person tax / accounting firms — completely underserved by Quick Suite ($288K/yr min) and TaxGPT (research-only)
-- Firms already on AWS — BYOC model eliminates security review
-- Professional services broadly — same document-heavy, case-centric workflow
+| Agent | Specialized for |
+|-------|----------------|
+| **IRS Response Letter Writer** | CP2000, CP503, CP504, levy release requests, audit responses — knows IRS formatting, deadlines, required language |
+| **OIC Calculator & Drafter** | Reasonable collection potential math, 433-A analysis, offer amount recommendation, OIC cover letter |
+| **CDP Hearing Preparer** | Collection Due Process rights, hearing arguments, supporting documentation checklist |
+| **Penalty Abatement Writer** | First-time abatement, reasonable cause arguments, correct IRS form and submission process |
+| **Installment Agreement Drafter** | Streamlined vs non-streamlined, eligibility check, monthly payment calculation, CNC consideration |
+| **Collection Appeals Agent** | CAP/CAR filing, suspension of collection, argument structuring |
+| **Financial Disclosure Analyzer** | 433-A/433-B analysis, allowable expense standards, income verification, net equity calculation |
+| **Client Communication Agent** | Status updates, document request letters, welcome emails, hearing prep instructions — client-facing tone |
+| **New Client Intake Agent** | Case type identification from uploaded documents, initial liability summary, recommended resolution path |
+| **Case Status Summarizer** | Clean, factual case summaries for internal handoffs, partner reviews, or client updates |
+| **Deadline Tracker Agent** | IRS calendar awareness, extension deadlines, response windows, statute of limitations |
 
-**Expansion:**
-- Legal (same workflow, same document pain)
-- Insurance claims (same pattern)
-- Real estate (transaction management, document chasing)
+### How the Vector DB Works
 
-### The Moat
+Agent records contain: name, description, task_types[], system_prompt, required_context_fields[], output_format.
 
-Once connected to a firm's Salesforce, S3, and database, switching cost is enormous. Query history, trained compound request patterns, SQL templates for their specific schema — deeply sticky. Not a tool they swap without significant disruption.
+When user says: *"Draft a penalty abatement request for the Chen case"*
 
-### Honest Risks
+1. Orchestrator embeds: "draft penalty abatement request"
+2. Vector search retrieves: **Penalty Abatement Writer** agent (highest cosine similarity)
+3. Orchestrator fetches context: Chen case record from Salesforce, tax liability from DB, call logs
+4. Calls specialist with context injected into prompt
+5. Specialist drafts the letter, citing every figure from the source data
+6. Hallucination checker runs
 
-**Enterprise sales cycles are slow.** 3-6 months from demo to contract is normal.
+### Hallucination Checking
 
-**Database connector work doesn't scale without a self-service setup wizard.** Fine for 3 pilot customers. For 30, need guided onboarding.
+Every output from a specialist agent goes through a verification step before reaching the user.
 
-**IRC Section 7216 consent process.** Before any client data touches your systems, the firm needs client written consent. You need to provide the template language and compliance framework.
+**What gets checked:**
+- Every dollar amount is verified against a source document (case DB, 433-A, IRS notice)
+- Every date is verified against case records
+- Every client name and case reference number is confirmed against Salesforce
+- Any claim about what the IRS said is checked against uploaded notices in S3
 
-**Confirmation UX must be fast.** If confirmations feel like bureaucracy, users disable the agent for routine tasks. Build around voice rhythm — one sentence summary, one-word confirm.
+**What happens on a flag:**
+- If the checker finds an unverifiable claim, it tags it: "[unverified — please confirm]"
+- Agent voices the output with explicit uncertainty: "I have $47,200 as the total liability from the case file — can you confirm that's still current?"
+- Never silently presents a number it can't source
 
-**SQL generation needs transparency.** Wrong query = wrong data = bad decision. Every report must show the SQL that ran.
+**Implementation:**
+- Hallucination checker is itself a specialist LLM call (Claude Haiku — fast and cheap)
+- Takes specialist output + source documents as input
+- Returns: verified claims list + flagged claims list
+- Adds ~200ms to response time — acceptable for content that might be sent to the IRS
+
+### Example Workflow — OIC Draft
+
+> "Draft an Offer in Compromise for the Martinez case"
+
+Orchestrator → **OIC Calculator & Drafter** agent
+
+Agent pulls: 433-A from portal, income/expense from DB, total liability from case record
+
+Drafts offer with RCP calculation:
+- Monthly income: $3,800 (from 433-A uploaded by client)
+- Allowable monthly expenses: $3,520 (IRS National Standards applied)
+- Monthly disposable income: $280
+- RCP (48 months): $13,440
+- Recommended offer: $14,500 (slight cushion above RCP)
+
+Hallucination checker: verifies $3,800 income against uploaded pay stubs ✓, verifies $3,520 against IRS standards table ✓, verifies total liability $89,000 against case DB ✓
+
+Agent voices: "Based on the 433-A Martinez uploaded and the IRS expense standards, the reasonable collection potential works out to around $13,400. I'd recommend offering $14,500. I've drafted the OIC cover letter and Form 656. Want me to read the key figures before you review it?"
 
 ---
 
-## 11. Billing & Pricing
+## 7. Phase 5 — Mobile & Proactive Intelligence
 
-### Tiers
+> **Works from anywhere. Knows when to reach out.** Users can now interact via their phone — voice or text. The agent proactively surfaces what matters before the user has to ask.
+
+### Mobile Interface
+
+**Two delivery methods:**
+
+**Option A — Native mobile app (iOS/Android)**
+- Lightweight app, similar to the desktop client but mobile-optimized
+- Tap to speak, see transcription, hear response
+- Secure connection to company's VPC over HTTPS
+- SSO login
+
+**Option B — WhatsApp / Telegram / iMessage via OpenClaw**
+- OpenClaw already supports all major messaging platforms
+- User texts or voice-messages their agent on WhatsApp
+- Useful for quick checks without opening an app: "Hey, has Nguyen uploaded the bank statements yet?"
+- Simpler to deploy and no App Store review process
+
+Both options connect to the same VPC backend. The interface is different; the intelligence is identical.
+
+**Phone voice specifics:**
+- VAD runs on the phone (OpenClaw mobile handles this)
+- Audio streamed to Parakeet in VPC
+- Response comes back as audio and text
+- Works on any phone, any OS, no special hardware
+
+### Proactive Intelligence
+
+The agent monitors the company's data continuously and surfaces things the user should act on — without being asked. Not automated actions (Phase 6 handles that) — just smart, well-timed alerts.
+
+**Principles:**
+- Only surfaces things that require human decision or action
+- Never sends a notification unless the user would thank you for it
+- Grouped by urgency — critical (IRS deadlines), important (client uploaded docs), informational (weekly summaries)
+- Delivered at the right time — not 11pm, not during obvious meeting blocks on calendar
+
+**What triggers a proactive message:**
+
+| Trigger | Message |
+|---------|---------|
+| IRS deadline < 48 hours | "Heads up — the Nguyen CDP response is due Friday. We still don't have their bank statements." |
+| Client uploads documents to portal | "Rivera just uploaded 3 documents. Looks like the bank statements we've been waiting on." |
+| Case has had no activity in 3+ weeks | "The Okafor OIC hasn't been touched in 3 weeks. The IRS typically responds within 6 months — we're at that window." |
+| New IRS notice uploaded | "New CP2000 on the Chen case. Response window is 60 days from notice date — March 14th." |
+| Uncontacted intake lead (24+ hours) | "2 new leads haven't been contacted yet — submitted yesterday morning." |
+| Monday morning summary | Morning briefing pushed to phone: what's due this week, what changed over the weekend. |
+
+**Delivery channels:**
+- Push notification to mobile app
+- WhatsApp/iMessage message (if user set that as preferred channel)
+- Voice briefing when user opens the desktop app
+- Summary email (optional, user configurable)
+
+### Proactive Morning Briefing Example (Monday, via WhatsApp)
+
+> **Agent (8:00am):** "Good morning. This week: 3 IRS deadlines — Nguyen on Friday is the most urgent (missing bank statements), Chen and Park both Thursday. 8 clients uploaded documents over the weekend. 2 OICs hit the 6-month follow-up window. Revenue: $67k invoiced last week, $23k outstanding past 30 days. Have a good week — I'll flag anything urgent as it comes up."
+
+Short. Factual. Actionable. No fluff.
+
+---
+
+## 8. Phase 6 — Full Agentic Orchestration
+
+> **The agent works through the day with the user.** It knows the full workload, builds a plan, executes the routine parts, and brings the human in only for decisions and approvals. Every permanent action confirmed by voice before it happens.
+
+### The Core Rule
+
+**Reads are automatic. Writes require a voice confirmation.**
+
+The agent runs freely through: querying data, reading documents, pulling case files, searching emails, checking calendars, drafting content. It only pauses and presents to the user before: sending an email, filing a document, updating a case status, submitting anything to the IRS.
+
+### The Morning Workflow
+
+User opens the app or says "good morning."
+
+**Agent:** "Morning. You have 5 things that need your attention today. Highest priority: Nguyen CDP hearing is Friday — response still not filed and we're missing her bank statements. Second: you have a call with the Martinez family at 2pm — their case is in active OIC negotiation, last call was 3 weeks ago. Third: 6 new documents came in overnight across 4 cases. Want me to start with Nguyen?"
+
+**User:** "Yeah."
+
+**Agent:** "I've checked — Nguyen still hasn't uploaded the bank statements. Last message to her was Tuesday. I'll draft a follow-up marked urgent."
+
+**User:** "Do it."
+
+**Agent:** "Here it is: 'Ms. Nguyen, we need your 2023 bank statements uploaded by Wednesday to meet your Friday IRS deadline. If you need help, call us now.' Send?"
+
+**User:** "Send."
+
+**Agent:** "Sent. Moving to the 2pm call prep. The Martinez case — OIC at $14,500, submitted 4 months ago, IRS assigned it to Revenue Officer Johnson. No counter-offer yet. Their income dropped since submission — do you want me to check if we should amend the offer?"
+
+**User:** "Yeah check that."
+
+**Agent:** "Based on the new 433-A they uploaded last month, their income dropped by $600/month. That lowers the RCP by about $4,800. We could amend the offer down to $9,700 and likely get a faster accept. Want me to draft an amended OIC?"
+
+**User:** "Do it — I'll review it before the call."
+
+The user has handled two critical cases, sent a client email, and has a draft amendment ready — all before 9am. They've made every decision; the agent handled all the prep and execution.
+
+### Task Decomposition Engine
+
+Every task is broken into atomic steps:
+
+```
+Task: "Prepare for the Martinez 2pm call"
+
+Read steps (automatic):
+  → Pull Salesforce case record
+  → Pull S3 documents for case
+  → Read last 3 call logs
+  → Check portal — anything uploaded recently?
+  → Check email thread with client
+
+Write steps (voice confirm required):
+  → Draft call prep summary → user reviews → user confirms to save
+  → Draft amended OIC → user reviews → user confirms to send
+  → Post-call: update case notes → user confirms
+```
+
+### State Persistence
+
+If the user stops mid-workflow — closes laptop, takes a call, walks away — the agent saves state. When they return:
+
+> "Welcome back. You were prepping for the Martinez call. We'd drafted the amended OIC. The call is in 35 minutes. Want to pick up where we left off?"
+
+Everything is recoverable. No workflow is lost.
+
+### Full Case Lifecycle Automation
+
+With Phase 6 in place, the agent can handle the full lifecycle of a case from intake to resolution — with the human making every substantive decision:
+
+**Intake:** New lead comes in → agent identifies case type from uploaded docs → drafts welcome + intake questionnaire → routes to correct caseworker
+
+**Active case:** Manages document checklist → chases missing items → tracks IRS deadlines → drafts responses → prepares for hearings
+
+**Resolution:** Drafts final resolution documents → coordinates signature → files with IRS (flags for human submission) → closes case in Salesforce → generates resolution summary for client
+
+**Each step:** human confirms before anything permanent happens.
+
+---
+
+## 9. Phase 7 — Enterprise Hardening & Scale
+
+> **Production-ready for any company.** Multi-user, fully auditable, self-service deployment, SOC 2 aligned. Ready to sell to 10-500 person firms.
+
+### Multi-User
+
+Currently single-session. Phase 7 enables full team deployment:
+
+- Multiple concurrent sessions (vLLM already supports multi-sequence via `max-num-seqs` config)
+- Per-user session isolation — each user has their own cache, history, undo stack, agent context
+- Role-based access: partners see all cases, caseworkers see assigned cases only, admins see everything
+- Team briefing: morning summary across the whole portfolio, surfaced to partners
+
+### Admin Dashboard
+
+Web UI (not voice) for IT and management:
+
+- User provisioning and SSO configuration
+- Role and permission management
+- Approved specialist agent list (which agents this company has access to)
+- Data source configuration (Salesforce org, S3 bucket, portal DB connection)
+- Usage analytics per user, per feature, per data source
+- Audit log export (CSV, filterable by date/user/action)
+- Cost tracking per user per month
+
+### Enterprise Safety Layer
+
+| Feature | What it does |
+|---------|-------------|
+| Audit log | Every query, action, voice confirmation, email sent — logged with timestamp, user, input, output |
+| SQL transparency | Every report shows the exact query that ran. Voice command: "show me the query" |
+| Confirmation receipts | Every confirmed action recorded with the user's voice input and the action taken |
+| Skill whitelist | Company controls which specialist agents are available — no external marketplace |
+| Data residency | All processing in company's AWS account. No data leaves their VPC |
+| Encryption | Data in transit (TLS 1.3) and at rest (AWS KMS keys, company-controlled) |
+
+### SOC 2 Type II Alignment
+
+Not certified at launch, but architecturally ready:
+
+- All access is authenticated (SSO) and authorization-checked per query
+- Full audit trail for security review
+- No data stored outside company's AWS account
+- Incident response process documented
+- Penetration testing scheduled pre-launch
+
+Certification timeline: 6-12 months after first enterprise contracts signed (~$30-50K cost, worth it for $150K+ ACV deals).
+
+### BYOC (Bring Your Own Cloud) CDK Stack
+
+```bash
+cdk deploy SeishinStack \
+  --context company=acme-tax-dispute \
+  --context s3_bucket=acme-case-documents \
+  --context salesforce_org=https://acme.salesforce.com \
+  --context portal_db=postgresql://... \
+  --context sso_provider=okta \
+  --context bedrock_region=us-east-1
+```
+
+Provisions everything: EC2 GPU for ASR/TTS, Bedrock access, Lambda connectors, ALB, IAM roles, CloudWatch logging. Company pays AWS directly. You charge software license on top.
+
+### Billing
 
 | Tier | Price | Included | Target |
 |------|-------|----------|--------|
-| Starter | $49/seat/mo | 150 voice mins, 5 users max, email + file ops, standard connectors | Solo / small firm |
-| Professional | $99/seat/mo | 400 voice mins, 25 users, all connectors, audit logs, SSO | Mid-size 10-50 people |
-| Enterprise | Custom ($150-250/seat) | Unlimited, on-premise option, dedicated support, custom connector build | Large firm / software vendor |
+| **Starter** | $49/seat/mo | 150 voice mins, 5 users, email + file ops, core DB connectors | Solo practitioner / 2-5 person shop |
+| **Professional** | $99/seat/mo | 400 voice mins, 25 users, all connectors, audit logs, SSO, all specialist agents | Mid-size 10-50 person company |
+| **Enterprise** | Custom ($150-250/seat) | Unlimited mins, unlimited users, BYOC deployment, dedicated support, custom agent build | Large company / software vendor white-label |
 
 Annual discount: 20%.
 
-At $99/seat, a 20-person firm pays ~$24,000/year. Less than one month of a junior associate's salary. If the agent saves 1 hour/day per person, it pays for itself in the first week of January.
+**COGS at Professional tier (20 users):** ~$16/user/mo. Gross margin: ~84%.
 
-### Billing Stack
-
-- **Stripe** — payments, card processing, subscriptions
-- **Lago** (open source, self-hosted) — usage metering, tracks voice minutes per user per session, invoice generation
-- App emits usage event to Lago on every session end: `{user_id, duration_seconds, queries_made, emails_sent}`
-- Enterprise: PO-based invoicing, net-30 terms
-
-### Billing Pages
-
-1. `/pricing` — three-tier cards, annual/monthly toggle, feature comparison, "Start free trial" CTA
-2. `/onboarding` — connector setup wizard (which DB, which email, SSO config), 14-day trial starts
-3. `/dashboard/billing` — current plan, usage this month, invoice history, upgrade button
-4. `/dashboard/usage` — per-user breakdown, query volume, most-used features, cost per query (shows their ROI)
-5. `/admin` — user management, roles, approved skills list, audit log export, data source config
-
-### No Freemium
-
-14-day free trial, credit card required. Converts 25-35% vs 3-5% for freemium. Professional services buyers want to evaluate seriously, not play around.
+**Billing stack:** Stripe (payments) + Lago (open source, self-hosted usage metering) — tracks voice minutes per user per session, emits events, generates invoices. Enterprise: PO-based, net-30.
 
 ---
 
-## 12. Full Roadmap
+## Deployment Timeline Summary
 
-### Current State (April 2026)
+| Phase | What gets unlocked | Earliest deploy |
+|-------|-------------------|----------------|
+| **Phase 1** | Voice + DB queries, follow-up ops, first pilot customer | Once AWS quota approved (~2-3 weeks) |
+| **Phase 2** | Email, file ops, calendar, client portal docs | +4 weeks after Phase 1 |
+| **Phase 3** | Salesforce + S3 + unified hybrid queries | +4-6 weeks after Phase 2 |
+| **Phase 4** | Specialist agents, hallucination checking, vector DB | +6-8 weeks after Phase 3 |
+| **Phase 5** | Mobile app/WhatsApp, proactive notifications | +4 weeks after Phase 4 |
+| **Phase 6** | Full agentic orchestration, morning workflow, state machine | +6-8 weeks after Phase 5 |
+| **Phase 7** | Multi-user, admin dashboard, SOC 2 alignment, billing | +4-6 weeks after Phase 6 |
 
-Phase 11.1 complete. 114 tests passing. Waiting on AWS G-quota for Phase 7.
+**Total to full product: ~9 months from Phase 1 deploy.**
 
-### Near Term — Infrastructure
-
-**Phase 7: Cloud GPU**
-Move Gemma 4 to EC2 g6e.xlarge (L40S) in company VPC. Start/stop scripts for ~$0 idle cost. Can demo from anywhere.
-
-**Phase 8: ASR in VPC** *(critical for enterprise sales)*
-Move Parakeet TDT 0.6b v2 to EC2 g5.xlarge in company VPC. Audio stays in company's AWS account. Closes the last privacy gap before enterprise sales.
-
-**Phase 9: Voice quality**
-Fish Speech quality polish (top-p 0.7, ffmpeg post-filter).
-
-**Phase 12: Demo Readiness**
-README-DEMO.md, 3 rehearsed end-to-end demos, cold start under 5 minutes, zero 429 errors. Can walk into a tax dispute company and demo live on their laptop with zero setup friction.
-
-### Product Build
-
-**Phase 13: OpenClaw Integration**
-- OpenClaw bundled in laptop installer
-- New WebSocket message types: tool_call / tool_result
-- New intents: draft_email, find_file, move_file, get_calendar, morning_briefing
-- Gmail + Outlook OAuth via OpenClaw (already production-ready in OpenClaw)
-- File search via ripgrep/fd
-- Confirmation gate: email NEVER sends without explicit voice "yes", no exceptions
-
-**Phase 14: Company Data Connectors**
-- Salesforce connector (read-only: cases, contacts, tasks, documents)
-- AWS S3 connector (list objects by prefix, download metadata, permission-scoped)
-- Permission layer: SSO + IAM role mapping + per-query permission checks
-- Unified result merger: combines local + company results into one voiced response
-- Audit log: every query, every data source touched, every action
-
-**Phase 15: Enterprise Safety Layer**
-- Admin dashboard — web UI for IT: user provisioning, role management, approved skills, usage stats
-- SSO/SAML — Okta, Google Workspace, Microsoft Entra
-- SQL transparency — every report shows exact query, voice command "show me the query"
-- CDK stack for BYOC deployment
-- Skill whitelist — no ClawHub for enterprise, company-controlled only
-
-**Phase 16: Agentic Workflow Orchestration**
-- Morning briefing: reads calendar + tickets + emails, builds prioritized daily plan
-- Task decomposition engine: breaks each task into read/write steps
-- State machine: tracks workflow progress, persists across sessions
-- Confirmation protocol: standardized voice gate for all write actions
-- Session resume: picks up exactly where left off
-- Undo for write actions: email draft grace period, file staging
-
-**Phase 17: Tax Domain Specialization**
-- Tax-specific vocabulary: 1040, Schedule C/E/K, NOL, PTIN, IRS notice numbers
-- Deadline engine: IRS tax calendar embedded, extension tracking, proactive alerts
-- Document classifier: W-2, 1099-NEC, K-1, engagement letter, bank statement
-- Connector library: TaxDome, Canopy, Drake, ProConnect, CCH Axcess, QuickBooks Online
-- Case status vocabulary mapped to their practice management system
-
-**Phase 18: Multi-User & Team Features**
-- Multiple concurrent sessions (currently single-session only)
-- Per-user isolation: each user has own cache, history, undo stack
-- Role-based access: partners see everything, staff see assigned clients only
-- Team briefing: portfolio-level stats for daily standup
-
-**Phase 19: Billing & Packaging**
-- Stripe + Lago usage metering live
-- Three pricing tiers
-- 14-day trial flow
-- CDK deployment wizard: company connects their AWS account, configures data sources, provisions users
-
-### Go to Market
-
-**Pilot phase** (start now, run alongside build)
-- 2-3 tax dispute companys, $500-1000/month flat
-- Manual setup, hands-on
-- Watch how they actually use it
-- Use learnings to build the connector setup wizard and self-service onboarding
-
-**Productize**
-- Self-service onboarding from pilot learnings
-- Case studies that close the next customers
-
-**Scale**
-- Vertical expansion: legal, insurance, real estate
-- White-label for accounting software vendors
-- Enterprise integration partnerships (Thomson Reuters, Intuit)
+Each phase is independently sellable. A company on Phase 1 is already getting value. Phase 4 is where it becomes genuinely transformative. Phase 6 is the final vision.
 
 ---
 
-## 13. What I Think
+## Why This Is Different — One Summary
 
-This is a real product with a real market. The combination that nobody else has:
-
-1. **Voice-first** — 11% adoption in finance despite massive AI spending. The gap is real and the timing is right.
-
-2. **Personal + company data unified** — Quick Suite searches company data. OpenClaw searches your laptop. Nobody does both through one voice interface.
-
-3. **Stateless query, no indexing** — Compliance story is fundamentally cleaner than Quick Suite for regulated industries. You're querying their existing authorized systems, not ingesting a copy of their client data into your infrastructure.
-
-4. **User orchestrates, not autonomous** — Right model for professional liability. CPA says "I approved each step" not "the AI did it."
-
-5. **BYOC deployment** — Runs in their AWS account. Eliminates the longest part of enterprise security reviews.
-
-6. **The agentic workflow is the end game** — Not a smart search bar. An AI chief of staff that knows what needs to happen today, works through it, and keeps the human in the loop on anything permanent. 15-minute workflows in 30 seconds. That's the product.
-
-The immediate focus should be getting to a demo that shows the full loop: morning briefing → case prep → document find → email draft → confirm → sent. That single demo workflow closes pilot customers. Everything else follows.
-
-The one thing to nail above everything else: the confirmation UX. If asking for confirmation feels like bureaucracy, users will stop using the agent for routine tasks and you've lost the whole value proposition. If it feels like a quick voice "yes, continue" that takes 2 seconds, users trust it more and give it more access over time. Build the confirmation flow first. It's the core interaction of the entire product.
+| What everyone else does | What we do |
+|------------------------|-----------|
+| Text/GUI interface | Voice-first, hands-free |
+| Search company knowledge base | Query personal laptop + company data simultaneously |
+| Ingest and index your data into their cloud | Query your existing sources on demand, store nothing |
+| Autonomous agent that acts | User orchestrates — every permanent action confirmed by voice |
+| One LLM for everything | Specialist agents per task, optimized system prompts |
+| Trust the output | Hallucination checker verifies every fact before you hear it |
+| Text chat on your laptop | Works on desktop, laptop, phone, WhatsApp |
+| Reactive (answer questions) | Proactive (surfaces what you need before you ask) |
 
 ---
 
-*Compiled April 2026 from full product conversation — pipeline simulation, NL UX hardening, OpenClaw research, market analysis, technical architecture, and the agentic workflow vision.*
+*Document compiled April 2026. Covers current state, market research, and full 7-phase roadmap from MVP to complete agentic assistant for tax dispute companies.*

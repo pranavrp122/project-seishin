@@ -83,7 +83,9 @@ These rules are established in Phase 1 and never change, regardless of how capab
 
 **Reads are instant, writes are confirmed.** The agent queries, searches, reads, and retrieves freely. Before it sends, moves, creates, or modifies anything, it pauses and shows the user exactly what it is about to do — inside the Seishin app. The user approves. Then it happens.
 
-**Everything stays in the app.** Rather than opening external windows (Outlook, File Explorer, native calendar), the agent shows what it is about to do directly within Seishin's interface. Before a file move, a confirmation card appears in the app: "Moving `Nguyen_433A.pdf` from Downloads → Cases/Nguyen/." Before a calendar event, a structured event card shows the title, time, attendees, and description. The user sees the full picture without leaving the agent.
+**Everything stays in the app — except the browser.** For file moves, calendar events, and all internal actions, the agent shows a confirmation card inside Seishin before doing anything. The user never needs to leave the app for those. The one deliberate exception is browser tasks: when the agent needs to do web research, look something up, or take action on a website, it opens a Chrome tab. This is intentional — the user needs to see the actual web content, and Chrome is the right tool for it. The agent announces what it is opening and why, and voices a summary when it is done.
+
+**Browser research and automation via Chrome.** If a user asks the agent to research something — look up IRS guidance, check a client's public business records, find a form on the IRS website, look up a revenue officer's contact — the agent opens Chrome, navigates to the relevant page, and voices back what it found. OpenClaw's browser automation handles navigation and data extraction. For read-only research, Chrome opens automatically. For any action in the browser (filling a form, submitting something), the agent pauses and voices what it is about to do before proceeding — the same confirmation rule applies.
 
 **Emails get a full compose view within the app.** Email is the most consequential write action in this workflow — messages go to clients and to the IRS. Rather than trusting a voice description or opening a third-party compose window, Seishin renders a complete email compose panel inside the app: To, From, Subject, and Body all visible and editable, styled to look and feel like a real email. The user reads the full structure, edits any field directly, and then approves. This pattern is established in products like Spark AI, Fyxer, and Microsoft's Power Apps agent approval cards — we are applying it to the tax resolution context with full in-app control.
 
@@ -210,6 +212,20 @@ The voice interface respects these boundaries automatically. An executive asking
 - "Has Chen uploaded their 433-A?" → instant answer from portal database
 - "Show me all investigation-phase clients who haven't submitted their bank statements" → voiced list in 2 seconds
 - New portal uploads appear in the morning briefing
+
+**Browser research and automation via Chrome.**
+When the agent needs to look something up or take action on the web, it opens a Chrome tab. The user sees exactly what it is doing in real time — no black box.
+
+Read-only research (opens automatically, no confirmation needed):
+- "Look up the current IRS National Standards for Orange County" → Chrome opens to IRS website, agent extracts the figures and voices them back, then uses them in the OIC calculation
+- "Find the revenue officer contact info for district 4521" → Chrome opens, agent searches and voices the result
+- "Look up the penalty rates for 2024 payroll tax failures" → Chrome opens to IRS guidance, agent summarizes
+
+Browser actions (agent announces intent, user confirms before executing):
+- "Fill out the IRS payment plan request on their website" → agent voices what it is about to submit, user confirms, Chrome completes the form
+- "Download the updated 433-A form from the IRS website" → Chrome navigates, file saves, agent voices where it was saved
+
+OpenClaw's browser automation handles navigation and extraction. Chrome is the deliberate exception to the "stay in app" rule because users need to see actual web content — and being able to watch the agent navigate live builds trust in what it is doing.
 
 **Proactive — Phase 2 form.**
 Morning briefing now includes portal activity alongside database summary:

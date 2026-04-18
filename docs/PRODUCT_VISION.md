@@ -8,19 +8,17 @@
 
 1. [What Seishin Is](#1-what-seishin-is)
 2. [What We've Built So Far](#2-what-weve-built-so-far)
-3. [Pipeline Simulation — What We Found](#3-pipeline-simulation--what-we-found)
-4. [Natural Language UX Hardening](#4-natural-language-ux-hardening)
-5. [OpenClaw Research](#5-openclaw-research)
-6. [The Product Pivot](#6-the-product-pivot)
-7. [Market Research](#7-market-research)
-8. [Use Cases — Tax Firm](#8-use-cases--tax-firm)
-9. [Technical Architecture](#9-technical-architecture)
-10. [Model Setup](#10-model-setup)
-11. [The Agentic Workflow Vision](#11-the-agentic-workflow-vision)
-12. [Business Case](#12-business-case)
-13. [Billing & Pricing](#13-billing--pricing)
-14. [Full Roadmap](#14-full-roadmap)
-15. [What I Think](#15-what-i-think)
+3. [OpenClaw Research](#3-openclaw-research)
+4. [The Product Pivot](#4-the-product-pivot)
+5. [Market Research](#5-market-research)
+6. [Use Cases — Tax Firm](#6-use-cases--tax-firm)
+7. [Technical Architecture](#7-technical-architecture)
+8. [Model Setup](#8-model-setup)
+9. [The Agentic Workflow Vision](#9-the-agentic-workflow-vision)
+10. [Business Case](#10-business-case)
+11. [Billing & Pricing](#11-billing--pricing)
+12. [Full Roadmap](#12-full-roadmap)
+13. [What I Think](#13-what-i-think)
 
 ---
 
@@ -83,104 +81,7 @@ When a report is delivered, the rows, column metadata, SQL, and query are stored
 
 ---
 
-## 3. Pipeline Simulation — What We Found
-
-We ran a full E2E pipeline simulation against the live LLM and real DB data.
-
-### What Passed
-- SQL injection in natural language handled safely (16 rows returned, no crash)
-- Empty query rejected (HTTP 422)
-- LLM endpoint reachable, gemma-4 model live
-- CacheExecutor confirmed zero eval()/exec() calls
-- _error sentinel working on LLM failure
-- 3 concurrent requests all completed
-- Cache overlap false-positives: none
-
-### Critical Discovery — Report API Uses Claude Haiku, Not Gemma
-
-The report API uses Claude Haiku via the Anthropic API for SQL generation — completely separate from Gemma. The 36s latency during burst testing was Haiku handling large schema context (14,616 input tokens per call for table selection), not GPU saturation. Gemma was unaffected.
-
-This means no GPU contention between report generation and intent/conversation. The slow report latency is Haiku + schema size.
-
-### Issues Fixed After Review
-
-| Issue | Fix |
-|-------|-----|
-| CR-01: _error sentinel caused executor crash | Changed safe default op_type to "_error", sei_engine voices fallback before re-firing |
-| WR-01: No column existence check in _op_filter | Added guard before df[col] access |
-| WR-02: Unsafe getattr dispatch for aggregate | Replaced with _AGG_MAP allowlist |
-| WR-03: Missing column validation in _op_sort | Added check before df.sort_values() |
-| IN-02: Duplicate import | Merged into single import line |
-| Broadened spec bug: 0 * 0.8 = 0 (no change) | Fixed to use abs(val) * 0.2 with minimum delta of 1 |
-| Duplicated 30-line op_chain block | Extracted into _apply_op_chain() helper |
-
----
-
-## 4. Natural Language UX Hardening
-
-Phase 11.1 — 8 features so a non-technical user can speak naturally without knowing column names, schema, or pipeline internals.
-
-### D-01: History-Aware Intent Classification
-Pass last 4 turns of conversation into classify_intent system prompt. Resolves pronouns — "compare those two", "filter that", "go back to the original". Previously the history parameter was accepted but completely ignored ("reserved for future use").
-
-### D-02: Fuzzy Column Matching
-Synonym dictionary in cache_executor.py. When exec says "revenue" but column is "total_dollars", resolves silently. Applied in all 5 op handlers before raising column-not-found errors. Also applied in sei_engine's missing_cols check.
-
-Examples:
-- "revenue / sales / income" matches total_dollars, revenue, amount
-- "date / time / when" matches created_at, issued_at, due_at
-- "status / state" matches status, state, stage
-
-### D-03: Undo Stack
-5-op linear stack in handler session state. New "undo" intent. Triggers: "undo", "go back", "revert". TTL-aware — checks that cached report still exists before restoring.
-
-### D-04: Discovery Intent
-New "what_can_i_ask" intent. Queries REPORT_API_URL/topics with hardcoded fallback. Distinct from list_cached_data (which voices what's been pulled this session).
-
-### D-05: Compound Request Detection
-op_chain field added to INTENT_SCHEMA. When user says "show me VIP clients sorted by revenue" — single sentence with both a data request and follow-up — Gemma populates op_chain with trailing operations. Auto-applied via CacheExecutor after report delivery.
-
-Example:
-```json
-{
-  "intent": "new_data_request",
-  "data_query": "show me VIP clients",
-  "op_chain": [{"op_type": "sort", "column": "total_dollars", "direction": "desc"}]
-}
-```
-
-### D-06: Cold-Start Cross-Report Compare
-New "compare_reports" intent. User says "compare clients with invoices" before pulling either. Handler extracts two topics, fires both call_report_api calls concurrently via asyncio.gather, caches both, auto-runs execute_cross_report.
-
-### D-07: Zero-Result Guidance
-When filter returns 0 rows, pre-computes a broadened alternative spec and voices it as a suggestion:
-- eq → contains
-- Numeric threshold: broadened by 20% of absolute value (minimum delta of 1)
-
-User says "yes" → confirm intent executes the broadened spec.
-
-### D-08: Date/Time Normalization
-New scripts/text_utils.py with _normalize_datetime(). Runs before every classify_intent call. 11 compiled regex patterns, under 5ms.
-
-- "last month" → "April 2026"
-- "this month" → "May 2026"
-- "last quarter" → "Q1 2026 (Jan-Mar)"
-- "YTD" / "this year" → "2026 so far"
-- "last week" → "Apr 11-17 2026"
-- "yesterday" → "Apr 17 2026"
-
-### Test Coverage
-
-114 tests passing (81 baseline + 33 new):
-- test_text_utils.py — 15 tests (date normalization)
-- test_cache_executor.py — extended +12 fuzzy matching tests
-- test_op_spec_integration.py — extended +3 tests
-- test_session_cache.py — extended +3 tests
-- test_pipeline_simulation.py — extended +4 E2E scenarios
-
----
-
-## 5. OpenClaw Research
+## 3. OpenClaw Research
 
 ### What OpenClaw Is
 
@@ -216,7 +117,7 @@ OpenClaw handles the hard parts of office automation already. Seishin provides t
 
 ---
 
-## 6. The Product Pivot
+## 4. The Product Pivot
 
 ### Why We Pivoted
 
@@ -257,7 +158,7 @@ Hits Salesforce for the case record, S3 for attached documents, searches local m
 
 ---
 
-## 7. Market Research
+## 5. Market Research
 
 ### Market Size
 
@@ -302,7 +203,7 @@ No competitor has a voice-first interface for tax professionals. Every product i
 
 ---
 
-## 8. Use Cases — Tax Firm
+## 6. Use Cases — Tax Firm
 
 ### Executive / Managing Partner
 
@@ -347,7 +248,7 @@ No competitor has a voice-first interface for tax professionals. Every product i
 
 ---
 
-## 9. Technical Architecture
+## 7. Technical Architecture
 
 ### Laptop App — Thin Client
 
@@ -439,7 +340,7 @@ Everything runs in the company's AWS account — their VPC, their encryption key
 
 ---
 
-## 10. Model Setup
+## 8. Model Setup
 
 ### Full Model Map
 
@@ -478,7 +379,7 @@ Charge $99-149/seat — 85-90% gross margin.
 
 ---
 
-## 11. The Agentic Workflow Vision
+## 9. The Agentic Workflow Vision
 
 ### What This Is
 
@@ -606,7 +507,7 @@ The confirmation gate isn't just a safety feature — it's a liability and compl
 
 ---
 
-## 12. Business Case
+## 10. Business Case
 
 ### ROI Math
 
@@ -649,7 +550,7 @@ Once connected to a firm's Salesforce, S3, and database, switching cost is enorm
 
 ---
 
-## 13. Billing & Pricing
+## 11. Billing & Pricing
 
 ### Tiers
 
@@ -684,7 +585,7 @@ At $99/seat, a 20-person firm pays ~$24,000/year. Less than one month of a junio
 
 ---
 
-## 14. Full Roadmap
+## 12. Full Roadmap
 
 ### Current State (April 2026)
 
@@ -774,7 +675,7 @@ README-DEMO.md, 3 rehearsed end-to-end demos, cold start under 5 minutes, zero 4
 
 ---
 
-## 15. What I Think
+## 13. What I Think
 
 This is a real product with a real market. The combination that nobody else has:
 

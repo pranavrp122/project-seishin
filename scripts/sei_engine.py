@@ -837,19 +837,12 @@ async def handler(websocket):
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
-                    # If merge_cached is set, union all compatible cached reports first
-                    if op_spec_result.get("merge_cached"):
-                        merged = merge_compatible_reports(session_cache.all_reports())
-                        if merged:
-                            target_report = merged
-                        else:
-                            target_report = session_cache.get_latest()
-                    else:
-                        # Resolve target report
-                        target_report = (
-                            session_cache.get(op_spec_result.get("report_id"))
-                            or session_cache.get_latest()
-                        )
+                    # Always merge all compatible cached reports so follow-up ops
+                    # see the full dataset, not just the latest (possibly reduced) result.
+                    target_report = (
+                        merge_compatible_reports(session_cache.all_reports())
+                        or session_cache.get_latest()
+                    )
 
                     if target_report is None:
                         # Cache expired — reconstruct query from history context

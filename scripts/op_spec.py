@@ -9,6 +9,7 @@ Exports:
 import json
 import os
 import time
+from collections import deque
 
 import httpx
 
@@ -157,6 +158,19 @@ _SAFE_DEFAULT = {
     "explanation": "LLM parse error - could not generate operation spec",
 }
 
+# --- Rolling error rate instrumentation (D-20-05) ---
+_OP_SPEC_RESULTS: deque[bool] = deque(maxlen=50)  # True=success, False=error
+_OP_SPEC_CALL_COUNT: int = 0
+
+
+def check_op_spec_health() -> None:
+    """Log warning if op_spec error rate is high. Call at startup after loading persistence."""
+    if len(_OP_SPEC_RESULTS) >= 10:
+        error_count = sum(1 for r in _OP_SPEC_RESULTS if not r)
+        rate = error_count / len(_OP_SPEC_RESULTS) * 100
+        if rate > 5:
+            print(f"[WARNING] op_spec error rate is {rate:.0f}% over last {len(_OP_SPEC_RESULTS)} calls. Consider a prompt audit.")
+
 
 async def generate_op_spec(user_text: str, cache_summary: list[dict], report_data: dict | None = None) -> dict:
     """Call Gemma with guided_json to get a structured op spec.
@@ -238,10 +252,31 @@ async def generate_op_spec(user_text: str, cache_summary: list[dict], report_dat
             f"  Op spec: {result['op_type']} ({elapsed_ms:.0f}ms)"
             f" for '{user_text[:50]}'"
         )
+
+        # D-20-05: track success
+        global _OP_SPEC_CALL_COUNT
+        is_error = result.get("op_type") == "_error"
+        _OP_SPEC_RESULTS.append(not is_error)
+        _OP_SPEC_CALL_COUNT += 1
+        if _OP_SPEC_CALL_COUNT % 10 == 0 and len(_OP_SPEC_RESULTS) >= 10:
+            error_count = sum(1 for r in _OP_SPEC_RESULTS if not r)
+            rate = error_count / len(_OP_SPEC_RESULTS) * 100
+            print(f"[metrics.op_spec_errors] rate={rate:.0f}% (window={len(_OP_SPEC_RESULTS)})")
+
         return result
 
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         print(f"  Op spec error after {elapsed_ms:.0f}ms: {exc}")
         print(f"  Op spec: falling back to safe default for '{user_text[:50]}'")
+
+        # D-20-05: track error
+        global _OP_SPEC_CALL_COUNT  # noqa: F811 (needed for both branches)
+        _OP_SPEC_RESULTS.append(False)
+        _OP_SPEC_CALL_COUNT += 1
+        if _OP_SPEC_CALL_COUNT % 10 == 0 and len(_OP_SPEC_RESULTS) >= 10:
+            error_count = sum(1 for r in _OP_SPEC_RESULTS if not r)
+            rate = error_count / len(_OP_SPEC_RESULTS) * 100
+            print(f"[metrics.op_spec_errors] rate={rate:.0f}% (window={len(_OP_SPEC_RESULTS)})")
+
         return dict(_SAFE_DEFAULT)

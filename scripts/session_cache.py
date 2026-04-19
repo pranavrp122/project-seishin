@@ -526,8 +526,12 @@ class JsonFileBackend:
     def load(self) -> dict:
         if not self.path.exists():
             return {}
-        with open(self.path) as f:
-            return json.load(f)
+        try:
+            with open(self.path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, ValueError) as exc:
+            print(f"[persistence] Corrupt memory.json, resetting: {exc}")
+            return {}
 
     def save(self, state: dict) -> None:
         # Enforce 5MB size bound before writing

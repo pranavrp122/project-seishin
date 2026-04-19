@@ -321,6 +321,45 @@ class SessionMemory:
         """Ancestor chain from report up to base (D-02)."""
         return self._cache.lineage(report_id)
 
+    async def check_compatible_base(self, user_text: str) -> dict | None:
+        """D-18: Check if a compatible live base report exists for a new data request.
+
+        Uses a lightweight LLM call to determine if an existing cached base
+        can answer the user's question without a fresh API call.
+        Returns the compatible base report if found, None otherwise.
+        """
+        import time as _time
+        from intent_classifier import classify_followup_target
+
+        bases = self._cache.base_reports()
+        if not bases:
+            return None
+
+        now = _time.monotonic()
+        report_list = sorted(bases, key=lambda r: r.get("timestamp", 0), reverse=True)
+        classifier_input = [
+            {
+                "report_id": r["report_id"],
+                "query": r.get("query", ""),
+                "kind": "base",
+                "row_count": r.get("row_count", 0),
+                "age_seconds": max(0.0, now - r.get("timestamp", now)),
+                "topic": r.get("topic", ""),
+            }
+            for r in report_list[:5]
+        ]
+
+        decision = await classify_followup_target(user_text, classifier_input)
+
+        if decision.get("confidence", 0) >= 0.7:
+            matched = self._cache.get(decision.get("report_id", ""))
+            if matched:
+                print(f"  [memory.reuse] D-18 base reuse: {matched['report_id']} "
+                      f"rows={matched['row_count']} for '{user_text[:50]}'")
+                return matched
+
+        return None
+
     def list(self, kind: str | None = None, topic: str | None = None) -> list[dict]:
         """List cached reports with optional filters."""
         reports = self._cache.all_reports()

@@ -774,25 +774,35 @@ async def handler(websocket):
                     # Fire report immediately — no confirmation gate
                     query = data_query or user_text
 
-                    # FOLLOW-04: Check cache for overlapping data before firing pipeline
-                    overlaps = session_cache.find_overlapping(query)
-                    if overlaps:
-                        overlap_hint = overlaps[0]["query"]
-                        hint_messages = list(history) + [{
+                    # D-18: Check for compatible cached base before firing fresh API call
+                    compatible_base = await session_memory.check_compatible_base(query)
+                    if compatible_base:
+                        print(f"  D-18 base reuse: delivering cached {compatible_base['report_id']} "
+                              f"({compatible_base['row_count']} rows) instead of fresh API call")
+                        await websocket.send(json.dumps({
+                            "type": "report_log",
+                            "query": query,
+                            "sql": compatible_base.get("sql", ""),
+                            "row_count": compatible_base["row_count"],
+                            "results": compatible_base["rows"],
+                            "summary": f"Using cached data ({compatible_base['row_count']} rows) from earlier query.",
+                            "claude_interactions": [],
+                            "dashboard_b64": "",
+                        }))
+                        # Voice a natural acknowledgment
+                        reuse_messages = list(history) + [{
                             "role": "user",
                             "content": (
-                                f"[INTERNAL: You already pulled data earlier that might be relevant — "
-                                f'the query was: "{overlap_hint}". '
-                                "Ask if they want you to work with that existing data instead of pulling new. "
-                                "One sentence, natural. Stay in character.]"
+                                f"[INTERNAL: You already have this data cached ({compatible_base['row_count']} rows "
+                                f"from: {compatible_base.get('query', '')[:60]}). Let the user know you're using "
+                                "the data you already pulled. One casual sentence, stay in character.]"
                             ),
                         }]
                         _ce = asyncio.Event()
-                        hint_reply = await handle_llm_response(websocket, hint_messages, tts_client, _ce)
-                        if hint_reply:
-                            history.append({"role": "assistant", "content": hint_reply})
-                        pending_overlap_query = query
-                        continue  # Do NOT fire call_report_api yet — wait for user response
+                        reuse_reply = await handle_llm_response(websocket, reuse_messages, tts_client, _ce)
+                        if reuse_reply:
+                            history.append({"role": "assistant", "content": reuse_reply})
+                        continue
 
                     active_report_query = query
                     active_report_task = asyncio.create_task(call_report_api(query))

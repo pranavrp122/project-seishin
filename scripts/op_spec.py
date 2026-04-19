@@ -145,7 +145,7 @@ _SAFE_DEFAULT = {
 }
 
 
-async def generate_op_spec(user_text: str, cache_summary: list[dict]) -> dict:
+async def generate_op_spec(user_text: str, cache_summary: list[dict], report_data: dict | None = None) -> dict:
     """Call Gemma with guided_json to get a structured op spec.
 
     Uses vLLM guided_json to guarantee schema-compliant JSON output.
@@ -153,14 +153,32 @@ async def generate_op_spec(user_text: str, cache_summary: list[dict]) -> dict:
 
     Args:
         user_text: The raw user utterance describing the follow-up operation.
-        cache_summary: Output from SessionCache.summary() -- no raw rows.
+        cache_summary: Output from SessionCache.summary() -- metadata only.
+        report_data: The actual cached report dict (rows, columns) for the target
+                     report. When provided, injects real rows into context so the
+                     model works from actual data instead of conversation memory.
 
     Returns:
         Dict with at minimum: op_type, explanation.
     """
+    # Build data context block — use actual rows when available, fall back to summary
+    if report_data and report_data.get("rows"):
+        rows_preview = json.dumps(report_data["rows"][:20], default=str)
+        columns = report_data.get("columns", {})
+        data_context = (
+            f"## Target Report Data\n"
+            f"Query: {report_data.get('query', 'unknown')}\n"
+            f"Columns: {json.dumps(columns)}\n"
+            f"Row count: {report_data.get('row_count', len(report_data['rows']))}\n"
+            f"Rows (first 20):\n{rows_preview}\n\n"
+            "Use EXACT column names from above. Base your operation on the actual data shown."
+        )
+    else:
+        data_context = build_cache_summary_block(cache_summary)
+
     messages = [
         {"role": "system", "content": OP_SPEC_SYSTEM_PROMPT},
-        {"role": "system", "content": build_cache_summary_block(cache_summary)},
+        {"role": "system", "content": data_context},
         {"role": "user", "content": user_text},
     ]
 

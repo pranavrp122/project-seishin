@@ -116,16 +116,15 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         print(f"  Cached report {report_id} ({len(res.get('results', []))} rows)")
 
     if raw_summary:
-        # Let Gemma introduce the results naturally
+        # Embed both the summary and the actual rows so Gemma speaks only from real data
+        rows_preview = json.dumps(res.get("results", [])[:10], default=str)[:600]
         intro_messages = list(history) + [{
             "role": "user",
             "content": (
-                f"[INTERNAL: The data pull is complete. Here are the results:\n\n"
-                f"{raw_summary}\n\n"
-                "Present these results to the user naturally and briefly — "
-                "like a friend reading off a screen. Use the exact numbers from above. "
-                "Don't add a lead-in like 'here's what I found' — just go straight into the data. "
-                "Keep it casual and concise. 2-3 sentences max.]"
+                f"[INTERNAL: Data pull complete. Summary: {raw_summary}\n\n"
+                f"Actual data ({res.get('row_count', 0)} rows, first 10):\n{rows_preview}\n\n"
+                "IMPORTANT: Speak ONLY from the data above. Do not use memory or guess. "
+                "Present naturally, 2-3 sentences max. Use exact values from the data.]"
             ),
         }]
         _ce = asyncio.Event()
@@ -671,7 +670,7 @@ async def handler(websocket):
                         confidence = 0.95
                         data_query = None
                         speculative_op_task = asyncio.create_task(
-                            generate_op_spec(user_text, session_cache.summary())
+                            generate_op_spec(user_text, session_cache.summary(), session_cache.get_latest())
                         )
                         skip_classification = True
                     else:
@@ -694,7 +693,7 @@ async def handler(websocket):
                     )
                     if has_reports:
                         speculative_op_task = asyncio.create_task(
-                            generate_op_spec(user_text, session_cache.summary())
+                            generate_op_spec(user_text, session_cache.summary(), session_cache.get_latest())
                         )
 
                     intent_result = await classify_intent(user_text, history, has_reports)
@@ -777,7 +776,7 @@ async def handler(websocket):
                         op_spec_result = await speculative_op_task
                     else:
                         op_spec_result = await generate_op_spec(
-                            user_text, session_cache.summary()
+                            user_text, session_cache.summary(), session_cache.get_latest()
                         )
 
                     # LLM parse error — voice a natural hint before re-firing
@@ -920,47 +919,28 @@ async def handler(websocket):
 
                     # Voice the results via Gemma + TTS
                     if result["row_count"] == 0:
-                        # D-07: Auto-suggest broadened filter
-                        suggestion = _suggest_broadened_spec(op_spec_result, target_report)
-                        if suggestion and pending_suggestion_spec is None:
-                            pending_suggestion_spec = suggestion
-                            # Build natural suggestion text
-                            if suggestion.get("operator") == "contains" and op_spec_result.get("operator") == "eq":
-                                hint = f"a broader search for anything containing '{suggestion.get('value')}'"
-                            elif suggestion.get("value") != op_spec_result.get("value"):
-                                hint = f"adjusting the threshold to {suggestion.get('value')}"
-                            else:
-                                hint = "a broader search"
-                            voice_messages = list(history) + [{
-                                "role": "user",
-                                "content": (
-                                    f"[INTERNAL: The filter returned no results. "
-                                    f"Suggest trying: {hint}. Ask if they want you to try that. "
-                                    "Natural, one sentence.]"
-                                ),
-                            }]
+                        # Zero results — fire a new data request with context rather than
+                        # letting Gemma guess or reason from memory.
+                        prev_query = target_report.get("query", "")
+                        if prev_query:
+                            query = f"Based on '{prev_query}': {user_text}"
                         else:
-                            pending_suggestion_spec = None  # Don't suggest if already in suggestion loop (Pitfall 5)
-                            voice_messages = list(history) + [{
-                                "role": "user",
-                                "content": (
-                                    "[INTERNAL: The operation returned zero results and no broader "
-                                    "alternative is available. Let the user know definitively. One sentence.]"
-                                ),
-                            }]
+                            query = data_query or user_text
+                        active_report_query = query
+                        active_report_task = asyncio.create_task(call_report_api(query))
+                        continue
                     else:
-                        # Build a concise summary of the result for Gemma to voice
-                        preview_rows = result["rows"][:5]
-                        preview_text = json.dumps(preview_rows, default=str)[:500]
+                        # Always embed the actual rows so Gemma speaks only from real data.
+                        all_rows_text = json.dumps(result["rows"], default=str)[:800]
                         voice_messages = list(history) + [{
                             "role": "user",
                             "content": (
-                                f"[INTERNAL: The follow-up operation is done. "
+                                f"[INTERNAL: Follow-up complete. "
                                 f"Operation: {op_spec_result.get('explanation', '')}. "
-                                f"Result: {result['row_count']} rows. "
-                                f"Preview: {preview_text}\n\n"
-                                "Present these results naturally and briefly. "
-                                "Use exact numbers from above. 2-3 sentences max.]"
+                                f"Exact results ({result['row_count']} rows):\n{all_rows_text}\n\n"
+                                "IMPORTANT: Speak ONLY from the data above. Do not use memory or "
+                                "guess. If the data does not answer the question, say so. "
+                                "Present naturally, 2-3 sentences max.]"
                             ),
                         }]
 

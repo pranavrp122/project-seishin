@@ -361,6 +361,7 @@ def fade_out_pcm(pcm: bytes, fade_ms: int = 200, sample_rate: int = 44100) -> by
 _rate_limit_window: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT_MAX = 10
 _RATE_LIMIT_SECONDS = 60
+_RATE_LIMIT_MAX_IPS = 10000
 
 
 class MessageRateLimiter:
@@ -392,6 +393,14 @@ async def process_request(connection, request):
     # Per-IP sliding window rate limit
     ip = connection.remote_address[0]
     now = time.time()
+
+    # Evict stale IPs to prevent unbounded growth (CR-01)
+    if len(_rate_limit_window) > _RATE_LIMIT_MAX_IPS:
+        cutoff = now - _RATE_LIMIT_SECONDS
+        stale = [k for k, ts in _rate_limit_window.items() if not ts or ts[-1] < cutoff]
+        for k in stale:
+            del _rate_limit_window[k]
+
     window = _rate_limit_window[ip]
     _rate_limit_window[ip] = [t for t in window if now - t < _RATE_LIMIT_SECONDS]
     _rate_limit_window[ip].append(now)

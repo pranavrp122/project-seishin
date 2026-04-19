@@ -546,6 +546,171 @@ def scenario_rephrase_base_reuse() -> tuple[str, list[Turn]]:
     ])
 
 
+def scenario_conjunctive_aggregation() -> tuple[str, list[Turn]]:
+    """Conjunctive aggregation: 'highest AND lowest lead time' from cached base in one pass."""
+    return ("conjunctive_aggregation", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="from all our suppliers which one has the highest lead time and which one has the lowest lead time",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_lineage_climb() -> tuple[str, list[Turn]]:
+    """Lineage climb: derived drops columns, follow-up needs dropped column, climb to base."""
+    return ("lineage_climb", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="show me just the names and ratings",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="which has the longest lead time",
+            expect_intent="follow_up_on_previous",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_long_conversation() -> tuple[str, list[Turn]]:
+    """15-turn conversation across 3 topics. All bases survive to end."""
+    return ("long_conversation", [
+        Turn(
+            user_text="get me all our suppliers",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="which have rating above 3",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="sort those by lead time",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="pull up all our invoices",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="which are overdue",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="sort by amount",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="hey how's it going",
+            expect_intent="normal_chat",
+        ),
+        Turn(
+            user_text="get me all department data",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="which have revenue over 1 million",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="sort by headcount",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="back to the suppliers, which has highest rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="and the lowest rating",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="how about the invoices, which is the largest",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="which department has the most revenue",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="sort all suppliers by name",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_semantic_duplicate_base() -> tuple[str, list[Turn]]:
+    """3 phrasings of same base fetch. Exactly 1 Report API call."""
+    return ("semantic_duplicate_base", [
+        Turn(
+            user_text="get me all suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="pull all the supplier data",
+            expect_intent="new_data_request",
+            expect_no_fresh_fetch=True,
+        ),
+        Turn(
+            user_text="show me our suppliers please",
+            expect_intent="new_data_request",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_parallel_topics() -> tuple[str, list[Turn]]:
+    """Alternating suppliers/invoices follow-ups with no cross-contamination."""
+    return ("parallel_topics", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="pull up our invoices",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="which supplier has highest rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="which invoice is largest",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="sort suppliers by lead time",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+            expect_no_fresh_fetch=True,
+        ),
+        Turn(
+            user_text="sort invoices by date",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
 # Registry of all scenarios
 ALL_SCENARIOS: list[Callable] = [
     scenario_suppliers_multifilter,
@@ -560,6 +725,11 @@ ALL_SCENARIOS: list[Callable] = [
     scenario_count_then_detail,
     scenario_implicit_pronoun,
     scenario_rephrase_base_reuse,
+    scenario_conjunctive_aggregation,
+    scenario_lineage_climb,
+    scenario_long_conversation,
+    scenario_semantic_duplicate_base,
+    scenario_parallel_topics,
 ]
 
 

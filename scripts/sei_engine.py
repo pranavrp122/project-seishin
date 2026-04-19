@@ -828,6 +828,7 @@ async def handler(websocket):
                             session_cache.get(op_spec_result.get("report_id"))
                             or session_cache.get_latest()
                         )
+                    print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows, report_id={op_spec_result.get('report_id')!r}, cached_reports={len(session_cache.all_reports())}")
 
                     if target_report is None:
                         # Cache expired — reconstruct query from history context

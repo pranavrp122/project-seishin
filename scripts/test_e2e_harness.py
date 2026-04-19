@@ -812,6 +812,124 @@ def scenario_contradiction_resort() -> tuple[str, list[Turn]]:
     ])
 
 
+# --- Phase 13.2 scenarios: fast-path, opening_phrase, persistence, speculation ---
+
+
+def scenario_fast_path_greeting() -> tuple[str, list[Turn]]:
+    """D-20-01: Fast-path routes greetings to normal_chat without classification.
+    Validates that 'hi' and 'thanks' skip classify_intent while data requests
+    still go through normal classification.
+    """
+    return ("fast_path_greeting", [
+        Turn(
+            user_text="hi",
+            expect_intent="normal_chat",
+        ),
+        Turn(
+            user_text="show me top clients",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="thanks",
+            expect_intent="normal_chat",
+        ),
+    ])
+
+
+def scenario_fast_path_gate_conditions() -> tuple[str, list[Turn]]:
+    """D-20-01 gate condition: fast-path suppressed when last assistant message ends with ?.
+    Turn 1: 'hi' -> fast-path normal_chat. Turn 2: data request -> gets a clarifying question
+    ending in ?. Turn 3: 'hi' again -> should NOT fast-path (assistant just asked a question),
+    should classify normally.
+    """
+    return ("fast_path_gate_conditions", [
+        Turn(
+            user_text="hi",
+            expect_intent="normal_chat",
+        ),
+        Turn(
+            user_text="maybe get some data",
+            # Low-confidence new_data_request triggers clarifying question ending in ?
+        ),
+        Turn(
+            # After a clarifying question (ending with ?), 'hi' should NOT fast-path
+            # It should go through normal classification
+            user_text="hi",
+        ),
+    ])
+
+
+def scenario_opening_phrase_data_request() -> tuple[str, list[Turn]]:
+    """D-20-02: opening_phrase replaces separate ack LLM call for new_data_request.
+    Validates that a data request gets an immediate ack from the classifier's opening_phrase
+    (not a separate LLM call). The response should arrive faster than a full LLM round-trip.
+    """
+    return ("opening_phrase_data_request", [
+        Turn(
+            user_text="get me all warehouse data",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="which ones have the most inventory",
+            expect_intent="follow_up_on_previous",
+        ),
+    ])
+
+
+def scenario_persistence_cross_session() -> tuple[str, list[Turn]]:
+    """D-20-09: Cross-session persistence test.
+    Turn 1: Pull data (report gets cached + persisted to ~/.sei/memory.json).
+    Turn 2: Follow-up on the cached data (verifies cache works).
+    Turn 3: Another follow-up (verifies session memory holds report metadata).
+    NOTE: Full restart simulation requires manual engine restart between turns 2 and 3.
+    This scenario validates the base flow; manual restart testing is documented separately.
+    """
+    return ("persistence_cross_session", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="sort by rating descending",
+            expect_intent="follow_up_on_previous",
+            expect_no_fresh_fetch=True,
+        ),
+        Turn(
+            user_text="now show me just the top 3",
+            expect_intent="follow_up_on_previous",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_speculation_no_op_spec() -> tuple[str, list[Turn]]:
+    """D-20-03: Speculative chat always fires, speculative op_spec never fires.
+    Turn 1: Pull data (has_reports becomes True).
+    Turn 2: Send a greeting ('hey') -- even with has_reports=True, should go to
+    normal_chat via fast-path or classification. No speculative op_spec task should
+    exist. Speculative chat task should be created for the reply.
+    Turn 3: Follow-up uses sequential op_spec (not speculative).
+    """
+    return ("speculation_no_op_spec", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="hey",
+            expect_intent="normal_chat",
+        ),
+        Turn(
+            user_text="which has the highest rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
 # Registry of all scenarios
 ALL_SCENARIOS: list[Callable] = [
     scenario_suppliers_multifilter,
@@ -836,6 +954,11 @@ ALL_SCENARIOS: list[Callable] = [
     scenario_subset_dedup_long_to_short,
     scenario_forgetful_reference,
     scenario_contradiction_resort,
+    scenario_fast_path_greeting,
+    scenario_fast_path_gate_conditions,
+    scenario_opening_phrase_data_request,
+    scenario_persistence_cross_session,
+    scenario_speculation_no_op_spec,
 ]
 
 

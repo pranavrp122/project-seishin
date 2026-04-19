@@ -248,9 +248,13 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
             "content": (
                 f"[INTERNAL: Report complete ({res.get('row_count', 0)} rows). "
                 f"Summary from the data pipeline: <data>{raw_summary}</data>\n\n"
-                "Give a 1-2 sentence spoken summary — the single most important takeaway "
-                "or the top result. Do NOT list all rows or read out every item. "
-                "The full report is already visible to the user. Speak only from the summary above.]"
+                "STRICT RULES:\n"
+                "1. The <data> block is the ONLY source of truth. Speak nothing that isn't literally in it.\n"
+                "2. Never invent or estimate counts, names, numbers, or categories. If a number isn't in the summary, do not state one.\n"
+                "3. Do NOT count or tally anything yourself — if the summary doesn't already state a count, don't guess one.\n"
+                "4. Do NOT list all rows. The user can see them on screen.\n"
+                "5. Give ONE spoken takeaway in 1-2 sentences — the headline point the summary already makes.\n"
+                "6. If the summary is empty or unclear, say so honestly rather than fabricating.]"
             ),
         }]
         _ce = asyncio.Event()
@@ -1349,18 +1353,18 @@ async def handler(websocket):
                         else:
                             result = executor.execute(op_spec_result, target_report)
                     except Exception as exec_err:
-                        print(f"  Executor error: {exec_err}")
-                        error_messages = list(history) + [{
-                            "role": "user",
-                            "content": (
-                                "[INTERNAL: The data operation failed. Let the user know naturally "
-                                "and offer to try a different approach or pull fresh data. One sentence.]"
-                            ),
-                        }]
-                        _ce = asyncio.Event()
-                        err_reply = await handle_llm_response(websocket, error_messages, tts_client, _ce)
-                        if err_reply:
-                            history.append({"role": "assistant", "content": err_reply})
+                        print(f"  Executor error: {exec_err} -- falling back to fresh API query")
+                        # Fall back: fire the user's question as a fresh data request
+                        # rather than just apologizing. Keeps the user moving.
+                        prev_query = target_report.get("query", "") if target_report else ""
+                        fallback_query = (
+                            f"Based on '{prev_query}': {user_text}" if prev_query else (data_query or user_text)
+                        )
+                        active_report_query = fallback_query
+                        active_report_kind = "derived"
+                        active_report_parent_id = target_report.get("report_id") if target_report else None
+                        active_report_derivation = f"re-fetched after op error: {exec_err}"
+                        active_report_task = turn_scope.track(asyncio.create_task(call_report_api(fallback_query)))
                         continue
 
                     # FOLLOW-06: Send report_log frame (same shape as deliver_report_result)

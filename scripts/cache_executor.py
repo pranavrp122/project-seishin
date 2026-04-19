@@ -160,14 +160,19 @@ class CacheExecutor:
     # --- Op handlers ---
 
     def _op_filter(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
-        col = spec["column"]
+        col = spec.get("column")
+        op = spec.get("operator")
+        if not col or not op:
+            raise ValueError(
+                f"filter op missing required fields (column={col!r}, operator={op!r}). "
+                f"Available columns: {list(df.columns)}"
+            )
         if col not in df.columns:
             matched = _fuzzy_match_column(col, list(df.columns))
             if matched:
                 col = matched
             else:
                 raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
-        op = spec["operator"]
         val = spec.get("value")
 
         # Type coercion for filter values

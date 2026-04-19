@@ -23,76 +23,163 @@ _LLM_HEADERS = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
 MODEL_NAME = os.environ.get("SEI_MODEL_NAME", "gemma-4")
 
 # --- JSON Schema for vLLM constrained decoding ---
+# Uses oneOf with a distinct shape per op_type so constrained decoding enforces
+# required fields for each op (if/then conditionals are not honored by vLLM's
+# guided_json backend, but oneOf is).
+_FILTER_OPERATORS = ["eq", "neq", "gt", "lt", "gte", "lte", "between", "in", "contains"]
+_AGG_FUNCS = ["sum", "avg", "count", "min", "max"]
+_EXPL = {"type": "string"}
+_MERGE = {"type": ["boolean", "null"]}
+_REPORT_ID = {"type": ["string", "null"]}
+
 OP_SPEC_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "op_type": {
-            "type": "string",
-            "enum": [
-                "filter", "sort", "top_n", "bottom_n",
-                "aggregate", "pivot", "select_columns",
-                "rename_columns", "cross_report_compare",
-            ],
-        },
-        "report_id": {"type": ["string", "null"]},
-        "column": {"type": ["string", "null"]},
-        "columns": {
-            "type": ["array", "null"],
-            "items": {"type": "string"},
-        },
-        "value": {"type": ["string", "number", "null"]},
-        "value2": {"type": ["string", "number", "null"]},
-        "values": {
-            "type": ["array", "null"],
-            "items": {"type": ["string", "number"]},
-        },
-        "operator": {
-            "type": ["string", "null"],
-            "enum": [
-                "eq", "neq", "gt", "lt", "gte", "lte",
-                "between", "in", "contains", None,
-            ],
-        },
-        "direction": {
-            "type": ["string", "null"],
-            "enum": ["asc", "desc", None],
-        },
-        "sort_specs": {
-            "type": ["array", "null"],
-            "items": {
-                "type": "object",
-                "properties": {
-                    "column": {"type": "string"},
-                    "direction": {"type": "string", "enum": ["asc", "desc"]},
-                },
-                "required": ["column", "direction"],
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "filter"},
+                "column": {"type": "string"},
+                "operator": {"type": "string", "enum": _FILTER_OPERATORS},
+                "value": {"type": ["string", "number", "null"]},
+                "value2": {"type": ["string", "number", "null"]},
+                "values": {"type": ["array", "null"], "items": {"type": ["string", "number"]}},
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
             },
+            "required": ["op_type", "column", "operator", "explanation"],
+            "additionalProperties": False,
         },
-        "n": {"type": ["integer", "null"]},
-        "agg_func": {
-            "type": ["string", "null"],
-            "enum": ["sum", "avg", "count", "min", "max", None],
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "sort"},
+                "sort_specs": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "column": {"type": "string"},
+                            "direction": {"type": "string", "enum": ["asc", "desc"]},
+                        },
+                        "required": ["column", "direction"],
+                    },
+                },
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "sort_specs", "explanation"],
+            "additionalProperties": False,
         },
-        "group_by": {
-            "type": ["array", "null"],
-            "items": {"type": "string"},
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "top_n"},
+                "column": {"type": "string"},
+                "n": {"type": "integer"},
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "column", "n", "explanation"],
+            "additionalProperties": False,
         },
-        "pivot_index": {"type": ["string", "null"]},
-        "pivot_columns": {"type": ["string", "null"]},
-        "pivot_values": {"type": ["string", "null"]},
-        "rename_map": {"type": ["object", "null"]},
-        "compare_report_id": {"type": ["string", "null"]},
-        "compare_column": {"type": ["string", "null"]},
-        "merge_cached": {"type": ["boolean", "null"]},
-        "explanation": {"type": "string"},
-    },
-    "required": ["op_type", "explanation"],
-    "additionalProperties": False,
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "bottom_n"},
+                "column": {"type": "string"},
+                "n": {"type": "integer"},
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "column", "n", "explanation"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "aggregate"},
+                "column": {"type": "string"},
+                "agg_func": {"type": "string", "enum": _AGG_FUNCS},
+                "group_by": {"type": ["array", "null"], "items": {"type": "string"}},
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "column", "agg_func", "explanation"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "pivot"},
+                "pivot_index": {"type": "string"},
+                "pivot_columns": {"type": "string"},
+                "pivot_values": {"type": "string"},
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "pivot_index", "pivot_columns", "pivot_values", "explanation"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "select_columns"},
+                "columns": {"type": "array", "items": {"type": "string"}},
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "columns", "explanation"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "rename_columns"},
+                "rename_map": {"type": "object"},
+                "report_id": _REPORT_ID,
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "rename_map", "explanation"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "op_type": {"const": "cross_report_compare"},
+                "report_id": {"type": "string"},
+                "compare_report_id": {"type": "string"},
+                "compare_column": {"type": "string"},
+                "merge_cached": _MERGE,
+                "explanation": _EXPL,
+            },
+            "required": ["op_type", "report_id", "compare_report_id", "compare_column", "explanation"],
+            "additionalProperties": False,
+        },
+    ],
 }
 
 # --- System prompt for op spec generation ---
 OP_SPEC_SYSTEM_PROMPT = """\
-You translate a user's follow-up request into a structured data operation. Return JSON: {op_type, params..., explanation}.
+You translate a user's follow-up request into a structured data operation.
+
+## Output format — CRITICAL
+Return a FLAT JSON object with all fields at the TOP level. DO NOT nest fields inside a "params" object. DO NOT invent keys not listed in the examples.
+
+Correct format (for filter):
+{"op_type": "filter", "column": "rating_score", "operator": "eq", "value": 3, "explanation": "Filtering for suppliers rated 3."}
+
+WRONG format (NEVER do this):
+{"op_type": "filter", "params": {"column": "rating_score", "operator": "eq", "value": 3}, "explanation": "..."}
+
+Every example below shows the expected FLAT top-level structure.
 
 You will see: the user's request, the active session cache summary, and (for the target report) the column schema with sample values.
 
@@ -190,6 +277,36 @@ _SAFE_DEFAULT = {
     "explanation": "LLM parse error - could not generate operation spec",
 }
 
+
+def _is_incomplete_spec(spec: dict) -> bool:
+    """Return True if the op spec is missing required fields for its op_type."""
+    op = spec.get("op_type")
+    if op == "filter":
+        if not spec.get("column") or not spec.get("operator"):
+            return True
+    elif op in ("top_n", "bottom_n"):
+        if not spec.get("column"):
+            return True
+    elif op == "aggregate":
+        if not spec.get("column") or not spec.get("agg_func"):
+            return True
+    elif op == "sort":
+        if not spec.get("sort_specs") and not (spec.get("column") and spec.get("direction")):
+            return True
+    elif op == "select_columns":
+        if not spec.get("columns"):
+            return True
+    elif op == "rename_columns":
+        if not spec.get("rename_map"):
+            return True
+    elif op == "pivot":
+        if not (spec.get("pivot_index") and spec.get("pivot_columns") and spec.get("pivot_values")):
+            return True
+    elif op == "cross_report_compare":
+        if not (spec.get("compare_report_id") and spec.get("compare_column")):
+            return True
+    return False
+
 # --- Rolling error rate instrumentation (D-20-05) ---
 _OP_SPEC_RESULTS: deque[bool] = deque(maxlen=50)  # True=success, False=error
 _OP_SPEC_CALL_COUNT: int = 0
@@ -280,6 +397,45 @@ async def generate_op_spec(user_text: str, cache_summary: list[dict], report_dat
         elapsed_ms = (time.perf_counter() - t0) * 1000
         content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
         result = json.loads(content)
+        # Defensive: if Gemma nested fields under "params", hoist them to top level
+        if isinstance(result.get("params"), dict):
+            for k, v in result["params"].items():
+                result.setdefault(k, v)
+            del result["params"]
+
+        # Retry once if required fields are missing for the chosen op_type
+        if _is_incomplete_spec(result):
+            nudge = (
+                "Your previous attempt was incomplete. For op_type=filter you MUST include "
+                "column (exact name from schema), operator (eq/neq/gt/lt/gte/lte/between/in/contains), "
+                "and value. For top_n/bottom_n include column and n. For aggregate include column "
+                "and agg_func. Try again and fill in ALL required fields."
+            )
+            retry_messages = messages + [
+                {"role": "assistant", "content": json.dumps(result)},
+                {"role": "user", "content": nudge},
+            ]
+            retry_payload = dict(payload)
+            retry_payload["messages"] = retry_messages
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp2 = await client.post(
+                        f"{LLM_URL}/v1/chat/completions",
+                        json=retry_payload,
+                        headers=_LLM_HEADERS,
+                        timeout=httpx.Timeout(connect=2.0, read=10.0, write=2.0, pool=2.0),
+                    )
+                    resp2.raise_for_status()
+                content2 = _strip_json_fences(resp2.json()["choices"][0]["message"]["content"])
+                retry_result = json.loads(content2)
+                if not _is_incomplete_spec(retry_result):
+                    result = retry_result
+                    print(f"  Op spec: retry succeeded after incomplete first attempt")
+                else:
+                    print(f"  Op spec: retry still incomplete; keeping first result")
+            except Exception as retry_exc:
+                print(f"  Op spec: retry failed: {retry_exc}; keeping first result")
+            elapsed_ms = (time.perf_counter() - t0) * 1000
 
         print(
             f"  Op spec: {result['op_type']} ({elapsed_ms:.0f}ms)"

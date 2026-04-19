@@ -116,15 +116,17 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         print(f"  Cached report {report_id} ({len(res.get('results', []))} rows)")
 
     if raw_summary:
-        # Embed both the summary and the actual rows so Gemma speaks only from real data
-        rows_preview = json.dumps(res.get("results", [])[:10], default=str)[:600]
+        # LLM only sees the summary — full report already sent to UI via report_log frame.
+        # Keep response brief: 1-2 sentences highlighting the most important point(s).
+        # Do NOT list every row. The user can see the full data in the report log.
         intro_messages = list(history) + [{
             "role": "user",
             "content": (
-                f"[INTERNAL: Data pull complete. Summary: {raw_summary}\n\n"
-                f"Actual data ({res.get('row_count', 0)} rows, first 10):\n{rows_preview}\n\n"
-                "IMPORTANT: Speak ONLY from the data above. Do not use memory or guess. "
-                "Present naturally, 2-3 sentences max. Use exact values from the data.]"
+                f"[INTERNAL: Report complete ({res.get('row_count', 0)} rows). "
+                f"Summary from the data pipeline: {raw_summary}\n\n"
+                "Give a 1-2 sentence spoken summary — the single most important takeaway "
+                "or the top result. Do NOT list all rows or read out every item. "
+                "The full report is already visible to the user. Speak only from the summary above.]"
             ),
         }]
         _ce = asyncio.Event()

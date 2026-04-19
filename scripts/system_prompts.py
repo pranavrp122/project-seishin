@@ -11,14 +11,19 @@ SEED_HISTORY = [
 
 
 def build_cache_summary_block(cache_summary: list[dict]) -> str:
-    """Build compact cache summary text for Gemma context injection. No raw rows."""
+    """Build compact one-line-per-report cache summary for Gemma context (D-08)."""
+    if not cache_summary:
+        return ""
     lines = ["## Active Session Cache\n"]
-    lines.append("The following reports are available for follow-up operations:\n")
     for r in cache_summary:
-        lines.append(f"### Report `{r['report_id']}`")
-        lines.append(f"- Original query: \"{r['query']}\"")
-        lines.append(f"- Rows: {r['row_count']}")
-        cols = ", ".join(f"`{name}` ({dtype})" for name, dtype in r["columns"].items())
-        lines.append(f"- Columns: {cols}")
-        lines.append("")
+        kind = r.get("kind", "base")
+        topic = r.get("topic", "")
+        age = r.get("age_seconds", 0)
+        deriv = r.get("derivation_summary", "")
+        line = f"- [{r['report_id']}] {kind} | {r['row_count']} rows | {topic or r.get('query', '')[:40]}"
+        if age:
+            line += f" | {age:.0f}s ago"
+        if deriv:
+            line += f" | {deriv[:80]}"
+        lines.append(line)
     return "\n".join(lines)

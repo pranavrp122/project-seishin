@@ -434,6 +434,47 @@ def build_initial_messages() -> list[dict]:
     return messages
 
 
+_HISTORY_FIXED_PREFIX = 3       # system prompt + 2 seed turns
+_HISTORY_MAX_TOKENS = 100_000   # compact when estimated tokens exceed this
+_HISTORY_KEEP_TURNS = 15        # always keep this many recent turns intact after compaction
+
+def _estimate_tokens(history: list[dict]) -> int:
+    """Rough token estimate: 1 token ≈ 4 chars."""
+    return sum(len(m.get("content", "")) for m in history) // 4
+
+def _compact_history(history: list[dict]) -> None:
+    """When estimated context tokens exceed budget, summarize old turns into a single
+    system block and keep the last _HISTORY_KEEP_TURNS turns intact."""
+    if _estimate_tokens(history) <= _HISTORY_MAX_TOKENS:
+        return
+
+    prefix = history[:_HISTORY_FIXED_PREFIX]
+    rest = history[_HISTORY_FIXED_PREFIX:]
+    keep_n = _HISTORY_KEEP_TURNS * 2  # user + assistant per turn
+
+    if len(rest) <= keep_n:
+        return  # nothing old enough to compact
+
+    old, recent = rest[:-keep_n], rest[-keep_n:]
+
+    lines = []
+    for m in old:
+        content = m.get("content", "")
+        if content.startswith("[INTERNAL"):
+            continue
+        role = "User" if m["role"] == "user" else "Miyako"
+        lines.append(f"- {role}: {content[:120]}")
+
+    summary = (
+        "[Earlier conversation compacted for context budget. Summary:\n"
+        + "\n".join(lines[:30])
+        + "\nRecent conversation follows.]"
+    )
+
+    history[:] = prefix + [{"role": "system", "content": summary}] + recent
+    print(f"  [context.compact] compacted {len(old)} old messages, kept {len(recent)} recent")
+
+
 def is_quality_response(reply: str) -> bool:
     """Check if LLM reply meets minimum quality bar."""
     return bool(reply) and len(reply) >= 10
@@ -871,6 +912,7 @@ async def handler(websocket):
                         # Fall through to normal intent classification for current message
 
                 if not skip_classification:
+                    _compact_history(history)
                     history.append({"role": "user", "content": user_text})
                 print(f"  User: {_redact_log(user_text)}")
 

@@ -333,6 +333,8 @@ class SessionMemory:
             conf = decision.get("confidence", 0)
             reason = decision.get("reason", "")
             print(f"  [memory.resolve] target={chosen_id} kind={chosen.get('kind')} conf={conf:.2f} reason={reason[:60]}")
+            if chosen is not None:
+                chosen["_resolve_confidence"] = conf
         if chosen is not None:
             chosen["timestamp"] = time.monotonic()
         return chosen

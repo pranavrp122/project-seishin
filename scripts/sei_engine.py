@@ -28,6 +28,7 @@ from session_cache import SessionCache, SessionMemory
 from op_spec import generate_op_spec
 from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
 from text_utils import _normalize_datetime
+from memory_ops import execute_op, aggregate_multi
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -1020,21 +1021,138 @@ async def handler(websocket):
                             op_spec_result["columns"] = [resolved_cols.get(c, c) for c in op_spec_result["columns"]]
 
                     if missing_cols:
-                        # Missing column — fire a new data request using the previous query
-                        # context + what the user just asked, so the report API has enough
-                        # information to fetch the right data (e.g. "what r their names?" alone
-                        # is meaningless without knowing they were asking about active customers).
-                        prev_query = target_report.get("query", "")
-                        if prev_query:
-                            query = f"Based on '{prev_query}': {user_text}"
-                        else:
-                            query = data_query or user_text
-                        active_report_query = query
-                        active_report_kind = "derived"  # missing-column fallback: don't displace base report
-                        active_report_parent_id = target_report.get("report_id")
-                        active_report_derivation = "re-fetched for missing columns"
-                        active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
-                        continue
+                        # D-14-03: Lineage climb — walk parent chain for missing columns
+                        chain = session_memory.lineage(target_report["report_id"])
+                        climb_resolved = False
+                        for ancestor in chain[1:]:  # skip current report
+                            ancestor_cols = list(ancestor.get("columns", {}).keys())
+                            if all(c in ancestor_cols or _fuzzy_match_column(c, ancestor_cols) for c in missing_cols):
+                                # Re-resolve fuzzy cols against ancestor
+                                for c in missing_cols:
+                                    if c in ancestor["columns"]:
+                                        resolved_cols[c] = c
+                                    else:
+                                        resolved_cols[c] = _fuzzy_match_column(c, ancestor_cols)
+                                if op_spec_result.get("column") in resolved_cols:
+                                    op_spec_result["column"] = resolved_cols[op_spec_result["column"]]
+                                if op_spec_result.get("columns"):
+                                    op_spec_result["columns"] = [resolved_cols.get(c, c) for c in op_spec_result["columns"]]
+                                try:
+                                    climb_result = execute_op(ancestor["rows"], op_spec_result)
+                                    if climb_result:
+                                        print(f"  [memory.climb] from={target_report['report_id']} to={ancestor['report_id']} reason=missing_col")
+                                        target_report = ancestor
+                                        missing_cols = []
+                                        climb_resolved = True
+                                        break
+                                except ValueError:
+                                    continue
+                        if not climb_resolved:
+                            prev_query = target_report.get("query", "")
+                            if prev_query:
+                                query = f"Based on '{prev_query}': {user_text}"
+                            else:
+                                query = data_query or user_text
+                            active_report_query = query
+                            active_report_kind = "derived"
+                            active_report_parent_id = target_report.get("report_id")
+                            active_report_derivation = "re-fetched for missing columns after lineage climb exhausted"
+                            active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
+                            continue
+
+                    # D-14-02: Cache-first on low confidence — try in-memory ops before CacheExecutor
+                    _resolve_conf = target_report.get("_resolve_confidence", 1.0)
+                    if _resolve_conf < 0.7 and target_report.get("rows"):
+                        try:
+                            cache_first_result = execute_op(target_report["rows"], op_spec_result)
+                            if cache_first_result:
+                                print(f"  [memory.cache_first] op={op_spec_result.get('op_type')} rows={len(cache_first_result)} from={target_report['report_id']}")
+                                await websocket.send(json.dumps({
+                                    "type": "report_log",
+                                    "query": user_text,
+                                    "sql": target_report.get("sql", ""),
+                                    "row_count": len(cache_first_result),
+                                    "results": cache_first_result,
+                                    "summary": op_spec_result.get("explanation", ""),
+                                    "claude_interactions": [],
+                                    "dashboard_b64": "",
+                                    "report_id": target_report.get("report_id", ""),
+                                    "kind": "derived",
+                                    "source": "cache",
+                                }))
+                                session_memory.record(
+                                    {"results": cache_first_result},
+                                    kind="derived",
+                                    parent_id=target_report.get("report_id"),
+                                    origin_op=op_spec_result.get("op_type", "unknown"),
+                                    topic=target_report.get("topic", ""),
+                                    query=user_text,
+                                    sql=target_report.get("sql", ""),
+                                    derivation_summary=op_spec_result.get("explanation", ""),
+                                )
+                                # Voice the results
+                                cf_messages = list(history) + [{
+                                    "role": "user",
+                                    "content": (
+                                        f"[INTERNAL: You just ran a {op_spec_result.get('op_type')} operation on cached data "
+                                        f"and got {len(cache_first_result)} result(s). Summarize briefly for the user. Stay in character.]"
+                                    ),
+                                }]
+                                _ce = asyncio.Event()
+                                cf_reply = await handle_llm_response(websocket, cf_messages, tts_client, _ce)
+                                if cf_reply:
+                                    history.append({"role": "assistant", "content": cf_reply})
+                                continue
+                        except ValueError:
+                            # Missing column — try lineage climb before refetch
+                            chain = session_memory.lineage(target_report["report_id"])
+                            climb_ok = False
+                            for ancestor in chain[1:]:
+                                try:
+                                    climb_result = execute_op(ancestor["rows"], op_spec_result)
+                                    if climb_result:
+                                        print(f"  [memory.climb] from={target_report['report_id']} to={ancestor['report_id']} reason=narrow_set")
+                                        await websocket.send(json.dumps({
+                                            "type": "report_log",
+                                            "query": user_text,
+                                            "sql": ancestor.get("sql", ""),
+                                            "row_count": len(climb_result),
+                                            "results": climb_result,
+                                            "summary": op_spec_result.get("explanation", ""),
+                                            "claude_interactions": [],
+                                            "dashboard_b64": "",
+                                            "report_id": ancestor.get("report_id", ""),
+                                            "kind": "derived",
+                                            "source": "cache",
+                                        }))
+                                        session_memory.record(
+                                            {"results": climb_result},
+                                            kind="derived",
+                                            parent_id=ancestor.get("report_id"),
+                                            origin_op=op_spec_result.get("op_type", "unknown"),
+                                            topic=ancestor.get("topic", ""),
+                                            query=user_text,
+                                            sql=ancestor.get("sql", ""),
+                                            derivation_summary=op_spec_result.get("explanation", ""),
+                                        )
+                                        climb_ok = True
+                                        break
+                                except ValueError:
+                                    continue
+                            if climb_ok:
+                                cf_messages = list(history) + [{
+                                    "role": "user",
+                                    "content": (
+                                        f"[INTERNAL: You found the data by climbing to a parent report. "
+                                        f"Summarize the results briefly. Stay in character.]"
+                                    ),
+                                }]
+                                _ce = asyncio.Event()
+                                cf_reply = await handle_llm_response(websocket, cf_messages, tts_client, _ce)
+                                if cf_reply:
+                                    history.append({"role": "assistant", "content": cf_reply})
+                                continue
+                            # Climb exhausted — fall through to CacheExecutor / refetch
 
                     # Execute op spec against cached data
                     executor = CacheExecutor()

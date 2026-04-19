@@ -947,21 +947,12 @@ async def handler(websocket):
                         "dashboard_b64": "",
                     }))
 
-                    # Cache the result as a new report (enables chained follow-ups)
-                    new_rid = session_cache.store(
-                        {"results": result["rows"]},
-                        query=user_text,
-                        sql=target_report["sql"],
-                    )
-                    print(f"  Follow-up cached as {new_rid} ({result['row_count']} rows)")
-
-                    # D-03: Push to undo stack
+                    # D-03: Push to undo stack (base report id so undo can restore it)
                     if len(undo_stack) >= 5:
                         undo_stack.pop(0)
                     undo_stack.append({
-                        "report_id": new_rid,
                         "op_spec": op_spec_result,
-                        "pre_op_report_id": target_report["report_id"],
+                        "pre_op_report_id": target_report.get("report_id", ""),
                         "query_text": user_text,
                     })
 
@@ -1368,9 +1359,6 @@ async def handler(websocket):
                             }))
 
                             if result["row_count"] > 0:
-                                new_rid = session_cache.store(
-                                    {"results": result["rows"]}, query=user_text, sql=target["sql"]
-                                )
                                 preview = json.dumps(result["rows"][:5], default=str)[:500]
                                 voice_messages = list(history) + [{
                                     "role": "user",

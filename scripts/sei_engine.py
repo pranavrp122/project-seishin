@@ -555,6 +555,8 @@ async def handler(websocket):
             undo_stack: list[dict] = []  # D-03: last 5 ops, each: {report_id, op_spec, pre_op_report_id, query_text}
             pending_suggestion_spec: dict | None = None  # D-07: broadened filter awaiting confirm
             last_intent_result: dict | None = None  # D-05: stored for op_chain after delivery
+            _last_tracked_task = None  # Track task identity to reset progress flag on new task
+            _progress_sent = False     # Only send one "still working" per report task
 
             while True:
                 # --- Phase A: Wait for user message ---
@@ -564,13 +566,17 @@ async def handler(websocket):
                 else:
                     try:
                         if active_report_task is not None:
-                            raw = await asyncio.wait_for(websocket.recv(), timeout=12.0)
+                            # Auto-reset progress flag when task identity changes
+                            if active_report_task is not _last_tracked_task:
+                                _progress_sent = False
+                                _last_tracked_task = active_report_task
+                            raw = await asyncio.wait_for(websocket.recv(), timeout=20.0)
                         else:
                             raw = await websocket.recv()
                     except ConnectionClosed:
                         break
                     except asyncio.TimeoutError:
-                        # Silence while report is running — deliver result or send one update
+                        # 20s silence while report runs — deliver result or send one update max
                         if active_report_task.done():
                             await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
                             if last_intent_result:
@@ -578,10 +584,12 @@ async def handler(websocket):
                                 last_intent_result = None
                             active_report_task = None
                             active_report_query = ""
-                        else:
-                            # Report still running — one short update, no LLM call needed
+                            _last_tracked_task = None
+                            _progress_sent = False
+                        elif not _progress_sent:
                             await websocket.send(json.dumps({"type": "sentence", "text": "Still working on it..."}))
                             await websocket.send(json.dumps({"type": "done"}))
+                            _progress_sent = True
                         continue
 
                     # Binary frame: streaming PCM chunk or legacy full WAV

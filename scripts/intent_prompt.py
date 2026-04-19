@@ -36,6 +36,14 @@ Examples:
 - "What about just the top five?"
 - "Only show California warehouses"
 - "Break that down by month"
+- "Which ones have a rating of 3"
+- "Which ones have a rating of 4"
+- "Which of our suppliers has the shortest lead time"
+- "Which has the fastest lead time"
+- "From the report that has all of our suppliers, which one has the fastest lead time"
+- "Show me the ones with a lead time under 10"
+- "What about those with a rating above 4"
+- "Which 4 of our suppliers have the longest lead time"
 
 ## confirm
 The user is affirming or agreeing with something just asked.
@@ -110,6 +118,12 @@ normal_chat with confidence below 0.5.
 - follow_up_on_previous ONLY applies when a report was already delivered \
 earlier in the conversation. If no report context exists, classify \
 data-sounding requests as new_data_request.
+- If a report was recently delivered and the user asks "which ones...", \
+"which of...", "what about those...", "show me the ones...", or uses \
+interrogative patterns that reference properties of already-delivered data, \
+classify as follow_up_on_previous even if the phrasing is a question rather \
+than a command. The key signal is that the user is asking about attributes \
+of data already in front of them.
 - If a report was recently delivered and the user asks for an aggregate \
 (average, sum, count, min, max, total) or a property of a column WITHOUT \
 specifying a new data source or topic, classify as follow_up_on_previous — \

@@ -692,7 +692,7 @@ async def handler(websocket):
                         confidence = 0.95
                         data_query = None
                         speculative_op_task = asyncio.create_task(
-                            generate_op_spec(user_text, session_cache.summary(), session_cache.get_latest())
+                            generate_op_spec(user_text, session_cache.summary(), merge_compatible_reports(session_cache.all_reports()) or session_cache.get_latest())
                         )
                         skip_classification = True
                     else:
@@ -715,7 +715,7 @@ async def handler(websocket):
                     )
                     if has_reports:
                         speculative_op_task = asyncio.create_task(
-                            generate_op_spec(user_text, session_cache.summary(), session_cache.get_latest())
+                            generate_op_spec(user_text, session_cache.summary(), merge_compatible_reports(session_cache.all_reports()) or session_cache.get_latest())
                         )
 
                     # Speculative chat buffer: when no reports exist, normal_chat is

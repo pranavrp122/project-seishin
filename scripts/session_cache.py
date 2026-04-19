@@ -9,13 +9,24 @@ Exports:
 import time
 import uuid
 
-_MAX_CACHED_REPORTS = 10
+_MAX_CACHED_REPORTS = 20
 
 _STOP_WORDS = {
     "data", "show", "from", "with", "that", "this", "what", "about",
     "report", "pull", "give", "tell", "into", "some", "more", "just",
     "only", "like", "them", "those", "these",
 }
+
+_SEMANTIC_STOP_WORDS = {
+    "the", "a", "an", "our", "all", "me", "you", "can",
+    "please", "get", "pull", "show", "tell", "give",
+}
+
+
+def _semantic_key(query: str) -> str:
+    tokens = query.lower().split()
+    tokens = [t for t in tokens if t not in _SEMANTIC_STOP_WORDS]
+    return " ".join(sorted(tokens))
 
 
 class SessionCache:
@@ -25,6 +36,7 @@ class SessionCache:
         self.ttl = ttl_seconds
         self._reports: dict[str, dict] = {}
         self._last_activity: float = time.monotonic()
+        self._cap: int = _MAX_CACHED_REPORTS
 
     def store(
         self,
@@ -53,17 +65,18 @@ class SessionCache:
         self._touch()
         self._evict_expired()
 
-        # Enforce max cached reports — evict derived before base, oldest first
-        while len(self._reports) >= _MAX_CACHED_REPORTS:
-            # Sort by (is_base, timestamp): derived (False=0) evicts before base (True=1),
-            # oldest timestamp evicts first within each group
-            evict_id = min(
-                self._reports,
-                key=lambda rid: (
-                    self._reports[rid].get("kind") == "base",
-                    self._reports[rid]["timestamp"],
-                ),
-            )
+        # Enforce max cached reports — only evict derived, never base
+        while len(self._reports) >= self._cap:
+            derived_ids = [
+                rid for rid, r in self._reports.items()
+                if r.get("kind") != "base"
+            ]
+            if not derived_ids:
+                # All base — grow cap instead of evicting
+                self._cap += 5
+                print(f"  [memory.cap_grow] new_cap={self._cap}")
+                break
+            evict_id = min(derived_ids, key=lambda rid: self._reports[rid]["timestamp"])
             del self._reports[evict_id]
 
         report_id = uuid.uuid4().hex[:8]
@@ -81,6 +94,7 @@ class SessionCache:
             "topic": topic,
             "derivation_summary": derivation_summary,
             "timestamp": time.monotonic(),
+            "semantic_key": _semantic_key(query) if kind == "base" else "",
         }
         return report_id
 
@@ -88,7 +102,10 @@ class SessionCache:
         """Get a cached report by ID, or None if expired/missing."""
         self._touch()
         self._evict_expired()
-        return self._reports.get(report_id)
+        report = self._reports.get(report_id)
+        if report is not None:
+            report["timestamp"] = time.monotonic()
+        return report
 
     def get_latest(self) -> dict | None:
         """Get most recently stored report."""
@@ -96,7 +113,9 @@ class SessionCache:
         self._evict_expired()
         if not self._reports:
             return None
-        return max(self._reports.values(), key=lambda r: r["timestamp"])
+        report = max(self._reports.values(), key=lambda r: r["timestamp"])
+        report["timestamp"] = time.monotonic()
+        return report
 
     def all_reports(self) -> list[dict]:
         """All non-expired cached reports."""
@@ -115,7 +134,9 @@ class SessionCache:
         bases = self.base_reports()
         if not bases:
             return None
-        return max(bases, key=lambda r: r["timestamp"])
+        report = max(bases, key=lambda r: r["timestamp"])
+        report["timestamp"] = time.monotonic()
+        return report
 
     def derived_reports(self) -> list[dict]:
         """Non-expired reports tagged as derived."""
@@ -311,6 +332,8 @@ class SessionMemory:
             conf = decision.get("confidence", 0)
             reason = decision.get("reason", "")
             print(f"  [memory.resolve] target={chosen_id} kind={chosen.get('kind')} conf={conf:.2f} reason={reason[:60]}")
+        if chosen is not None:
+            chosen["timestamp"] = time.monotonic()
         return chosen
 
     def summary_for_context(self) -> list[dict]:
@@ -320,6 +343,16 @@ class SessionMemory:
     def lineage(self, report_id: str) -> list[dict]:
         """Ancestor chain from report up to base (D-02)."""
         return self._cache.lineage(report_id)
+
+    def find_semantic_duplicate(self, query: str) -> dict | None:
+        """Fast zero-LLM check: does a cached base match this query's semantic key?"""
+        key = _semantic_key(query)
+        for r in self._cache.base_reports():
+            if r.get("semantic_key") == key:
+                r["timestamp"] = time.monotonic()
+                print(f"  [memory.semantic_dedup] matched {r['report_id']} for {query!r:.40}")
+                return r
+        return None
 
     async def check_compatible_base(self, user_text: str) -> dict | None:
         """D-18: Check if a compatible live base report exists for a new data request.

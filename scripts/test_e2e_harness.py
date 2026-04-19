@@ -283,25 +283,69 @@ def scenario_suppliers_multifilter() -> tuple[str, list[Turn]]:
     ])
 
 
-def scenario_multi_topic_switch_return() -> tuple[str, list[Turn]] | None:
+def scenario_multi_topic_switch_return() -> tuple[str, list[Turn]]:
     """Multi-topic switch and return: pull suppliers, pull invoices, follow up on suppliers.
-    TODO: implement when D-04/D-05 target resolution is wired.
+    The follow-up must target the suppliers base, not invoices.
     """
-    return None
+    return ("multi_topic_switch_return", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="pull up our invoices",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="which of our suppliers has the highest rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+    ])
 
 
-def scenario_demonstrative_reference() -> tuple[str, list[Turn]] | None:
+def scenario_demonstrative_reference() -> tuple[str, list[Turn]]:
     """Demonstrative reference: pull suppliers, filter top-3, 'sort those by rating'.
-    TODO: implement when derived-report targeting works.
+    'those' must target the top-3 derived result, not the full base.
     """
-    return None
+    return ("demonstrative_reference", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="show me the top 3 by lead time",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="sort those by rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="derived",
+            expect_max_rows=3,
+        ),
+    ])
 
 
-def scenario_fresh_vs_cached_base_reuse() -> tuple[str, list[Turn]] | None:
+def scenario_fresh_vs_cached_base_reuse() -> tuple[str, list[Turn]]:
     """Fresh vs cached base reuse (D-18): pull suppliers, then 'get me all suppliers' again.
-    TODO: implement when D-18 base reuse check is wired.
+    Must reuse cached base, not fire Report API.
+    NOTE: expects failure until D-18 implemented in Plan 03.
     """
-    return None
+    return ("fresh_vs_cached_base_reuse", [
+        Turn(
+            user_text="get me all the data on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="get me all suppliers",
+            expect_intent="new_data_request",
+            expect_no_fresh_fetch=True,  # NOTE expects failure until D-18 implemented
+        ),
+    ])
 
 
 def scenario_noise_turn() -> tuple[str, list[Turn]]:
@@ -329,11 +373,22 @@ def scenario_noise_turn() -> tuple[str, list[Turn]]:
     ])
 
 
-def scenario_ambiguous_phrasing() -> tuple[str, list[Turn]] | None:
+def scenario_ambiguous_phrasing() -> tuple[str, list[Turn]]:
     """Ambiguous phrasing: 'which has the fastest lead time' with no article.
-    TODO: implement as standalone scenario (already tested as turn 8 in suppliers_multifilter).
+    No article, no 'of our suppliers' - must still be follow-up.
     """
-    return None
+    return ("ambiguous_phrasing", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="which has the fastest lead time",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+    ])
 
 
 def scenario_cancel_mid_turn() -> tuple[str, list[Turn]] | None:

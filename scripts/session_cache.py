@@ -130,6 +130,24 @@ class SessionCache:
             self._debounced_saver.mark_dirty(lambda: serialize_cache(self))
         return report_id
 
+    def _import_with_id(self, report_id: str, meta: dict, now: float) -> None:
+        """Import a persisted report preserving its original ID (WR-03)."""
+        self._reports[report_id] = {
+            "report_id": report_id,
+            "rows": [],
+            "columns": meta.get("columns", []),
+            "row_count": meta.get("row_count", 0),
+            "query": meta.get("query", ""),
+            "sql": meta.get("sql", ""),
+            "kind": meta.get("kind", "base"),
+            "parent_report_id": meta.get("parent_report_id"),
+            "origin_op": meta.get("origin_op", "fetch"),
+            "topic": meta.get("topic", ""),
+            "derivation_summary": meta.get("derivation_summary", ""),
+            "timestamp": now,
+            "semantic_key": meta.get("semantic_key", ""),
+        }
+
     def get(self, report_id: str) -> dict | None:
         """Get a cached report by ID, or None if expired/missing."""
         self._touch()
@@ -583,27 +601,8 @@ def deserialize_into_cache(data: dict, cache: SessionCache) -> None:
     reports = data.get("reports", {})
     now = time.monotonic()
     for rid, meta in reports.items():
-        # Build a minimal report_data for store()
-        report_data: dict = {"results": []}
-        cache.store(
-            report_data,
-            query=meta.get("query", ""),
-            sql=meta.get("sql", ""),
-            kind=meta.get("kind", "base"),
-            parent_report_id=meta.get("parent_report_id"),
-            origin_op=meta.get("origin_op", "fetch"),
-            topic=meta.get("topic", ""),
-            derivation_summary=meta.get("derivation_summary", ""),
-        )
-        # Patch the stored report with persisted metadata
-        # Find the report we just stored (last one added)
-        for stored_rid, stored in cache._reports.items():
-            if stored.get("query") == meta.get("query", "") and stored.get("sql") == meta.get("sql", ""):
-                stored["timestamp"] = now
-                stored["semantic_key"] = meta.get("semantic_key", "")
-                stored["columns"] = meta.get("columns", [])
-                stored["row_count"] = meta.get("row_count", 0)
-                break
+        # Import with original ID preserved to maintain parent_report_id lineage (WR-03)
+        cache._import_with_id(rid, meta, now)
 
 
 class DebouncedSaver:

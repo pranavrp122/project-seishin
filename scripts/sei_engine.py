@@ -678,8 +678,17 @@ async def handler(websocket):
                         intent = "follow_up_on_previous"
                         confidence = 0.95
                         data_query = None
+                        # Speculatively use the latest BASE report's schema. If target
+                        # resolution later picks a different report, op_spec will be
+                        # re-fired with the right schema in the follow-up branch.
                         speculative_op_task = asyncio.create_task(
-                            generate_op_spec(user_text, session_cache.summary(), merge_compatible_reports(session_cache.all_reports()) or session_cache.get_latest())
+                            generate_op_spec(
+                                user_text,
+                                session_cache.summary(),
+                                merge_compatible_reports(session_cache.base_reports())
+                                or session_cache.get_latest_base()
+                                or session_cache.get_latest(),
+                            )
                         )
                         skip_classification = True
                     else:
@@ -701,8 +710,17 @@ async def handler(websocket):
                         active_report_task is not None and not active_report_task.done()
                     )
                     if has_reports:
+                        # Speculatively use the latest BASE report's schema. If target
+                        # resolution later picks a different report, op_spec will be
+                        # re-fired with the right schema in the follow-up branch.
                         speculative_op_task = asyncio.create_task(
-                            generate_op_spec(user_text, session_cache.summary(), merge_compatible_reports(session_cache.all_reports()) or session_cache.get_latest())
+                            generate_op_spec(
+                                user_text,
+                                session_cache.summary(),
+                                merge_compatible_reports(session_cache.base_reports())
+                                or session_cache.get_latest_base()
+                                or session_cache.get_latest(),
+                            )
                         )
 
                     # Speculative chat buffer: when no reports exist, normal_chat is

@@ -124,8 +124,14 @@ Required: n (default 5), column (to rank by)
 
 ### aggregate
 Compute sum/avg/count/min/max on a column, optionally grouped.
-Use for: "average rating", "total revenue", "max lead time", "sum of orders" — pure numeric rollups across ALL rows (or groups).
-DO NOT use for "how many have X value" style questions — use filter instead; the resulting row count is the answer.
+Use ONLY when the user EXPLICITLY asks for a rollup using words like "average", "mean", "total", "sum", "combined", "overall".
+Examples that ARE aggregate: "average rating", "total revenue", "sum of orders", "what's the mean lead time".
+Examples that are NOT aggregate (default to filter/select_columns/top_n/bottom_n instead):
+  - "how many days is their lead time" -> show each supplier's lead time individually (use select_columns or pass through)
+  - "what's the lead time" for multiple rows -> list each value, do not average
+  - "who takes the longest" -> top_n with n=1, not aggregate max
+  - "how many have X value" -> filter (row count is the answer)
+If in doubt, DO NOT aggregate — the user almost always wants raw per-row values unless they said "average" or "total".
 Required: column, agg_func. Optional: group_by (array of column names)
 
 ### pivot

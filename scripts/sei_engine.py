@@ -815,11 +815,11 @@ async def handler(websocket):
                         continue
 
                     # Resolve target report.
-                    # merge_cached: union complementary reports (e.g. top-5 + separate 6th).
-                    # Default: use the report with the MOST rows — this is always the original
-                    # base API fetch. Fallback API calls (from _error / missing-col paths)
-                    # store smaller derived results; using max rows ensures we always operate
-                    # on the full dataset the user originally pulled.
+                    # Priority: model-specified report_id > largest same-topic report > latest.
+                    # The model sees the full cache summary (all IDs, queries, row counts) and
+                    # picks the right topic. If it doesn't specify an ID, fall back to the
+                    # report with the most rows among all cached — this is the original base
+                    # fetch, not a smaller fallback-API derived result.
                     all_cached = session_cache.all_reports()
                     if op_spec_result.get("merge_cached"):
                         target_report = (
@@ -827,9 +827,11 @@ async def handler(websocket):
                             or session_cache.get_latest()
                         )
                     else:
+                        explicit = session_cache.get(op_spec_result.get("report_id"))
                         target_report = (
-                            max(all_cached, key=lambda r: r.get("row_count", 0))
-                            if all_cached else session_cache.get_latest()
+                            explicit
+                            or (max(all_cached, key=lambda r: r.get("row_count", 0)) if all_cached else None)
+                            or session_cache.get_latest()
                         )
                     print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows (from {len(all_cached)} cached)")
 

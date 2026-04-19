@@ -125,16 +125,16 @@ async def classify_intent(
     # (extra context helps the classifier disambiguate terse follow-ups).
     convo = [m for m in history if m.get("role") in ("user", "assistant")]
     last_user_msgs = [m for m in convo if m["role"] == "user"][-5:]
-    last_assistant = [m for m in convo if m["role"] == "assistant"][-2:]
+    last_assistant = [m for m in convo if m["role"] == "assistant"][-5:]
     prior_lines: list[str] = []
     if last_user_msgs:
         prior_lines.append("Recent user messages (oldest→newest):")
         for m in last_user_msgs:
-            prior_lines.append(f"  - {m['content'][:200]}")
+            prior_lines.append(f"  - {m['content'][:300]}")
     if last_assistant:
-        prior_lines.append("Recent assistant replies:")
+        prior_lines.append("Recent assistant replies (what was spoken back — use to resolve what 'it', 'those', 'and 3?' refer to):")
         for m in last_assistant:
-            prior_lines.append(f"  - {m['content'][:200]}")
+            prior_lines.append(f"  - {m['content'][:400]}")
     if last_target:
         cols = list((last_target.get("columns") or {}).keys()) if isinstance(last_target.get("columns"), dict) else (last_target.get("columns") or [])
         prior_lines.append(
@@ -275,7 +275,7 @@ Examples:
 Respond only with JSON containing the chosen report_id."""
 
 
-async def classify_followup_target(user_text: str, reports: list[dict], op_context: dict | None = None) -> dict:
+async def classify_followup_target(user_text: str, reports: list[dict], op_context: dict | None = None, history: list[dict] | None = None) -> dict:
     """Pick the cached report_id a follow-up refers to.
 
     reports: list of dicts with keys report_id, query, kind, row_count,
@@ -304,7 +304,30 @@ async def classify_followup_target(user_text: str, reports: list[dict], op_conte
         op_type = op_context.get("op_type", "unknown")
         columns = ", ".join(op_context.get("columns", []))
         op_hint = f"\n\nThe user's intended operation is: {op_type} on column(s) {columns}. Prefer the widest report that contains those columns."
-    context = "Cached reports (most recent first):\n" + "\n".join(lines) + f"\n\nUser said: {user_text}" + op_hint
+
+    # Prior-turn context: terse follow-ups like "and 3?" need the previous
+    # exchange to resolve which column/filter the fragment is referencing.
+    prior = ""
+    if history:
+        convo = [m for m in history if m.get("role") in ("user", "assistant")]
+        prev_users = [m for m in convo if m["role"] == "user"][-3:]
+        prev_assts = [m for m in convo if m["role"] == "assistant"][-3:]
+        lines_p: list[str] = []
+        if prev_users:
+            lines_p.append("Recent user messages (oldest→newest):")
+            for m in prev_users:
+                lines_p.append(f"  - {m['content'][:250]}")
+        if prev_assts:
+            lines_p.append("Recent assistant replies:")
+            for m in prev_assts:
+                lines_p.append(f"  - {m['content'][:350]}")
+        if lines_p:
+            prior = (
+                "\n\nPrior turn context (use to resolve terse fragments like 'and 3?' "
+                "which reuse the previous filter/column):\n" + "\n".join(lines_p)
+            )
+
+    context = "Cached reports (most recent first):\n" + "\n".join(lines) + f"\n\nUser said: {user_text}" + op_hint + prior
 
     messages = [
         {"role": "system", "content": _FOLLOWUP_TARGET_PROMPT},

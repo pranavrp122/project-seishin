@@ -1205,7 +1205,7 @@ async def handler(websocket):
 
                     # LLM parse error — try answering from cached data before re-firing
                     if op_spec_result.get("op_type") == "_error":
-                        _error_target = await session_memory.resolve_target(user_text)
+                        _error_target = await session_memory.resolve_target(user_text, history=history)
                         _error_parent_id = _error_target["report_id"] if _error_target else None
 
                         # If cached rows exist, attempt a direct data-grounded answer first.
@@ -1273,7 +1273,7 @@ async def handler(websocket):
                             referenced_cols_pre = op_spec_result.get("columns") or []
                             all_referenced_pre = ([referenced_col] if referenced_col else []) + referenced_cols_pre
                             _op_ctx = {"op_type": op_spec_result.get("op_type"), "columns": all_referenced_pre} if all_referenced_pre else None
-                            target_report = await session_memory.resolve_target(user_text, op_context=_op_ctx)
+                            target_report = await session_memory.resolve_target(user_text, op_context=_op_ctx, history=history)
                     all_cached = session_cache.all_reports()
                     print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows kind={target_report.get('kind') if target_report else '-'} topic={target_report.get('query', '')[:40] if target_report else '-'!r} (cached={len(all_cached)})")
                     if target_report is not None and target_report.get("kind") == "base":

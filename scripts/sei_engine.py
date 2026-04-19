@@ -814,21 +814,24 @@ async def handler(websocket):
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
-                    # Resolve target report. merge_cached=true means the model
-                    # detected the user needs data from multiple complementary reports
-                    # (e.g. "sort top-5 and a separate 6th-place report together").
-                    # Default: use the latest report so filter chains are preserved.
+                    # Resolve target report.
+                    # merge_cached: union complementary reports (e.g. top-5 + separate 6th).
+                    # Default: use the report with the MOST rows — this is always the original
+                    # base API fetch. Fallback API calls (from _error / missing-col paths)
+                    # store smaller derived results; using max rows ensures we always operate
+                    # on the full dataset the user originally pulled.
+                    all_cached = session_cache.all_reports()
                     if op_spec_result.get("merge_cached"):
                         target_report = (
-                            merge_compatible_reports(session_cache.all_reports())
+                            merge_compatible_reports(all_cached)
                             or session_cache.get_latest()
                         )
                     else:
                         target_report = (
-                            session_cache.get(op_spec_result.get("report_id"))
-                            or session_cache.get_latest()
+                            max(all_cached, key=lambda r: r.get("row_count", 0))
+                            if all_cached else session_cache.get_latest()
                         )
-                    print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows, report_id={op_spec_result.get('report_id')!r}, cached_reports={len(session_cache.all_reports())}")
+                    print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows (from {len(all_cached)} cached)")
 
                     if target_report is None:
                         # Cache expired — reconstruct query from history context

@@ -1045,7 +1045,7 @@ async def main():
     """Run all non-stub scenarios and print final gap summary."""
     print(f"Sei Engine E2E Test Harness")
     print(f"Server: {SERVER_URL}")
-    print(f"Auth: Bearer {'*' * (len(AUTH_TOKEN) - 4)}{AUTH_TOKEN[-4:]}")
+    print(f"Auth: Bearer {'*' * 8} ({len(AUTH_TOKEN)} chars)")
     print(f"Timeout: {TURN_TIMEOUT}s per turn")
 
     all_summaries = []

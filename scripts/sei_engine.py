@@ -155,6 +155,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         "summary": raw_summary,
         "claude_interactions": res.get("claude_interactions", []),
         "dashboard_b64": dashboard_b64,
+        "source": "fetch",
     }))
 
     # Cache report data for follow-up operations via SessionMemory facade.
@@ -940,6 +941,8 @@ async def handler(websocket):
                             target_report = await session_memory.resolve_target(user_text)
                     all_cached = session_cache.all_reports()
                     print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows kind={target_report.get('kind') if target_report else '-'} topic={target_report.get('query', '')[:40] if target_report else '-'!r} (cached={len(all_cached)})")
+                    if target_report is not None and target_report.get("kind") == "base":
+                        print(f"  [memory.cache_hit] target={target_report['report_id']} reused_rows={target_report['row_count']} -- skipped fetch")
 
                     if target_report is None:
                         # Cache expired — reconstruct query from history context
@@ -1037,6 +1040,9 @@ async def handler(websocket):
                         "summary": op_spec_result.get("explanation", ""),
                         "claude_interactions": [],
                         "dashboard_b64": "",
+                        "report_id": target_report.get("report_id", ""),
+                        "kind": "derived",
+                        "source": "cache",
                     }))
 
                     # Cache the follow-up result as derived via SessionMemory (D-15)

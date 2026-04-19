@@ -502,7 +502,7 @@ async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel
             # Send final chunk with fade-out applied, then silence padding
             if not cancel_event.is_set() and prev_chunk:
                 await ws.send(fade_out_pcm(prev_chunk))
-                await ws.send(bytes(44100 * 150 // 1000 * 2))
+                await ws.send(bytes(44100 * 150 // 1000 * 2))  # 150ms silence at 44.1kHz PCM16 mono
     except httpx.ConnectError:
         print(f"  TTS connection failed: {TTS_URL}")
         try:

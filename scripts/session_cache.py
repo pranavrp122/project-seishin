@@ -288,7 +288,7 @@ class SessionMemory:
         print(f"  [memory.store] kind={kind} origin_op={origin_op} parent={parent_id} rows={len(rows)}")
         return report_id
 
-    async def resolve_target(self, user_text: str) -> dict | None:
+    async def resolve_target(self, user_text: str, op_context: dict | None = None) -> dict | None:
         """LLM-driven target resolution across all cached reports (D-04/D-05/D-06).
 
         Returns the resolved target report dict, or None if cache is empty.
@@ -314,10 +314,11 @@ class SessionMemory:
                 "row_count": r.get("row_count", 0),
                 "age_seconds": max(0.0, now - r.get("timestamp", now)),
                 "derivation_summary": r.get("derivation_summary", ""),
+                "columns": r.get("columns", {}),
             }
             for r in report_list[:10]
         ]
-        decision = await classify_followup_target(user_text, classifier_input)
+        decision = await classify_followup_target(user_text, classifier_input, op_context=op_context)
 
         chosen_id = decision.get("report_id", "")
         chosen = self._cache.get(chosen_id)

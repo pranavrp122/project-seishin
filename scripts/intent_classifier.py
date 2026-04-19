@@ -235,7 +235,7 @@ Examples:
 Respond only with JSON containing the chosen report_id."""
 
 
-async def classify_followup_target(user_text: str, reports: list[dict]) -> dict:
+async def classify_followup_target(user_text: str, reports: list[dict], op_context: dict | None = None) -> dict:
     """Pick the cached report_id a follow-up refers to.
 
     reports: list of dicts with keys report_id, query, kind, row_count,
@@ -252,12 +252,19 @@ async def classify_followup_target(user_text: str, reports: list[dict]) -> dict:
     for r in reports:
         deriv = r.get('derivation_summary', '')
         deriv_part = f" derivation={deriv[:100]!r}" if deriv else ""
+        cols = r.get('columns', {})
+        cols_part = f" columns=[{', '.join(list(cols.keys())[:15])}]" if cols else ""
         lines.append(
             f"- id={r['report_id']} kind={r.get('kind', 'base')} "
             f"rows={r.get('row_count', 0)} age={r.get('age_seconds', 0):.0f}s "
-            f"topic={r.get('query', '')[:80]!r}{deriv_part}"
+            f"topic={r.get('query', '')[:80]!r}{deriv_part}{cols_part}"
         )
-    context = "Cached reports (most recent first):\n" + "\n".join(lines) + f"\n\nUser said: {user_text}"
+    op_hint = ""
+    if op_context:
+        op_type = op_context.get("op_type", "unknown")
+        columns = ", ".join(op_context.get("columns", []))
+        op_hint = f"\n\nThe user's intended operation is: {op_type} on column(s) {columns}. Prefer the widest report that contains those columns."
+    context = "Cached reports (most recent first):\n" + "\n".join(lines) + f"\n\nUser said: {user_text}" + op_hint
 
     messages = [
         {"role": "system", "content": _FOLLOWUP_TARGET_PROMPT},

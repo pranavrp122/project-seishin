@@ -823,6 +823,34 @@ async def handler(websocket):
                     # Fire report immediately — no confirmation gate
                     query = data_query or user_text
 
+                    # D-14-06: Zero-LLM semantic dedup fast-path before D-18 LLM check
+                    semantic_match = session_memory.find_semantic_duplicate(query)
+                    if semantic_match:
+                        print(f"  [memory.dedup] semantic reuse: {semantic_match['report_id']}")
+                        await websocket.send(json.dumps({
+                            "type": "report_log",
+                            "query": query,
+                            "sql": semantic_match.get("sql", ""),
+                            "row_count": semantic_match["row_count"],
+                            "results": semantic_match["rows"],
+                            "summary": f"Using cached data ({semantic_match['row_count']} rows) from earlier query.",
+                            "claude_interactions": [],
+                            "dashboard_b64": "",
+                        }))
+                        reuse_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                f"[INTERNAL: You already have this data cached ({semantic_match['row_count']} rows "
+                                f"from: {semantic_match.get('query', '')[:60]}). Let the user know you're using "
+                                "the data you already pulled. One casual sentence, stay in character.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        reuse_reply = await handle_llm_response(websocket, reuse_messages, tts_client, _ce)
+                        if reuse_reply:
+                            history.append({"role": "assistant", "content": reuse_reply})
+                        continue
+
                     # D-18: Check for compatible cached base before firing fresh API call
                     compatible_base = await session_memory.check_compatible_base(query)
                     if compatible_base:
@@ -938,7 +966,11 @@ async def handler(websocket):
                         if explicit:
                             target_report = explicit
                         else:
-                            target_report = await session_memory.resolve_target(user_text)
+                            referenced_col = op_spec_result.get("column")
+                            referenced_cols_pre = op_spec_result.get("columns") or []
+                            all_referenced_pre = ([referenced_col] if referenced_col else []) + referenced_cols_pre
+                            _op_ctx = {"op_type": op_spec_result.get("op_type"), "columns": all_referenced_pre} if all_referenced_pre else None
+                            target_report = await session_memory.resolve_target(user_text, op_context=_op_ctx)
                     all_cached = session_cache.all_reports()
                     print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows kind={target_report.get('kind') if target_report else '-'} topic={target_report.get('query', '')[:40] if target_report else '-'!r} (cached={len(all_cached)})")
                     if target_report is not None and target_report.get("kind") == "base":

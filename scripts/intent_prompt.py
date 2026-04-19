@@ -37,6 +37,12 @@ Examples:
 - "How many days is their lead time" (asking about prior rows)
 - "What is its rating score" (asking about a previously named entity)
 - "And what are their lead times" (asking follow-up attribute)
+- "and 5 star?" (elliptical — reuse prior filter column, change value)
+- "what about 4?" (elliptical — same column, new value)
+- "and the 3-star ones?" (elliptical — reuse prior attribute)
+- "and regions?" (elliptical — add/swap attribute on prior rows)
+
+Elliptical rule: if the prior turn asked about a column/filter (e.g. "how many have 3 star ratings") and the next user utterance is a short fragment naming a different value or attribute WITHOUT changing topic ("and 5 star?", "what about 4?", "and 2?"), treat it as follow_up_on_previous on the SAME column/report. Use the Prior Turn Context block to identify the column.
 
 ### confirm
 Affirming or agreeing.

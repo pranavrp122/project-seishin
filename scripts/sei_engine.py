@@ -180,6 +180,95 @@ async def _buffer_llm_tokens(messages: list[dict], cancel_event: asyncio.Event) 
     return "".join(parts).strip()
 
 
+def _build_ground_truth_block(res: dict, max_rows: int = 40) -> tuple[str, set, set]:
+    """Compact JSON table from report result. Returns (text_block, number_set, name_set).
+
+    number_set: every numeric value present (as str, normalized) — used to detect
+    hallucinated counts/values in the LLM's spoken reply.
+    name_set: every string cell value (lowercased) — used to detect fabricated
+    entity names.
+    """
+    results = res.get("results") or []
+    rows = results[:max_rows]
+    cols: list[str] = []
+    if rows and isinstance(rows[0], dict):
+        cols = list(rows[0].keys())
+    numbers: set = set()
+    names: set = set()
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        for v in r.values():
+            if isinstance(v, (int, float)):
+                numbers.add(str(v))
+                try:
+                    numbers.add(str(int(v)))
+                except Exception:
+                    pass
+            elif isinstance(v, str) and v.strip():
+                if re.fullmatch(r"-?\d+(\.\d+)?", v.strip()):
+                    numbers.add(v.strip())
+                    try:
+                        numbers.add(str(int(float(v))))
+                    except Exception:
+                        pass
+                else:
+                    names.add(v.strip().lower())
+    numbers.add(str(res.get("row_count", len(results))))
+    try:
+        text = json.dumps({"columns": cols, "row_count": res.get("row_count", len(results)), "rows": rows}, default=str)[:4000]
+    except Exception:
+        text = str(rows)[:4000]
+    return text, numbers, names
+
+
+_NUM_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
+_WORD_NUM = {
+    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+    "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+    "eleven": "11", "twelve": "12", "thirteen": "13", "fourteen": "14",
+    "fifteen": "15", "sixteen": "16", "seventeen": "17", "eighteen": "18",
+    "nineteen": "19", "twenty": "20", "thirty": "30", "forty": "40",
+    "fifty": "50", "sixty": "60", "seventy": "70", "eighty": "80", "ninety": "90",
+    "hundred": "100", "thousand": "1000",
+}
+
+
+def _extract_claimed_numbers(text: str) -> set:
+    """Extract digit and spelled-out numbers from LLM reply."""
+    claims: set = set()
+    for m in _NUM_RE.findall(text):
+        claims.add(m)
+        try:
+            claims.add(str(int(float(m))))
+        except Exception:
+            pass
+    low = text.lower()
+    for word, digit in _WORD_NUM.items():
+        if re.search(rf"\b{word}\b", low):
+            claims.add(digit)
+    return claims
+
+
+def _validate_spoken_against_truth(spoken: str, numbers: set, prose_summary: str) -> list[str]:
+    """Return list of claimed numbers present in spoken but absent from ground truth.
+
+    We're permissive: only flag numbers that appear nowhere in the structured rows
+    AND nowhere in the prose summary (which may contain aggregates/counts the LLM
+    can legitimately restate).
+    """
+    claimed = _extract_claimed_numbers(spoken)
+    prose_nums = _extract_claimed_numbers(prose_summary or "")
+    bad = []
+    for n in claimed:
+        if n in {"1", "2"}:  # ignore trivial referential numbers ("one more", etc.)
+            continue
+        if n in numbers or n in prose_nums:
+            continue
+        bad.append(n)
+    return bad
+
+
 async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "", session_cache=None, cache_kind: str = "base", session_memory=None, parent_report_id: str | None = None, origin_op: str = "fetch", derivation_summary: str = "") -> bool:
     """Speak Claude's verbatim summary and push a report_log frame to the client."""
     try:
@@ -240,25 +329,46 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         print(f"  Cached report {report_id} kind={cache_kind} ({len(res.get('results', []))} rows)")
 
     if raw_summary:
-        # LLM only sees the summary — full report already sent to UI via report_log frame.
-        # Keep response brief: 1-2 sentences highlighting the most important point(s).
-        # Do NOT list every row. The user can see the full data in the report log.
-        intro_messages = list(history) + [{
-            "role": "user",
-            "content": (
-                f"[INTERNAL: Report complete ({res.get('row_count', 0)} rows). "
-                f"Summary from the data pipeline: <data>{raw_summary}</data>\n\n"
-                "STRICT RULES:\n"
-                "1. The <data> block is the ONLY source of truth. Speak nothing that isn't literally in it.\n"
-                "2. Never invent or estimate counts, names, numbers, or categories. If a number isn't in the summary, do not state one.\n"
-                "3. Do NOT count or tally anything yourself — if the summary doesn't already state a count, don't guess one.\n"
-                "4. Do NOT list all rows. The user can see them on screen.\n"
-                "5. Give ONE spoken takeaway in 1-2 sentences — the headline point the summary already makes.\n"
-                "6. If the summary is empty or unclear, say so honestly rather than fabricating.]"
-            ),
-        }]
+        # Build structured ground_truth alongside the prose summary.
+        gt_text, gt_numbers, gt_names = _build_ground_truth_block(res)
+        base_prompt = (
+            f"[INTERNAL: Report complete ({res.get('row_count', 0)} rows).\n"
+            f"<ground_truth_rows>{gt_text}</ground_truth_rows>\n"
+            f"<data_summary>{raw_summary}</data_summary>\n\n"
+            "STRICT RULES:\n"
+            "1. <ground_truth_rows> and <data_summary> are the ONLY sources of truth. Speak nothing that isn't literally in them.\n"
+            "2. Never invent or estimate counts, names, numbers, or categories. Every number/name you say must appear in ground_truth_rows or data_summary.\n"
+            "3. Do NOT count or tally anything yourself — if the summary doesn't already state a count, don't guess one.\n"
+            "4. Do NOT list all rows. The user can see them on screen.\n"
+            "5. Give ONE spoken takeaway in 1-2 sentences — the headline point the summary already makes.\n"
+            "6. If the summary is empty or unclear, say so honestly rather than fabricating.]"
+        )
+        intro_messages = list(history) + [{"role": "user", "content": base_prompt}]
         _ce = asyncio.Event()
         spoken = await handle_llm_response_text_only(websocket, intro_messages, _ce)
+
+        # Post-generation validation: check claimed numbers against ground truth.
+        if spoken:
+            bad = _validate_spoken_against_truth(spoken, gt_numbers, raw_summary)
+            if bad:
+                print(f"  [hallucination] retry — claimed numbers not in ground_truth: {bad}")
+                retry_prompt = base_prompt + (
+                    f"\n\n[REGEN: Your previous reply contained numbers {bad} that are NOT in "
+                    f"ground_truth_rows or data_summary. Do not state them. Speak ONLY values "
+                    f"literally present above. Keep it to 1-2 sentences.]"
+                )
+                intro_messages[-1] = {"role": "user", "content": retry_prompt}
+                _ce2 = asyncio.Event()
+                retry_text = await handle_llm_response_text_only(websocket, intro_messages, _ce2)
+                if retry_text:
+                    still_bad = _validate_spoken_against_truth(retry_text, gt_numbers, raw_summary)
+                    if still_bad:
+                        print(f"  [hallucination] retry still bad: {still_bad} — using summary verbatim")
+                        spoken = raw_summary
+                    else:
+                        spoken = retry_text
+                else:
+                    spoken = raw_summary
         if not spoken:
             spoken = raw_summary  # Fallback: just read the summary
     else:
@@ -912,7 +1022,10 @@ async def handler(websocket):
                 opening_phrase = ""
 
                 if pending_overlap_query is not None:
-                    overlap_intent = await classify_intent(user_text, history, bool(session_cache.all_reports()))
+                    overlap_intent = await classify_intent(
+                        user_text, history, bool(session_cache.all_reports()),
+                        last_target=session_cache.get_latest(),
+                    )
                     if overlap_intent["intent"] == "confirm":
                         pending_overlap_query = None
                         history.append({"role": "user", "content": user_text})
@@ -958,7 +1071,10 @@ async def handler(websocket):
                         _buffer_llm_tokens(history, speculative_cancel)
                     )
 
-                    intent_result = await classify_intent(user_text, history, has_reports)
+                    intent_result = await classify_intent(
+                        user_text, history, has_reports,
+                        last_target=session_cache.get_latest(),
+                    )
                     intent = intent_result["intent"]
                     confidence = intent_result["confidence"]
                     data_query = intent_result["data_query"]

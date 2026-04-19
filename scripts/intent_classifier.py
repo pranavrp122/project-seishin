@@ -103,6 +103,7 @@ async def classify_intent(
     user_text: str,
     history: list[dict],
     has_active_report: bool,
+    last_target: dict | None = None,
 ) -> dict:
     """Classify a user utterance into one of 5 intents via a single LLM call.
 
@@ -113,22 +114,46 @@ async def classify_intent(
         user_text: The raw user utterance to classify.
         history: Recent conversation history (reserved for future use).
         has_active_report: Whether a data report was recently delivered.
+        last_target: Most recent cached report (dict with keys like query, topic,
+            kind, row_count, columns). Used to resolve elliptical follow-ups
+            like "and 5 star?" that reference a prior filter/aggregation.
 
     Returns:
         Dict with keys: intent, data_query, confidence.
     """
-    # Build history context block (last 4 non-system turns, D-01)
-    recent = [m for m in history if m.get("role") in ("user", "assistant")][-25:]
-    history_block = ""
-    if recent:
-        lines = [f"  {m['role'].title()}: {m['content'][:100]}" for m in recent]
-        history_block = (
-            "\n\n## Recent Conversation\n"
-            + "\n".join(lines)
-            + "\nUse this to resolve pronouns and references like 'those', 'that', 'compare the two'."
+    # Build prior-turn context: last 5 user messages + last 2 assistant replies
+    # (extra context helps the classifier disambiguate terse follow-ups).
+    convo = [m for m in history if m.get("role") in ("user", "assistant")]
+    last_user_msgs = [m for m in convo if m["role"] == "user"][-5:]
+    last_assistant = [m for m in convo if m["role"] == "assistant"][-2:]
+    prior_lines: list[str] = []
+    if last_user_msgs:
+        prior_lines.append("Recent user messages (oldest→newest):")
+        for m in last_user_msgs:
+            prior_lines.append(f"  - {m['content'][:200]}")
+    if last_assistant:
+        prior_lines.append("Recent assistant replies:")
+        for m in last_assistant:
+            prior_lines.append(f"  - {m['content'][:200]}")
+    if last_target:
+        cols = list((last_target.get("columns") or {}).keys()) if isinstance(last_target.get("columns"), dict) else (last_target.get("columns") or [])
+        prior_lines.append(
+            "Last resolved report target: "
+            f"topic={last_target.get('topic') or last_target.get('query', '')[:60]!r}, "
+            f"kind={last_target.get('kind', 'base')}, "
+            f"row_count={last_target.get('row_count', '?')}, "
+            f"columns={cols[:12]}"
+        )
+    prior_block = ""
+    if prior_lines:
+        prior_block = (
+            "\n\n## Prior Turn Context\n"
+            + "\n".join(prior_lines)
+            + "\nUse this to resolve pronouns, references ('those', 'that'), and terse elliptical "
+            "follow-ups like 'and 5 star?' or 'what about 4?' that reuse the prior filter/column."
         )
 
-    messages = [{"role": "system", "content": INTENT_SYSTEM_PROMPT + history_block}]
+    messages = [{"role": "system", "content": INTENT_SYSTEM_PROMPT + prior_block}]
 
     if has_active_report:
         messages.append(

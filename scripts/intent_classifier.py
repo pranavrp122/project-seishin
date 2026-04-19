@@ -215,7 +215,22 @@ Rules:
 - If the user names a different topic ("show me the suppliers again",
   "back to the invoices"), pick the base report matching that topic even if
   it's not the most recent.
+- Scope-widening overrides demonstrative: if the user says "all", "every",
+  "the full list", "not just X", or contrasts against a prior smaller result
+  ("rank ALL departments by revenue, not just the few"), pick the BASE for
+  that topic even if a derived is newer. The user is explicitly asking to go
+  back to the full dataset.
 - If ambiguous, pick the most recent base.
+
+Examples:
+- History: [derived (3 rows, "top 3 by rating"), base (16 rows, "all suppliers")]
+  User: "sort those by lead time" -> derived (demonstrative "those")
+- History: [derived (3 rows, "top 3 by rating"), base (16 rows, "all suppliers")]
+  User: "rank all of them by lead time" -> base ("all" widens scope back to full set)
+- History: [derived (5 rows, "departments with revenue > 1M"), base (40 rows, "all departments")]
+  User: "rank all departments by revenue, not just the few" -> base (explicit contrast)
+- History: [derived (10 rows, "top 10 invoices"), base (200 rows, "all invoices")]
+  User: "which ones are overdue" -> derived (no scope-widening cue)
 
 Respond only with JSON containing the chosen report_id."""
 

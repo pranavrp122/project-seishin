@@ -25,12 +25,20 @@ class SessionCache:
         self._reports: dict[str, dict] = {}
         self._last_activity: float = time.monotonic()
 
-    def store(self, report_data: dict, query: str, sql: str) -> str:
-        """Store a report, return its ID."""
+    def store(self, report_data: dict, query: str, sql: str, kind: str = "base") -> str:
+        """Store a report, return its ID.
+
+        kind="base": original data pulls from new_data_request. Follow-up
+            operations resolve their target from base reports only.
+        kind="derived": fallback API calls inside follow-up paths, op_chain
+            outputs, cross-report compare outputs. Kept around so the op_spec
+            model can still reference them by id, but never eligible as the
+            base-report target for a new follow-up.
+        """
         import traceback
         rows_preview = len(report_data.get("results") or report_data.get("rows", []))
         caller = "".join(traceback.format_stack()[-3:-1]).strip().replace("\n", " | ")
-        print(f"  [cache.store] query={query!r:.40} rows={rows_preview} caller={caller[-120:]}")
+        print(f"  [cache.store] kind={kind} query={query!r:.40} rows={rows_preview} caller={caller[-120:]}")
         self._touch()
         self._evict_expired()
 
@@ -48,6 +56,7 @@ class SessionCache:
             "row_count": len(rows),
             "query": query,
             "sql": sql,
+            "kind": kind,
             "timestamp": time.monotonic(),
         }
         return report_id
@@ -71,6 +80,19 @@ class SessionCache:
         self._touch()
         self._evict_expired()
         return list(self._reports.values())
+
+    def base_reports(self) -> list[dict]:
+        """Non-expired reports tagged as base (eligible as follow-up targets)."""
+        self._touch()
+        self._evict_expired()
+        return [r for r in self._reports.values() if r.get("kind", "base") == "base"]
+
+    def get_latest_base(self) -> dict | None:
+        """Most recent base report, or None."""
+        bases = self.base_reports()
+        if not bases:
+            return None
+        return max(bases, key=lambda r: r["timestamp"])
 
     def summary(self) -> list[dict]:
         """Compact summary for Gemma context injection. No raw rows."""

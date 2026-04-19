@@ -65,6 +65,43 @@ REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
 # Text mode: skip TTS entirely, responses show as text only
 TEXT_MODE = os.environ.get("SEI_TEXT_MODE", "0") == "1"
 
+
+class TurnCancelScope:
+    """Per-turn cancellation scope (D-19). All long-running awaits in a turn
+    check this scope and abort cleanly on cancel."""
+
+    def __init__(self):
+        self._cancelled = False
+        self._tasks: list[asyncio.Task] = []
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def cancel(self):
+        """Cancel all tracked tasks in this scope."""
+        self._cancelled = True
+        for task in self._tasks:
+            if not task.done():
+                task.cancel()
+
+    def track(self, task: asyncio.Task) -> asyncio.Task:
+        """Register a task for cancellation."""
+        self._tasks.append(task)
+        return task
+
+    async def run(self, coro):
+        """Run a coroutine within this cancel scope. Raises asyncio.CancelledError if cancelled."""
+        if self._cancelled:
+            raise asyncio.CancelledError("Turn cancelled")
+        task = asyncio.create_task(coro)
+        self._tasks.append(task)
+        try:
+            return await task
+        except asyncio.CancelledError:
+            raise
+
+
 async def handle_llm_response_text_only(ws, messages: list[dict], cancel_event: asyncio.Event) -> str:
     """Get full LLM response text without sending to WebSocket/TTS. For internal use."""
     reply_parts = []
@@ -667,7 +704,15 @@ async def handler(websocket):
                             continue
 
                 if msg.get("type") != "message" or not msg.get("text"):
-                    if msg.get("type") not in ("speech_start", "speech_end", "stop"):
+                    # D-19: Stop message cancels any in-flight turn scope
+                    if msg.get("type") == "stop" and turn_scope is not None:
+                        print(f"  [cancel] Stop received, cancelling turn scope at {time.monotonic():.1f}")
+                        turn_scope.cancel()
+                        # D-20: Cache is consistent — session_memory.record() is synchronous.
+                        # If cancel fires before record(), no partial write exists.
+                        # If cancel fires after record(), the record is complete.
+                        await websocket.send(json.dumps({"type": "cancelled"}))
+                    elif msg.get("type") not in ("speech_start", "speech_end", "stop"):
                         await websocket.send(json.dumps({"type": "error", "message": "Expected {type: message, text: ...}"}))
                     continue
 
@@ -677,6 +722,9 @@ async def handler(websocket):
 
                 # D-08: Normalize relative date references before any classification
                 user_text = _normalize_datetime(user_text)
+
+                # D-19: Per-turn cancellation scope for cancel-anywhere semantics.
+                turn_scope = TurnCancelScope()
 
                 # --- Overlap confirmation handling ---
                 skip_classification = False
@@ -710,7 +758,7 @@ async def handler(websocket):
                         saved_query = pending_overlap_query
                         pending_overlap_query = None
                         active_report_query = saved_query
-                        active_report_task = asyncio.create_task(call_report_api(saved_query))
+                        active_report_task = turn_scope.track(asyncio.create_task(call_report_api(saved_query)))
                         # Fall through to normal intent classification for current message
 
                 if not skip_classification:
@@ -805,7 +853,7 @@ async def handler(websocket):
                         continue
 
                     active_report_query = query
-                    active_report_task = asyncio.create_task(call_report_api(query))
+                    active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                     # LLM-generated ack in Miyako's voice
                     ack_messages = list(history) + [{
                         "role": "user",
@@ -868,7 +916,7 @@ async def handler(websocket):
                         query = data_query or user_text
                         active_report_query = query
                         active_report_kind = "derived"  # _error fallback: don't displace base report
-                        active_report_task = asyncio.create_task(call_report_api(query))
+                        active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                         # Store parent lineage for when deliver_report_result fires
                         active_report_parent_id = _error_parent_id
                         active_report_derivation = "re-fetched after op parse error"
@@ -905,7 +953,7 @@ async def handler(websocket):
                         else:
                             query = data_query or user_text
                         active_report_query = query
-                        active_report_task = asyncio.create_task(call_report_api(query))
+                        active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                         continue
 
                     # FOLLOW-05 + D-02: Validate referenced columns with fuzzy matching
@@ -950,7 +998,7 @@ async def handler(websocket):
                         active_report_kind = "derived"  # missing-column fallback: don't displace base report
                         active_report_parent_id = target_report.get("report_id")
                         active_report_derivation = "re-fetched for missing columns"
-                        active_report_task = asyncio.create_task(call_report_api(query))
+                        active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                         continue
 
                     # Execute op spec against cached data
@@ -1027,7 +1075,7 @@ async def handler(websocket):
                         active_report_kind = "derived"  # zero-result fallback: don't displace base report
                         active_report_parent_id = target_report.get("report_id")
                         active_report_derivation = "re-fetched after zero results"
-                        active_report_task = asyncio.create_task(call_report_api(query))
+                        active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                         continue
                     else:
                         # Always embed the actual rows so Gemma speaks only from real data.
@@ -1070,7 +1118,7 @@ async def handler(websocket):
                     else:
                         query = data_query or user_text
                     active_report_query = query
-                    active_report_task = asyncio.create_task(call_report_api(query))
+                    active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                     continue
 
                 elif intent == "list_cached_data":
@@ -1258,7 +1306,7 @@ async def handler(websocket):
                         if overlap > 0.8:
                             # Topics are too similar -- treat as single new_data_request
                             active_report_query = query
-                            active_report_task = asyncio.create_task(call_report_api(query))
+                            active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                             ack_messages = list(history) + [{
                                 "role": "user",
                                 "content": (
@@ -1465,9 +1513,11 @@ async def handler(websocket):
                             continue
                         if parsed.get("type") == "stop":
                             cancel_event.set()
+                            turn_scope.cancel()  # D-19: cancel turn scope too
                             return
                         elif parsed.get("type") == "speech_start":
                             cancel_event.set()  # Interrupt immediately on speech
+                            turn_scope.cancel()  # D-19
                             bargein_buf.clear()
                             bargein_accumulating = True
                         elif parsed.get("type") == "speech_end":

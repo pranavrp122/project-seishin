@@ -10,10 +10,13 @@ Usage:
 import asyncio
 import json
 import os
+import sys
 import time
+from collections import deque
 from http import HTTPStatus
 from collections import defaultdict
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from websockets.asyncio.server import serve
 from websockets.exceptions import ConnectionClosed
@@ -24,11 +27,52 @@ import re
 
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
 from intent_classifier import classify_intent
-from session_cache import SessionCache, SessionMemory
+from session_cache import SessionCache, SessionMemory, SEI_DATA_DIR
 from op_spec import generate_op_spec
 from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
 from text_utils import _normalize_datetime
 from memory_ops import execute_op, aggregate_multi, OpSpecError
+
+
+# --- Log redaction (D-20-08.5) ---
+_EMAIL_RE = re.compile(r'\b[\w.+-]+@[\w-]+\.[\w.-]+\b')
+_PHONE_RE = re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b')
+
+
+def _redact_log(text: str, max_len: int = 50) -> str:
+    """Truncate and redact PII for logging."""
+    redacted = _EMAIL_RE.sub('[REDACTED]', text)
+    redacted = _PHONE_RE.sub('[REDACTED]', redacted)
+    if len(redacted) > max_len:
+        return f"{redacted[:max_len]}... ({len(text)} chars)"
+    return redacted
+
+
+# --- .env loading (D-20-08.1) ---
+def _load_env_file(path: Path) -> None:
+    """Parse KEY=VALUE lines from a .env file into os.environ (setdefault)."""
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)
+
+
+# Load .env: prefer ~/.sei/.env, fallback to repo .env in dev mode
+_sei_env = SEI_DATA_DIR / ".env"
+if _sei_env.exists():
+    _load_env_file(_sei_env)
+elif os.environ.get("SEI_DEV_MODE") == "1":
+    _repo_env = Path(__file__).parent.parent / ".env"
+    if _repo_env.exists():
+        _load_env_file(_repo_env)
+
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -62,6 +106,16 @@ ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
 
 REPORT_API_URL = os.environ.get("REPORT_API_URL", "http://127.0.0.1:9000")
 REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
+
+# D-20-08.1: Fail-loud if REPORT_API_KEY is missing
+if not os.environ.get("REPORT_API_KEY"):
+    print("FATAL: REPORT_API_KEY not set. Set in ~/.sei/.env or environment.")
+    sys.exit(1)
+
+# D-20-08.2: Dev-mode bind guard — refuse non-loopback bind with dev token
+if os.environ.get("SEI_DEV_MODE") == "1" and BIND_ADDR != "127.0.0.1":
+    print(f"FATAL: SEI_DEV_MODE=1 requires SEI_BIND=127.0.0.1, got {BIND_ADDR}")
+    sys.exit(1)
 
 # Text mode: skip TTS entirely, responses show as text only
 TEXT_MODE = os.environ.get("SEI_TEXT_MODE", "0") == "1"
@@ -190,7 +244,7 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
             "role": "user",
             "content": (
                 f"[INTERNAL: Report complete ({res.get('row_count', 0)} rows). "
-                f"Summary from the data pipeline: {raw_summary}\n\n"
+                f"Summary from the data pipeline: <data>{raw_summary}</data>\n\n"
                 "Give a 1-2 sentence spoken summary — the single most important takeaway "
                 "or the top result. Do NOT list all rows or read out every item. "
                 "The full report is already visible to the user. Speak only from the summary above.]"
@@ -293,6 +347,25 @@ def fade_out_pcm(pcm: bytes, fade_ms: int = 200, sample_rate: int = 44100) -> by
 _rate_limit_window: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT_MAX = 10
 _RATE_LIMIT_SECONDS = 60
+
+
+class MessageRateLimiter:
+    """Per-connection message rate limiter: max_messages per window_seconds (D-20-08.3)."""
+
+    def __init__(self, max_messages: int = 60, window_seconds: float = 60.0):
+        self._max = max_messages
+        self._window = window_seconds
+        self._timestamps: deque[float] = deque()
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        while self._timestamps and now - self._timestamps[0] > self._window:
+            self._timestamps.popleft()
+        if len(self._timestamps) >= self._max:
+            return False
+        self._timestamps.append(now)
+        return True
+
 
 # --- Global state ---
 active_ws = None
@@ -515,7 +588,7 @@ async def transcribe_audio(wav_bytes: bytes, asr_client: httpx.AsyncClient, labe
             return ""
         text = resp.json().get("text", "").strip()
         elapsed = (time.perf_counter() - t0) * 1000
-        print(f"  {label}: {elapsed:.0f}ms -> '{text[:60]}'", flush=True)
+        print(f"  {label}: {elapsed:.0f}ms -> '{_redact_log(text)}'", flush=True)
         return text
     except Exception as e:
         print(f"  {label} error: {e}")
@@ -587,6 +660,7 @@ async def handler(websocket):
     history = build_initial_messages()
     session_cache = SessionCache(ttl_seconds=600)
     session_memory = SessionMemory(session_cache)
+    msg_limiter = MessageRateLimiter()  # D-20-08.3: per-connection 60 msg/min
     print(f"Client connected: {websocket.remote_address}")
 
     try:
@@ -691,7 +765,7 @@ async def handler(websocket):
                                 # Live transcription already has a result — use it instantly
                                 text = asr_result["text"]
                                 skip_pct = 100 * (1 - asr_result["len"] / len(audio_buf))
-                                print(f"  ASR-cached: '{text[:60]}' (tail {skip_pct:.0f}% unprocessed)", flush=True)
+                                print(f"  ASR-cached: '{_redact_log(text)}' (tail {skip_pct:.0f}% unprocessed)", flush=True)
                             else:
                                 # Short utterance, no live result yet — final pass
                                 wav = pcm16_to_wav(bytes(audio_buf))
@@ -704,6 +778,14 @@ async def handler(websocket):
                                 continue
                         else:
                             continue
+
+                # D-20-08.3: Per-connection message rate limit
+                if not msg_limiter.allow():
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": "Rate limit exceeded. Max 60 messages per minute.",
+                    }))
+                    continue
 
                 if msg.get("type") != "message" or not msg.get("text"):
                     # D-19: Stop message cancels any in-flight turn scope
@@ -765,7 +847,7 @@ async def handler(websocket):
 
                 if not skip_classification:
                     history.append({"role": "user", "content": user_text})
-                print(f"  User: {user_text}")
+                print(f"  User: {_redact_log(user_text)}")
 
                 if not skip_classification:
                     # --- Intent classification ---
@@ -1241,7 +1323,7 @@ async def handler(websocket):
                             "content": (
                                 f"[INTERNAL: Follow-up complete. "
                                 f"Operation: {op_spec_result.get('explanation', '')}. "
-                                f"Exact results ({result['row_count']} rows):\n{all_rows_text}\n\n"
+                                f"Exact results ({result['row_count']} rows):\n<data>{all_rows_text}</data>\n\n"
                                 "IMPORTANT: Speak ONLY from the data above. Do not use memory or "
                                 "guess. If the data does not answer the question, say so. "
                                 "Present naturally, 2-3 sentences max.]"
@@ -1586,7 +1668,7 @@ async def handler(websocket):
                         "role": "user",
                         "content": (
                             f"[INTERNAL: Comparison done. Merged {topic_a} and {topic_b} on '{compare_col}'. "
-                            f"Result: {result['row_count']} rows. Preview: {preview_text}\n\n"
+                            f"Result: {result['row_count']} rows. Preview: <data>{preview_text}</data>\n\n"
                             "Present the comparison naturally. 2-3 sentences.]"
                         ),
                     }]

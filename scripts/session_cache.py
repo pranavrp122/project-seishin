@@ -545,16 +545,17 @@ def _enforce_size_bound(state: dict) -> dict:
     """Drop oldest non-base reports until serialized JSON is under 5MB."""
     reports = dict(state.get("reports", {}))
     while True:
-        raw = json.dumps({"version": state.get("version", 1), "reports": reports}, default=str)
-        if len(raw) <= 5_000_000:
-            break
-        # Find oldest non-base report
+        # Check for non-base reports before expensive serialization (WR-04)
         non_base = [
             (rid, r) for rid, r in reports.items()
             if r.get("kind") != "base"
         ]
         if not non_base:
             break  # Only base reports left, cannot trim further
+        raw = json.dumps({"version": state.get("version", 1), "reports": reports}, default=str)
+        if len(raw) <= 5_000_000:
+            break
+        # Find oldest non-base report
         oldest_rid = min(non_base, key=lambda x: x[1].get("timestamp", 0))[0]
         del reports[oldest_rid]
     return {"version": state.get("version", 1), "reports": reports}

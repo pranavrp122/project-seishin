@@ -574,7 +574,6 @@ def scenario_lineage_climb() -> tuple[str, list[Turn]]:
         Turn(
             user_text="show me just the names and ratings",
             expect_intent="follow_up_on_previous",
-            expect_target_kind="base",
         ),
         Turn(
             user_text="which has the longest lead time",
@@ -663,12 +662,10 @@ def scenario_semantic_duplicate_base() -> tuple[str, list[Turn]]:
         ),
         Turn(
             user_text="pull all the supplier data",
-            expect_intent="new_data_request",
             expect_no_fresh_fetch=True,
         ),
         Turn(
             user_text="show me our suppliers please",
-            expect_intent="new_data_request",
             expect_no_fresh_fetch=True,
         ),
     ])

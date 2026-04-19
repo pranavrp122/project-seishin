@@ -157,7 +157,7 @@ async def classify_intent(
                     f"{LLM_URL}/v1/chat/completions",
                     json=payload,
                     headers=_LLM_HEADERS,
-                    timeout=httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0),
+                    timeout=httpx.Timeout(connect=2.0, read=8.0, write=2.0, pool=2.0),
                 )
                 resp.raise_for_status()
 
@@ -182,8 +182,17 @@ async def classify_intent(
 
     elapsed_ms = (time.perf_counter() - t0) * 1000
     print(f"  Intent error after {elapsed_ms:.0f}ms: {last_exc}")
-    print(f"  Intent: falling back to normal_chat for '{user_text[:50]}'")
-    return dict(_SAFE_DEFAULT)
+    # Context-aware fallback: if an active report exists and the utterance looks
+    # like a data follow-up, preserve conversation continuity instead of dumping
+    # into normal_chat. Same heuristic as the D-12 guardrail.
+    fallback = dict(_SAFE_DEFAULT)
+    if has_active_report and _FOLLOWUP_VERB_PATTERNS.search(user_text):
+        fallback["intent"] = "follow_up_on_previous"
+        fallback["confidence"] = 0.5
+        print(f"  Intent: LLM error fallback -> follow_up_on_previous for '{user_text[:50]}'")
+    else:
+        print(f"  Intent: falling back to normal_chat for '{user_text[:50]}'")
+    return fallback
 
 
 # --- Follow-up sub-intent: pick which cached report the user means ---

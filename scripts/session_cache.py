@@ -17,16 +17,36 @@ _STOP_WORDS = {
     "only", "like", "them", "those", "these",
 }
 
+import re as _re
+
+# Filler words that don't carry topic meaning. Kept minimal; tokens surviving this
+# filter should be the semantic nouns/adjectives that identify what the user wants.
 _SEMANTIC_STOP_WORDS = {
-    "the", "a", "an", "our", "all", "me", "you", "can",
-    "please", "get", "pull", "show", "tell", "give",
+    "the", "a", "an", "our", "all", "me", "you", "can", "could", "would",
+    "please", "get", "pull", "show", "tell", "give", "grab", "fetch", "find",
+    "about", "on", "for", "of", "to", "some", "any", "every", "also",
+    "data", "info", "information", "stuff", "things",
 }
+
+# Simple English plural/singular trim: drops trailing "s"/"es" so "supplier" ≡ "suppliers".
+# Not linguistically rigorous but good enough for short business nouns.
+_PLURAL_RE = _re.compile(r"(es|s)$")
+
+
+def _normalize_tokens(query: str) -> frozenset[str]:
+    tokens = []
+    for raw in query.lower().split():
+        t = _re.sub(r"[^\w]", "", raw)
+        if not t or t in _SEMANTIC_STOP_WORDS:
+            continue
+        stem = _PLURAL_RE.sub("", t) if len(t) > 4 else t
+        tokens.append(stem)
+    return frozenset(tokens)
 
 
 def _semantic_key(query: str) -> str:
-    tokens = query.lower().split()
-    tokens = [t for t in tokens if t not in _SEMANTIC_STOP_WORDS]
-    return " ".join(sorted(tokens))
+    # Stable string form of the normalized token set, for storage alongside reports.
+    return " ".join(sorted(_normalize_tokens(query)))
 
 
 class SessionCache:
@@ -348,13 +368,36 @@ class SessionMemory:
         return self._cache.lineage(report_id)
 
     def find_semantic_duplicate(self, query: str) -> dict | None:
-        """Fast zero-LLM check: does a cached base match this query's semantic key?"""
-        key = _semantic_key(query)
+        """Fast zero-LLM check: does a cached base cover this query's topic tokens?
+
+        Matches when the cached base's token set is a subset of the query's tokens,
+        or vice versa. Both directions handle rephrases: a terse new query
+        ("get suppliers") should reuse a richer cached base ("all supplier data"),
+        and a richer new query ("pull up the full supplier listing") should reuse
+        a terser cached one ("suppliers").
+        """
+        q_tokens = _normalize_tokens(query)
+        if not q_tokens:
+            return None
+        best = None
+        best_overlap = 0
         for r in self._cache.base_reports():
-            if r.get("semantic_key") == key:
-                r["timestamp"] = time.monotonic()
-                print(f"  [memory.semantic_dedup] matched {r['report_id']} for {query!r:.40}")
-                return r
+            r_key = r.get("semantic_key", "")
+            r_tokens = frozenset(r_key.split()) if r_key else frozenset()
+            if not r_tokens:
+                continue
+            overlap = len(q_tokens & r_tokens)
+            if overlap == 0:
+                continue
+            # Subset in either direction is a strong match.
+            if q_tokens <= r_tokens or r_tokens <= q_tokens:
+                if overlap > best_overlap:
+                    best = r
+                    best_overlap = overlap
+        if best is not None:
+            best["timestamp"] = time.monotonic()
+            print(f"  [memory.semantic_dedup] matched {best['report_id']} overlap={best_overlap} for {query!r:.40}")
+            return best
         return None
 
     async def check_compatible_base(self, user_text: str) -> dict | None:

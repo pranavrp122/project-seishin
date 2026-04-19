@@ -26,7 +26,7 @@ from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, build_cache_summary_bloc
 from intent_classifier import classify_intent
 from session_cache import SessionCache
 from op_spec import generate_op_spec
-from cache_executor import CacheExecutor, _fuzzy_match_column
+from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
 from text_utils import _normalize_datetime
 
 # --- Configuration ---
@@ -806,11 +806,19 @@ async def handler(websocket):
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
-                    # Resolve target report
-                    target_report = (
-                        session_cache.get(op_spec_result.get("report_id"))
-                        or session_cache.get_latest()
-                    )
+                    # If merge_cached is set, union all compatible cached reports first
+                    if op_spec_result.get("merge_cached"):
+                        merged = merge_compatible_reports(session_cache.all_reports())
+                        if merged:
+                            target_report = merged
+                        else:
+                            target_report = session_cache.get_latest()
+                    else:
+                        # Resolve target report
+                        target_report = (
+                            session_cache.get(op_spec_result.get("report_id"))
+                            or session_cache.get_latest()
+                        )
 
                     if target_report is None:
                         # Cache expired — reconstruct query from history context

@@ -310,3 +310,38 @@ class CacheExecutor:
             "columns": {col: _infer_dtype(result_df[col]) for col in result_df.columns},
             "row_count": len(result_df),
         }
+
+
+def merge_compatible_reports(reports: list[dict]) -> dict | None:
+    """Union all cached reports that share the same column schema.
+
+    Takes a list of report dicts (each with 'rows', 'columns', 'query').
+    Returns a merged report dict, or None if no compatible pair exists.
+    Compatible = same set of column names.
+    """
+    if len(reports) < 2:
+        return None
+
+    # Group by frozenset of column names
+    groups: dict[frozenset, list[dict]] = {}
+    for r in reports:
+        key = frozenset(r.get("columns", {}).keys())
+        groups.setdefault(key, []).append(r)
+
+    # Find the largest compatible group
+    best = max(groups.values(), key=len)
+    if len(best) < 2:
+        return None
+
+    import pandas as pd
+    frames = [pd.DataFrame(r["rows"]) for r in best if r.get("rows")]
+    merged = pd.concat(frames, ignore_index=True).drop_duplicates()
+
+    queries = " + ".join(r.get("query", "") for r in best)
+    return {
+        "rows": merged.to_dict(orient="records"),
+        "columns": best[0]["columns"],
+        "row_count": len(merged),
+        "query": f"merged: {queries}",
+        "sql": "",
+    }

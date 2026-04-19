@@ -82,6 +82,7 @@ OP_SPEC_SCHEMA = {
         "rename_map": {"type": ["object", "null"]},
         "compare_report_id": {"type": ["string", "null"]},
         "compare_column": {"type": ["string", "null"]},
+        "merge_cached": {"type": ["boolean", "null"]},
         "explanation": {"type": "string"},
     },
     "required": ["op_type", "explanation"],
@@ -132,6 +133,13 @@ Required: rename_map (object mapping old_name -> new_name)
 ### cross_report_compare
 Compare two cached reports on a shared column.
 Required: report_id (primary), compare_report_id, compare_column
+
+## merge_cached flag
+If the user's request requires data that is spread across multiple cached reports
+with compatible columns (e.g. "sort the top 6" when you have a top-5 report and
+a separate 6th-place report), set merge_cached: true. The system will union all
+cached reports with matching columns before executing the operation. Only set this
+when multiple reports clearly contain complementary rows of the same data type.
 
 ## Rules
 - Use the report_id from the cache summary. If only one report exists, use that.

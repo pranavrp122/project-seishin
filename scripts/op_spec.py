@@ -234,6 +234,7 @@ async def generate_op_spec(user_text: str, cache_summary: list[dict], report_dat
     }
 
     t0 = time.perf_counter()
+    _call_success = False
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -253,30 +254,22 @@ async def generate_op_spec(user_text: str, cache_summary: list[dict], report_dat
             f" for '{user_text[:50]}'"
         )
 
-        # D-20-05: track success
-        global _OP_SPEC_CALL_COUNT
-        is_error = result.get("op_type") == "_error"
-        _OP_SPEC_RESULTS.append(not is_error)
-        _OP_SPEC_CALL_COUNT += 1
-        if _OP_SPEC_CALL_COUNT % 10 == 0 and len(_OP_SPEC_RESULTS) >= 10:
-            error_count = sum(1 for r in _OP_SPEC_RESULTS if not r)
-            rate = error_count / len(_OP_SPEC_RESULTS) * 100
-            print(f"[metrics.op_spec_errors] rate={rate:.0f}% (window={len(_OP_SPEC_RESULTS)})")
-
+        _call_success = result.get("op_type") != "_error"
         return result
 
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         print(f"  Op spec error after {elapsed_ms:.0f}ms: {exc}")
         print(f"  Op spec: falling back to safe default for '{user_text[:50]}'")
+        _call_success = False
+        return dict(_SAFE_DEFAULT)
 
-        # D-20-05: track error
-        global _OP_SPEC_CALL_COUNT  # noqa: F811 (needed for both branches)
-        _OP_SPEC_RESULTS.append(False)
+    finally:
+        # D-20-05: track call count and error rate (single increment, WR-02)
+        global _OP_SPEC_CALL_COUNT
+        _OP_SPEC_RESULTS.append(_call_success)
         _OP_SPEC_CALL_COUNT += 1
         if _OP_SPEC_CALL_COUNT % 10 == 0 and len(_OP_SPEC_RESULTS) >= 10:
             error_count = sum(1 for r in _OP_SPEC_RESULTS if not r)
             rate = error_count / len(_OP_SPEC_RESULTS) * 100
             print(f"[metrics.op_spec_errors] rate={rate:.0f}% (window={len(_OP_SPEC_RESULTS)})")
-
-        return dict(_SAFE_DEFAULT)

@@ -110,6 +110,10 @@ normal_chat with confidence below 0.5.
 - follow_up_on_previous ONLY applies when a report was already delivered \
 earlier in the conversation. If no report context exists, classify \
 data-sounding requests as new_data_request.
+- If a report was recently delivered and the user asks for an aggregate \
+(average, sum, count, min, max, total) or a property of a column WITHOUT \
+specifying a new data source or topic, classify as follow_up_on_previous — \
+the user is asking about the data already in front of them.
 - list_cached_data is for when the user asks what data is already available \
 in this session, NOT when they want new data.
 - If the user requests data AND a refinement in the same utterance (e.g. "show me \

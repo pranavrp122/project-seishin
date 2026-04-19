@@ -63,16 +63,20 @@ def _quarter_range(now: datetime, offset: int) -> str:
 def _strip_json_fences(content: str) -> str:
     """Strip markdown code fences from LLM JSON output.
 
-    Some models wrap guided_json responses in ```json ... ``` blocks.
-    This strips the fences so json.loads() can parse the content cleanly.
+    Handles: ```json ... ```, ``` ... ```, and trailing closing fences.
     """
     content = content.strip()
+    # Strip opening fence + optional language tag
     if content.startswith("```"):
-        content = content.split("```")[1]
-        if content.startswith("json"):
-            content = content[4:]
-        content = content.strip()
-    return content
+        first_newline = content.find("\n")
+        if first_newline != -1:
+            content = content[first_newline + 1:]
+        else:
+            content = content[3:]
+    # Strip closing fence
+    if content.endswith("```"):
+        content = content[: content.rfind("```")]
+    return content.strip()
 
 
 def _normalize_datetime(text: str) -> str:

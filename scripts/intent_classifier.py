@@ -121,29 +121,37 @@ async def classify_intent(
     }
 
     t0 = time.perf_counter()
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{LLM_URL}/v1/chat/completions",
-                json=payload,
-                headers=_LLM_HEADERS,
-                timeout=httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0),
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{LLM_URL}/v1/chat/completions",
+                    json=payload,
+                    headers=_LLM_HEADERS,
+                    timeout=httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0),
+                )
+                resp.raise_for_status()
+
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
+            result = json.loads(content)
+
+            print(f"  Intent latency: {elapsed_ms:.0f}ms")
+            print(
+                f"  Intent: {result['intent']} (conf={result['confidence']:.2f})"
+                f" for '{user_text[:50]}'"
             )
-            resp.raise_for_status()
+            return result
 
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
-        result = json.loads(content)
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+            print(f"  Intent JSON parse error (attempt {attempt + 1}): {exc} — retrying")
+        except Exception as exc:
+            last_exc = exc
+            break
 
-        print(f"  Intent latency: {elapsed_ms:.0f}ms")
-        print(
-            f"  Intent: {result['intent']} (conf={result['confidence']:.2f})"
-            f" for '{user_text[:50]}'"
-        )
-        return result
-
-    except Exception as exc:
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        print(f"  Intent error after {elapsed_ms:.0f}ms: {exc}")
-        print(f"  Intent: falling back to normal_chat for '{user_text[:50]}'")
-        return dict(_SAFE_DEFAULT)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    print(f"  Intent error after {elapsed_ms:.0f}ms: {last_exc}")
+    print(f"  Intent: falling back to normal_chat for '{user_text[:50]}'")
+    return dict(_SAFE_DEFAULT)

@@ -19,7 +19,7 @@ from text_utils import _strip_json_fences
 # normal_chat to follow_up_on_previous when active report exists.
 _FOLLOWUP_VERB_PATTERNS = re.compile(
     r"\b(which|show me|top|lowest|highest|fastest|shortest|longest|"
-    r"rating|lead time|sort|filter|best|worst|how many|average|total|"
+    r"sort|filter|best|worst|how many|average|total|"
     r"the ones|those with|what about)\b",
     re.IGNORECASE,
 )
@@ -50,6 +50,10 @@ INTENT_SCHEMA = {
         },
         "data_query": {"type": ["string", "null"]},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "opening_phrase": {
+            "type": "string",
+            "description": "Miyako's short natural opener. For new_data_request: 'On it!' style ack. For follow_up_on_previous: 'Sure thing!' style. For normal_chat: a brief complete reply. Empty string for confirm/cancel.",
+        },
         "op_chain": {
             "type": ["array", "null"],
             "items": {
@@ -74,7 +78,7 @@ INTENT_SCHEMA = {
     "additionalProperties": False,
 }
 
-_SAFE_DEFAULT = {"intent": "normal_chat", "data_query": None, "confidence": 0.0, "op_chain": None}
+_SAFE_DEFAULT = {"intent": "normal_chat", "data_query": None, "confidence": 0.0, "op_chain": None, "opening_phrase": ""}
 
 
 def _apply_guardrails(result: dict, user_text: str, has_active_report: bool) -> dict:
@@ -142,7 +146,7 @@ async def classify_intent(
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
-        "max_tokens": 80,
+        "max_tokens": 150,
         "temperature": 0.0,
         "stream": False,
         "extra_body": {"guided_json": json.dumps(INTENT_SCHEMA)},
@@ -165,6 +169,8 @@ async def classify_intent(
             content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
             result = json.loads(content)
 
+            # Ensure opening_phrase present (backward compat with older model outputs)
+            result.setdefault("opening_phrase", "")
             result = _apply_guardrails(result, user_text, has_active_report)
             print(f"  Intent latency: {elapsed_ms:.0f}ms")
             print(

@@ -79,9 +79,10 @@ elif os.environ.get("SEI_DEV_MODE") == "1":
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
 if not AUTH_TOKEN:
     if os.environ.get("SEI_DEV_MODE") == "1":
-        AUTH_TOKEN = "test-token-change-me"
+        import secrets
+        AUTH_TOKEN = secrets.token_urlsafe(32)
+        print(f"DEV MODE: Generated ephemeral auth token (use SEI_AUTH_TOKEN to set a stable one)")
     else:
-        import sys
         print("FATAL: SEI_AUTH_TOKEN not set. Export it or set SEI_DEV_MODE=1 for dev.", file=sys.stderr)
         sys.exit(1)
 BIND_ADDR = os.environ.get("SEI_BIND", "127.0.0.1")

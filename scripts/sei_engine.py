@@ -22,7 +22,7 @@ import ormsgpack
 
 import re
 
-from system_prompts import SYSTEM_PROMPT, SEED_HISTORY, build_cache_summary_block
+from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
 from intent_classifier import classify_intent
 from session_cache import SessionCache
 from op_spec import generate_op_spec
@@ -522,28 +522,6 @@ async def _apply_op_chain(websocket, intent_result: dict, session_cache, report_
             print(f"  Op chain error: {ce}")
 
 
-def _suggest_broadened_spec(op_spec: dict, report_data: dict) -> dict | None:
-    """Generate a broadened version of a filter that returned zero results (D-07)."""
-    if op_spec.get("op_type") != "filter":
-        return None
-    broadened = dict(op_spec)
-    op = op_spec.get("operator")
-    val = op_spec.get("value")
-
-    if op == "eq" and val is not None:
-        broadened["operator"] = "contains"
-        return broadened
-
-    if op in ("gt", "gte", "lt", "lte") and isinstance(val, (int, float)):
-        delta = max(abs(val) * 0.2, 1)  # 20% of abs value, minimum delta of 1
-        if op in ("gt", "gte"):
-            broadened["value"] = val - delta  # Lower threshold to broaden
-        else:
-            broadened["value"] = val + delta  # Raise threshold to broaden
-        return broadened
-
-    return None
-
 
 async def handler(websocket):
     """Handle a single WebSocket client session with barge-in support."""
@@ -564,8 +542,7 @@ async def handler(websocket):
             asr_task = None
             asr_stop = None
             asr_result = {"text": "", "len": 0}
-            undo_stack: list[dict] = []  # D-03: last 5 ops, each: {report_id, op_spec, pre_op_report_id, query_text}
-            pending_suggestion_spec: dict | None = None  # D-07: broadened filter awaiting confirm
+            undo_stack: list[dict] = []  # D-03: last 5 ops
             last_intent_result: dict | None = None  # D-05: stored for op_chain after delivery
             _last_tracked_task = None  # Track task identity to reset progress flag on new task
             _progress_sent = False     # Only send one "still working" per report task
@@ -1334,77 +1311,6 @@ async def handler(websocket):
                     _ce2 = asyncio.Event()
                     await tts_full_response(websocket, spoken, tts_client, _ce2)
                     await websocket.send(json.dumps({"type": "done"}))
-                    continue
-
-                elif intent == "confirm" and pending_suggestion_spec is not None:
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
-                    # Execute the suggested broadened spec
-                    target = session_cache.get_latest()
-                    if target:
-                        executor = CacheExecutor()
-                        try:
-                            result = executor.execute(pending_suggestion_spec, target)
-                            pending_suggestion_spec = None  # Clear after execution
-
-                            await websocket.send(json.dumps({
-                                "type": "report_log",
-                                "query": user_text,
-                                "sql": target["sql"],
-                                "row_count": result["row_count"],
-                                "results": result["rows"],
-                                "summary": "",
-                                "claude_interactions": [],
-                                "dashboard_b64": "",
-                            }))
-
-                            if result["row_count"] > 0:
-                                preview = json.dumps(result["rows"][:5], default=str)[:500]
-                                voice_messages = list(history) + [{
-                                    "role": "user",
-                                    "content": (
-                                        f"[INTERNAL: The broader search worked. "
-                                        f"{result['row_count']} rows. Preview: {preview}\n\n"
-                                        "Present naturally. 2-3 sentences.]"
-                                    ),
-                                }]
-                            else:
-                                voice_messages = list(history) + [{
-                                    "role": "user",
-                                    "content": (
-                                        "[INTERNAL: Even the broader search found nothing. "
-                                        "Let the user know definitively. One sentence.]"
-                                    ),
-                                }]
-
-                            _ce = asyncio.Event()
-                            spoken = await handle_llm_response_text_only(websocket, voice_messages, _ce)
-                            if not spoken:
-                                spoken = "Here's what I found with the broader search."
-                            history.append({"role": "assistant", "content": spoken})
-                            await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
-                            _ce2 = asyncio.Event()
-                            await tts_full_response(websocket, spoken, tts_client, _ce2)
-                            await websocket.send(json.dumps({"type": "done"}))
-                        except Exception as e:
-                            print(f"  Suggestion execution error: {e}")
-                            pending_suggestion_spec = None
-                    else:
-                        pending_suggestion_spec = None
-                    continue
-
-                elif intent == "cancel" and pending_suggestion_spec is not None:
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
-                    pending_suggestion_spec = None
-                    cancel_messages = list(history) + [{
-                        "role": "user",
-                        "content": "[INTERNAL: User cancelled the suggestion. Acknowledge briefly. One sentence.]",
-                    }]
-                    _ce = asyncio.Event()
-                    reply = await handle_llm_response(websocket, cancel_messages, tts_client, _ce)
-                    if reply:
-                        history.append({"role": "assistant", "content": reply})
                     continue
 
                 # confirm and cancel intents fall through to normal_chat

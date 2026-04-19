@@ -1337,17 +1337,21 @@ async def handler(websocket):
                         active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                         continue
                     else:
-                        # Always embed the actual rows so Gemma speaks only from real data.
-                        all_rows_text = json.dumps(result["rows"], default=str)[:800]
+                        # Embed full rows (up to 8000 chars) so Gemma counts and names correctly.
+                        all_rows_text = json.dumps(result["rows"], default=str)[:8000]
+                        n_rows = result["row_count"]
                         voice_messages = list(history) + [{
                             "role": "user",
                             "content": (
                                 f"[INTERNAL: Follow-up complete. "
                                 f"Operation: {op_spec_result.get('explanation', '')}. "
-                                f"Exact results ({result['row_count']} rows):\n<data>{all_rows_text}</data>\n\n"
-                                "IMPORTANT: Speak ONLY from the data above. Do not use memory or "
-                                "guess. If the data does not answer the question, say so. "
-                                "Present naturally, 2-3 sentences max.]"
+                                f"The complete result is EXACTLY {n_rows} row{'s' if n_rows != 1 else ''} — no more, no less:\n"
+                                f"<data>{all_rows_text}</data>\n\n"
+                                f"CRITICAL: Use ONLY the {n_rows} row{'s' if n_rows != 1 else ''} above. "
+                                "Do NOT use memory, training knowledge, or prior context. "
+                                "If the answer is a single item, name it directly. "
+                                "If it is a list, count and name exactly what is in <data>. "
+                                "Present naturally in 1-2 sentences.]"
                             ),
                         }]
 

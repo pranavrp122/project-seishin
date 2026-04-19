@@ -111,8 +111,14 @@ Operators: eq, neq, gt, lt, gte, lte, between, in, contains
 Sort rows by one or more columns.
 Required: sort_specs (array of {column, direction}) OR column + direction
 
-### top_n / bottom_n
-Get the N largest/smallest rows by a column.
+### top_n
+Get the N rows with the LARGEST values in a column.
+Use for: "highest rating", "longest lead time", "most expensive", "top 3", "best", "most", "greatest", "maximum"
+Required: n (default 5), column (to rank by)
+
+### bottom_n
+Get the N rows with the SMALLEST values in a column.
+Use for: "lowest rating", "shortest lead time", "cheapest", "fewest days", "minimum", "least", "bottom 3", "worst"
 Required: n (default 5), column (to rank by)
 
 ### aggregate

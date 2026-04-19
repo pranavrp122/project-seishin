@@ -228,6 +228,8 @@ class CacheExecutor:
     def _op_top_n(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
         col = spec.get("column")
         n = spec.get("n", 5)
+        # direction="asc" means the caller wants smallest (e.g. "shortest lead time")
+        direction = spec.get("direction", "desc")
         if col:
             if col not in df.columns:
                 matched = _fuzzy_match_column(col, list(df.columns))
@@ -235,12 +237,14 @@ class CacheExecutor:
                     col = matched
                 else:
                     raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
-            return df.nlargest(n, col)
+            return df.nsmallest(n, col) if direction == "asc" else df.nlargest(n, col)
         return df.head(n)
 
     def _op_bottom_n(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
         col = spec.get("column")
         n = spec.get("n", 5)
+        # direction="desc" means the caller wants largest (e.g. "longest lead time" via bottom_n)
+        direction = spec.get("direction", "asc")
         if col:
             if col not in df.columns:
                 matched = _fuzzy_match_column(col, list(df.columns))
@@ -248,7 +252,7 @@ class CacheExecutor:
                     col = matched
                 else:
                     raise ValueError(f"Column '{col}' not found. Available: {list(df.columns)}")
-            return df.nsmallest(n, col)
+            return df.nlargest(n, col) if direction == "desc" else df.nsmallest(n, col)
         return df.tail(n)
 
     def _op_aggregate(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:

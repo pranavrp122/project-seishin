@@ -135,11 +135,16 @@ Compare two cached reports on a shared column.
 Required: report_id (primary), compare_report_id, compare_column
 
 ## merge_cached flag
-If the user's request requires data that is spread across multiple cached reports
-with compatible columns (e.g. "sort the top 6" when you have a top-5 report and
-a separate 6th-place report), set merge_cached: true. The system will union all
-cached reports with matching columns before executing the operation. Only set this
-when multiple reports clearly contain complementary rows of the same data type.
+Set merge_cached: true ONLY when the user needs data from multiple COMPLEMENTARY
+cached reports — i.e. reports that are separate queries covering different rows of
+the same topic (e.g. "sort the top 6" when you have a top-5 report and a separate
+6th-place report pulled in two separate queries).
+
+Do NOT set merge_cached when:
+- The latest report is a filtered/sorted/aggregated SUBSET of an earlier report
+  (e.g. you filtered 20 returns to 4 defective ones — "check again" should operate
+  on those 4, not re-merge back to 20)
+- There is only one cached report
 
 ## Rules
 - Use the report_id from the cache summary. If only one report exists, use that.

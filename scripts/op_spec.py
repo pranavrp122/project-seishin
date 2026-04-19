@@ -104,6 +104,7 @@ Return a JSON object with:
 
 ### filter
 Filter rows where a column matches a condition.
+Use for: "which ones have X", "show me X", and ALSO "how many have X value" — after filtering, the row count IS the answer to "how many".
 Required: column, operator, value (and value2 for "between", values for "in")
 Operators: eq, neq, gt, lt, gte, lte, between, in, contains
 
@@ -123,6 +124,8 @@ Required: n (default 5), column (to rank by)
 
 ### aggregate
 Compute sum/avg/count/min/max on a column, optionally grouped.
+Use for: "average rating", "total revenue", "max lead time", "sum of orders" — pure numeric rollups across ALL rows (or groups).
+DO NOT use for "how many have X value" style questions — use filter instead; the resulting row count is the answer.
 Required: column, agg_func. Optional: group_by (array of column names)
 
 ### pivot

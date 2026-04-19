@@ -975,7 +975,7 @@ async def handler(websocket):
                             _buffer_llm_tokens(history, speculative_cancel)
                         )
 
-                # D-20-02: Flush opening_phrase to TTS immediately if non-empty and not normal_chat
+                # Flush LLM-generated opening (unique per request) for non-chat intents
                 if opening_phrase and intent not in ("normal_chat", "confirm", "cancel"):
                     await websocket.send(json.dumps({"type": "sentence", "text": opening_phrase}))
                     _op_ce = asyncio.Event()
@@ -1433,11 +1433,13 @@ async def handler(websocket):
                             "role": "user",
                             "content": (
                                 f"{user_text}\n\n"
-                                f"[Data ({op_spec_result.get('explanation', '')}). "
-                                f"Total: EXACTLY {n_rows} row{'s' if n_rows != 1 else ''}{more_hint}:\n"
+                                f"[Operation performed: {op_spec_result.get('op_type', '')} — {op_spec_result.get('explanation', '')}. "
+                                f"Result: EXACTLY {n_rows} row{'s' if n_rows != 1 else ''}{more_hint}:\n"
                                 f"<data>{preview_text}</data>\n\n"
-                                "CRITICAL: Speak ONLY from the data above. Do NOT use memory or training knowledge. "
-                                "For counts/totals use the exact total above, not what you can see in the preview. "
+                                "CRITICAL: The data above is the ground truth. Speak ONLY from it — never from memory or training knowledge. "
+                                "Never invent numbers. Never contradict the values shown. "
+                                "If the result is a scalar (single row with one value, e.g. an aggregation), that value IS the answer — read it directly. "
+                                f"If the user asked a count-style question, the row count ({n_rows}) is the answer. "
                                 "If the answer is a single item, name it directly. "
                                 "If you need to list every item by name and not all are shown, output [NEED_ALL_ROWS]. "
                                 "Otherwise present naturally in 1-2 sentences.]"

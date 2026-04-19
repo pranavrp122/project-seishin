@@ -151,8 +151,16 @@ Return a JSON object with these fields:
 null if not a data request
 - confidence: a float between 0.0 and 1.0 indicating classification certainty
 - opening_phrase: Miyako's short natural opener spoken immediately before the action. \
-For new_data_request: e.g. "On it!", "Sure, pulling that now.", "Let me grab that for you." \
-For follow_up_on_previous: e.g. "Sure thing!", "Got it.", "On it!" \
+MUST be unique and specifically tailored to the user's actual request — never a canned filler. \
+Reference something concrete from what they asked (the topic, the column, the filter, etc.) so the user \
+knows you understood them. 5-12 words, conversational, warm. \
+GOOD examples (see how each references the request): \
+  user "get me data on our suppliers" -> "Pulling up the supplier list now." \
+  user "how many have 3 star ratings" -> "Counting the 3-star ones for you." \
+  user "which supplier has the shortest lead time" -> "Checking who's fastest on lead time." \
+  user "sort them by revenue" -> "Sorting by revenue — one sec." \
+BAD (never produce these generic fillers): "Got it.", "On it!", "Sure thing!", "Lemme check.", \
+"Let me see.", "One moment.", "Okay!" — these are banned because they carry no information. \
 For normal_chat: a brief complete conversational reply. \
 For confirm/cancel: empty string "".
 - op_chain: array of operations to apply after data delivery (or null if none)

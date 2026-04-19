@@ -1337,26 +1337,51 @@ async def handler(websocket):
                         active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
                         continue
                     else:
-                        # Embed full rows (up to 8000 chars) so Gemma counts and names correctly.
-                        all_rows_text = json.dumps(result["rows"], default=str)[:8000]
+                        # Preview-first: send a small slice so Gemma can answer most questions
+                        # without inflating context. Gemma signals [NEED_ALL_ROWS] when it
+                        # needs the full list (e.g. "list every one by name").
+                        _PREVIEW_N = 15
                         n_rows = result["row_count"]
+                        preview_rows = result["rows"][:_PREVIEW_N]
+                        preview_text = json.dumps(preview_rows, default=str)[:2000]
+                        n_shown = len(preview_rows)
+                        more_hint = (
+                            f" ({n_shown} of {n_rows} shown — respond with [NEED_ALL_ROWS] if you need the full list to answer)"
+                            if n_rows > _PREVIEW_N else ""
+                        )
                         voice_messages = list(history) + [{
                             "role": "user",
                             "content": (
                                 f"[INTERNAL: Follow-up complete. "
                                 f"Operation: {op_spec_result.get('explanation', '')}. "
-                                f"The complete result is EXACTLY {n_rows} row{'s' if n_rows != 1 else ''} — no more, no less:\n"
-                                f"<data>{all_rows_text}</data>\n\n"
-                                f"CRITICAL: Use ONLY the {n_rows} row{'s' if n_rows != 1 else ''} above. "
-                                "Do NOT use memory, training knowledge, or prior context. "
+                                f"Total result: EXACTLY {n_rows} row{'s' if n_rows != 1 else ''}{more_hint}:\n"
+                                f"<data>{preview_text}</data>\n\n"
+                                "CRITICAL: Speak ONLY from the data above. Do NOT use memory or training knowledge. "
+                                "For counts/totals use the exact total above, not what you can see in the preview. "
                                 "If the answer is a single item, name it directly. "
-                                "If it is a list, count and name exactly what is in <data>. "
-                                "Present naturally in 1-2 sentences.]"
+                                "If you need to list every item by name and not all are shown, output [NEED_ALL_ROWS]. "
+                                "Otherwise present naturally in 1-2 sentences.]"
                             ),
                         }]
 
                     _ce = asyncio.Event()
                     spoken = await handle_llm_response_text_only(websocket, voice_messages, _ce)
+
+                    # If Gemma needs the full row list, re-call with all rows from the report
+                    if "[NEED_ALL_ROWS]" in (spoken or ""):
+                        all_rows_text = json.dumps(result["rows"], default=str)[:12000]
+                        full_messages = list(history) + [{
+                            "role": "user",
+                            "content": (
+                                f"[INTERNAL: Here are all {n_rows} rows as requested:\n"
+                                f"<data>{all_rows_text}</data>\n\n"
+                                f"List every item. There are EXACTLY {n_rows} — do not add or omit any. "
+                                "Present naturally.]"
+                            ),
+                        }]
+                        _ce = asyncio.Event()
+                        spoken = await handle_llm_response_text_only(websocket, full_messages, _ce)
+
                     if not spoken:
                         spoken = op_spec_result.get("explanation", "Done.")
                     history.append({"role": "assistant", "content": spoken})

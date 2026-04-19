@@ -75,6 +75,16 @@ async def handle_llm_response_text_only(ws, messages: list[dict], cancel_event: 
     return "".join(reply_parts).strip()
 
 
+async def _buffer_llm_tokens(messages: list[dict], cancel_event: asyncio.Event) -> str:
+    """Stream LLM tokens into a buffer without sending anywhere. Returns full text."""
+    parts = []
+    async for token in stream_llm(messages, cancel_event):
+        parts.append(token)
+        if cancel_event.is_set():
+            break
+    return "".join(parts).strip()
+
+
 async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "", session_cache=None) -> bool:
     """Speak Claude's verbatim summary and push a report_log frame to the client."""
     try:
@@ -669,6 +679,8 @@ async def handler(websocket):
                 # --- Overlap confirmation handling ---
                 skip_classification = False
                 speculative_op_task = None
+                speculative_chat_task = None
+                speculative_cancel = asyncio.Event()
 
                 if pending_overlap_query is not None:
                     overlap_intent = await classify_intent(user_text, history, bool(session_cache.all_reports()))
@@ -706,11 +718,28 @@ async def handler(websocket):
                             generate_op_spec(user_text, session_cache.summary(), session_cache.get_latest())
                         )
 
+                    # Speculative chat buffer: when no reports exist, normal_chat is
+                    # most likely — start buffering the LLM response in parallel with
+                    # intent classification. Nothing is sent to the UI or TTS until
+                    # intent is confirmed. If intent != normal_chat, we cancel and discard.
+                    speculative_cancel = asyncio.Event()
+                    speculative_chat_task = None
+                    if not has_reports:
+                        speculative_chat_task = asyncio.create_task(
+                            _buffer_llm_tokens(history, speculative_cancel)
+                        )
+
                     intent_result = await classify_intent(user_text, history, has_reports)
                     intent = intent_result["intent"]
                     confidence = intent_result["confidence"]
                     data_query = intent_result["data_query"]
                     last_intent_result = intent_result  # D-05: store for op_chain after delivery
+
+                    # Cancel speculative chat buffer if intent won't use it.
+                    # confirm/cancel fall through to normal_chat so they keep it.
+                    if speculative_chat_task is not None and intent not in ("normal_chat", "confirm", "cancel"):
+                        speculative_chat_task.cancel()
+                        speculative_chat_task = None
 
                 # Debug: show classified intent in chat (TEXT_MODE)
                 if TEXT_MODE:
@@ -1397,9 +1426,34 @@ async def handler(websocket):
                 # --- Phase B: Concurrent generation + stop listener ---
                 cancel_event = asyncio.Event()
 
-                gen_task = asyncio.create_task(
-                    handle_llm_response(websocket, history, tts_client, cancel_event)
-                )
+                # If speculative chat buffer is ready, use it — avoids a second LLM call.
+                # Otherwise fall back to a fresh handle_llm_response call.
+                if speculative_chat_task is not None:
+                    # Speculative buffer was running in parallel with intent classification.
+                    # Await it (may already be done), then send result directly to UI/TTS.
+                    buffered_reply = await speculative_chat_task
+                    speculative_chat_task = None
+
+                    async def _send_buffered(reply: str, ws, tts, ce: asyncio.Event) -> str:
+                        if not reply:
+                            return ""
+                        t0 = time.perf_counter()
+                        await ws.send(json.dumps({"type": "sentence", "text": reply}))
+                        await tts_full_response(ws, reply, tts, ce)
+                        if ce.is_set():
+                            await ws.send(json.dumps({"type": "interrupted"}))
+                        else:
+                            await ws.send(json.dumps({"type": "done"}))
+                        print(f"  Speculative chat delivered in {(time.perf_counter()-t0)*1000:.0f}ms")
+                        return reply
+
+                    gen_task = asyncio.create_task(
+                        _send_buffered(buffered_reply, websocket, tts_client, cancel_event)
+                    )
+                else:
+                    gen_task = asyncio.create_task(
+                        handle_llm_response(websocket, history, tts_client, cancel_event)
+                    )
 
                 stop_result = {"new_msg": None}
 

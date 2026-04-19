@@ -475,9 +475,22 @@ def _compact_history(history: list[dict]) -> None:
     print(f"  [context.compact] compacted {len(old)} old messages, kept {len(recent)} recent")
 
 
+_HOLLOW_PATTERNS = re.compile(
+    r"^(got it|sure thing|on it|let me check|lemme check|let me see|lemme see|"
+    r"hold on|one moment|just a moment|checking|looking into|i'll check|"
+    r"oops|my bad|sorry about that|wait|hmm)[.!,\s]*$",
+    re.IGNORECASE,
+)
+
 def is_quality_response(reply: str) -> bool:
-    """Check if LLM reply meets minimum quality bar."""
-    return bool(reply) and len(reply) >= 10
+    """Check if LLM reply meets minimum quality bar — not a hollow ack."""
+    if not reply or len(reply) < 10:
+        return False
+    # Reject if the entire reply is a hollow acknowledgment with no data content
+    stripped = reply.strip().rstrip(".!?,")
+    if _HOLLOW_PATTERNS.match(stripped):
+        return False
+    return True
 
 
 async def tts_full_response(ws, text: str, tts_client: httpx.AsyncClient, cancel_event: asyncio.Event):
@@ -1070,11 +1083,37 @@ async def handler(websocket):
                         or session_cache.get_latest(),
                     )
 
-                    # LLM parse error — voice a natural hint before re-firing
+                    # LLM parse error — try answering from cached data before re-firing
                     if op_spec_result.get("op_type") == "_error":
-                        # Resolve target to track parent lineage for the fallback fetch
                         _error_target = await session_memory.resolve_target(user_text)
                         _error_parent_id = _error_target["report_id"] if _error_target else None
+
+                        # If cached rows exist, attempt a direct data-grounded answer first.
+                        # This handles vague follow-ups like "which one" / "that one" without
+                        # needing a round-trip to the Report API.
+                        if _error_target and _error_target.get("rows"):
+                            _ep_rows = _error_target["rows"][:15]
+                            _ep_text = json.dumps(_ep_rows, default=str)[:2000]
+                            _ep_n = _error_target.get("row_count", len(_ep_rows))
+                            direct_messages = list(history[:-1]) + [{
+                                "role": "user",
+                                "content": (
+                                    f"{user_text}\n\n"
+                                    f"[Data ({_ep_n} rows):\n<data>{_ep_text}</data>\n"
+                                    "Answer the question above from this data. 1-2 sentences.]"
+                                ),
+                            }]
+                            _ce = asyncio.Event()
+                            direct_reply = await handle_llm_response_text_only(websocket, direct_messages, _ce)
+                            if direct_reply and is_quality_response(direct_reply) and "[NEED_ALL_ROWS]" not in direct_reply:
+                                history.append({"role": "assistant", "content": direct_reply})
+                                await websocket.send(json.dumps({"type": "sentence", "text": direct_reply}))
+                                _ce2 = asyncio.Event()
+                                await tts_full_response(websocket, direct_reply, tts_client, _ce2)
+                                await websocket.send(json.dumps({"type": "done"}))
+                                continue
+
+                        # No usable cached data — voice a hint then fire fresh API
                         fallback_messages = list(history) + [{
                             "role": "user",
                             "content": (
@@ -1089,9 +1128,8 @@ async def handler(websocket):
                             history.append({"role": "assistant", "content": hint_reply})
                         query = data_query or user_text
                         active_report_query = query
-                        active_report_kind = "derived"  # _error fallback: don't displace base report
+                        active_report_kind = "derived"
                         active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
-                        # Store parent lineage for when deliver_report_result fires
                         active_report_parent_id = _error_parent_id
                         active_report_derivation = "re-fetched after op parse error"
                         continue
@@ -1391,12 +1429,12 @@ async def handler(websocket):
                             f" ({n_shown} of {n_rows} shown — respond with [NEED_ALL_ROWS] if you need the full list to answer)"
                             if n_rows > _PREVIEW_N else ""
                         )
-                        voice_messages = list(history) + [{
+                        voice_messages = list(history[:-1]) + [{
                             "role": "user",
                             "content": (
-                                f"[INTERNAL: Follow-up complete. "
-                                f"Operation: {op_spec_result.get('explanation', '')}. "
-                                f"Total result: EXACTLY {n_rows} row{'s' if n_rows != 1 else ''}{more_hint}:\n"
+                                f"{user_text}\n\n"
+                                f"[Data ({op_spec_result.get('explanation', '')}). "
+                                f"Total: EXACTLY {n_rows} row{'s' if n_rows != 1 else ''}{more_hint}:\n"
                                 f"<data>{preview_text}</data>\n\n"
                                 "CRITICAL: Speak ONLY from the data above. Do NOT use memory or training knowledge. "
                                 "For counts/totals use the exact total above, not what you can see in the preview. "
@@ -1412,10 +1450,11 @@ async def handler(websocket):
                     # If Gemma needs the full row list, re-call with all rows from the report
                     if "[NEED_ALL_ROWS]" in (spoken or ""):
                         all_rows_text = json.dumps(result["rows"], default=str)[:12000]
-                        full_messages = list(history) + [{
+                        full_messages = list(history[:-1]) + [{
                             "role": "user",
                             "content": (
-                                f"[INTERNAL: Here are all {n_rows} rows as requested:\n"
+                                f"{user_text}\n\n"
+                                f"[Here are all {n_rows} rows as requested:\n"
                                 f"<data>{all_rows_text}</data>\n\n"
                                 f"List every item. There are EXACTLY {n_rows} — do not add or omit any. "
                                 "Present naturally.]"
@@ -1424,7 +1463,7 @@ async def handler(websocket):
                         _ce = asyncio.Event()
                         spoken = await handle_llm_response_text_only(websocket, full_messages, _ce)
 
-                    if not spoken:
+                    if not spoken or not is_quality_response(spoken):
                         spoken = op_spec_result.get("explanation", "Done.")
                     history.append({"role": "assistant", "content": spoken})
                     await websocket.send(json.dumps({"type": "sentence", "text": spoken}))

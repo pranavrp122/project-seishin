@@ -23,8 +23,8 @@ import ormsgpack
 import re
 
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
-from intent_classifier import classify_intent, classify_followup_target
-from session_cache import SessionCache
+from intent_classifier import classify_intent
+from session_cache import SessionCache, SessionMemory
 from op_spec import generate_op_spec
 from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
 from text_utils import _normalize_datetime
@@ -85,7 +85,7 @@ async def _buffer_llm_tokens(messages: list[dict], cancel_event: asyncio.Event) 
     return "".join(parts).strip()
 
 
-async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "", session_cache=None, cache_kind: str = "base") -> bool:
+async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "", session_cache=None, cache_kind: str = "base", session_memory=None, parent_report_id: str | None = None, origin_op: str = "fetch", derivation_summary: str = "") -> bool:
     """Speak Claude's verbatim summary and push a report_log frame to the client."""
     try:
         res = report_task.result()
@@ -120,11 +120,21 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         "dashboard_b64": dashboard_b64,
     }))
 
-    # Cache report data for follow-up operations. All reports are stored --
+    # Cache report data for follow-up operations via SessionMemory facade.
     # kind tags whether it's a fresh base fetch or a derived fallback result.
-    # Follow-up target resolution uses an LLM sub-intent classifier to pick
-    # between the latest base and latest derived based on what the user said.
-    if session_cache is not None and res.get("results"):
+    # Follow-up target resolution uses session_memory.resolve_target().
+    if res.get("results") and session_memory is not None:
+        topic_words = [w for w in query.lower().split() if len(w) > 3 and w not in {"data", "show", "from", "with", "that", "this", "what", "about", "report", "pull", "give", "tell"}][:3]
+        topic = " ".join(topic_words) if topic_words else query[:30]
+        report_id = session_memory.record(
+            res, kind=cache_kind, parent_id=parent_report_id,
+            origin_op=origin_op, topic=topic, query=query,
+            sql=res.get("sql") or res.get("sql_text") or "",
+            derivation_summary=derivation_summary,
+        )
+        print(f"  Cached report {report_id} kind={cache_kind} ({len(res.get('results', []))} rows)")
+    elif res.get("results") and session_cache is not None:
+        # Legacy fallback for callers not yet passing session_memory
         report_id = session_cache.store(
             res,
             query=query,
@@ -537,6 +547,7 @@ async def handler(websocket):
     active_ws = websocket  # Set here where finally block guarantees cleanup
     history = build_initial_messages()
     session_cache = SessionCache(ttl_seconds=600)
+    session_memory = SessionMemory(session_cache)
     print(f"Client connected: {websocket.remote_address}")
 
     try:
@@ -546,6 +557,8 @@ async def handler(websocket):
             active_report_task = None   # Background asyncio.Task for call_report_api
             active_report_query = ""    # The original user query being reported on
             active_report_kind = "base"  # "base" for fresh new_data_request; "derived" for fallback-path API calls inside a follow-up
+            active_report_parent_id: str | None = None  # D-15: parent lineage for fallback fetches
+            active_report_derivation: str = ""          # D-15: derivation summary for fallback fetches
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
             is_accumulating = False
             asr_task = None
@@ -576,13 +589,15 @@ async def handler(websocket):
                     except asyncio.TimeoutError:
                         # 20s silence while report runs — deliver result or send one update max
                         if active_report_task.done():
-                            await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache, cache_kind=active_report_kind)
+                            await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache, cache_kind=active_report_kind, session_memory=session_memory, parent_report_id=active_report_parent_id, origin_op="fetch", derivation_summary=active_report_derivation)
                             if last_intent_result:
                                 await _apply_op_chain(websocket, last_intent_result, session_cache, active_report_query)
                                 last_intent_result = None
                             active_report_task = None
                             active_report_query = ""
                             active_report_kind = "base"
+                            active_report_parent_id = None
+                            active_report_derivation = ""
                             _last_tracked_task = None
                             _progress_sent = False
                         elif not _progress_sent:
@@ -684,7 +699,7 @@ async def handler(websocket):
                         speculative_op_task = asyncio.create_task(
                             generate_op_spec(
                                 user_text,
-                                session_cache.summary(),
+                                session_memory.summary_for_context(),
                                 merge_compatible_reports(session_cache.base_reports())
                                 or session_cache.get_latest_base()
                                 or session_cache.get_latest(),
@@ -716,7 +731,7 @@ async def handler(websocket):
                         speculative_op_task = asyncio.create_task(
                             generate_op_spec(
                                 user_text,
-                                session_cache.summary(),
+                                session_memory.summary_for_context(),
                                 merge_compatible_reports(session_cache.base_reports())
                                 or session_cache.get_latest_base()
                                 or session_cache.get_latest(),
@@ -820,11 +835,14 @@ async def handler(websocket):
                         op_spec_result = await speculative_op_task
                     else:
                         op_spec_result = await generate_op_spec(
-                            user_text, session_cache.summary(), session_cache.get_latest()
+                            user_text, session_memory.summary_for_context(), session_cache.get_latest()
                         )
 
                     # LLM parse error — voice a natural hint before re-firing
                     if op_spec_result.get("op_type") == "_error":
+                        # Resolve target to track parent lineage for the fallback fetch
+                        _error_target = await session_memory.resolve_target(user_text)
+                        _error_parent_id = _error_target["report_id"] if _error_target else None
                         fallback_messages = list(history) + [{
                             "role": "user",
                             "content": (
@@ -841,52 +859,28 @@ async def handler(websocket):
                         active_report_query = query
                         active_report_kind = "derived"  # _error fallback: don't displace base report
                         active_report_task = asyncio.create_task(call_report_api(query))
+                        # Store parent lineage for when deliver_report_result fires
+                        active_report_parent_id = _error_parent_id
+                        active_report_derivation = "re-fetched after op parse error"
                         continue
 
-                    # Resolve target report.
-                    # Priority: explicit report_id from op_spec > LLM follow-up classifier
-                    # over all cached reports > latest base. The classifier sees every
-                    # cached report (base + derived, with topic, rows, age) and picks by
-                    # topic match + recency + demonstrative reference.
-                    all_cached = session_cache.all_reports()
-                    bases = session_cache.base_reports()
-                    latest_base = session_cache.get_latest_base()
-
+                    # Resolve target report via SessionMemory facade (D-14).
+                    # Priority: explicit report_id from op_spec > merge_cached >
+                    # session_memory.resolve_target() (LLM-driven).
                     if op_spec_result.get("merge_cached"):
+                        bases = session_cache.base_reports()
                         target_report = (
                             merge_compatible_reports(bases)
-                            or latest_base
+                            or session_cache.get_latest_base()
                             or session_cache.get_latest()
                         )
                     else:
                         explicit = session_cache.get(op_spec_result.get("report_id")) if op_spec_result.get("report_id") else None
                         if explicit:
                             target_report = explicit
-                        elif len(all_cached) >= 2:
-                            # Two or more cached reports -- let the classifier pick across them all.
-                            now = time.monotonic()
-                            report_list = sorted(
-                                all_cached,
-                                key=lambda r: r.get("timestamp", 0),
-                                reverse=True,
-                            )
-                            classifier_input = [
-                                {
-                                    "report_id": r["report_id"],
-                                    "query": r.get("query", ""),
-                                    "kind": r.get("kind", "base"),
-                                    "row_count": r.get("row_count", 0),
-                                    "age_seconds": max(0.0, now - r.get("timestamp", now)),
-                                }
-                                for r in report_list[:10]
-                            ]
-                            decision = await classify_followup_target(user_text, classifier_input)
-                            target_report = session_cache.get(decision.get("report_id", "")) or latest_base
                         else:
-                            target_report = (
-                                latest_base
-                                or (all_cached[0] if all_cached else None)
-                            )
+                            target_report = await session_memory.resolve_target(user_text)
+                    all_cached = session_cache.all_reports()
                     print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows kind={target_report.get('kind') if target_report else '-'} topic={target_report.get('query', '')[:40] if target_report else '-'!r} (cached={len(all_cached)})")
 
                     if target_report is None:
@@ -944,6 +938,8 @@ async def handler(websocket):
                             query = data_query or user_text
                         active_report_query = query
                         active_report_kind = "derived"  # missing-column fallback: don't displace base report
+                        active_report_parent_id = target_report.get("report_id")
+                        active_report_derivation = "re-fetched for missing columns"
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
@@ -985,15 +981,18 @@ async def handler(websocket):
                         "dashboard_b64": "",
                     }))
 
-                    # Cache the follow-up result as derived so subsequent follow-ups
-                    # can reference it via demonstratives ("these 3", "those rows").
-                    # The LLM target classifier picks between base and derived per turn.
+                    # Cache the follow-up result as derived via SessionMemory (D-15)
+                    # so subsequent follow-ups can reference it via demonstratives.
                     if result.get("rows"):
-                        session_cache.store(
+                        session_memory.record(
                             {"results": result["rows"]},
+                            kind="derived",
+                            parent_id=target_report.get("report_id"),
+                            origin_op=op_spec_result.get("op_type", "unknown"),
+                            topic=target_report.get("topic", ""),
                             query=user_text,
                             sql=target_report.get("sql", ""),
-                            kind="derived",
+                            derivation_summary=op_spec_result.get("explanation", ""),
                         )
 
                     # D-03: Push to undo stack (base report id so undo can restore it)
@@ -1016,6 +1015,8 @@ async def handler(websocket):
                             query = data_query or user_text
                         active_report_query = query
                         active_report_kind = "derived"  # zero-result fallback: don't displace base report
+                        active_report_parent_id = target_report.get("report_id")
+                        active_report_derivation = "re-fetched after zero results"
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
                     else:
@@ -1527,13 +1528,15 @@ async def handler(websocket):
                 # Deliver report result only when the current turn finished cleanly (not interrupted).
                 # If interrupted, the result will surface on next silence or next clean turn.
                 if active_report_task is not None and active_report_task.done() and not interrupted:
-                    await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache, cache_kind=active_report_kind)
+                    await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache, cache_kind=active_report_kind, session_memory=session_memory, parent_report_id=active_report_parent_id, origin_op="fetch", derivation_summary=active_report_derivation)
                     if last_intent_result:
                         await _apply_op_chain(websocket, last_intent_result, session_cache, active_report_query)
                         last_intent_result = None
                     active_report_kind = "base"
                     active_report_task = None
                     active_report_query = ""
+                    active_report_parent_id = None
+                    active_report_derivation = ""
     finally:
         active_ws = None
         print(f"Client disconnected: {websocket.remote_address}")

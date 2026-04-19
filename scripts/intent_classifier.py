@@ -155,3 +155,76 @@ async def classify_intent(
     print(f"  Intent error after {elapsed_ms:.0f}ms: {last_exc}")
     print(f"  Intent: falling back to normal_chat for '{user_text[:50]}'")
     return dict(_SAFE_DEFAULT)
+
+
+# --- Follow-up sub-intent: base vs derived target ---
+
+FOLLOWUP_TARGET_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "enum": ["base", "derived"]},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    },
+    "required": ["target", "confidence"],
+    "additionalProperties": False,
+}
+
+_FOLLOWUP_TARGET_PROMPT = """You decide whether a follow-up operation applies to the ORIGINAL full report
+or to the SMALLER DERIVED result the user just saw.
+
+- base    -> the full original report (default when unclear or when user says "all", "everything", "the full report", "the original")
+- derived -> the smaller most-recent result (only when user uses demonstratives like "these", "those", "them", "the top N", "those entries", "the ones you just showed", clearly referring back to the last derived output)
+
+When the user's meaning is ambiguous, choose base.
+
+Respond only with JSON matching the schema."""
+
+
+async def classify_followup_target(
+    user_text: str,
+    base_query: str,
+    base_row_count: int,
+    derived_query: str,
+    derived_row_count: int,
+) -> dict:
+    """Decide whether a follow-up targets the base or derived report.
+
+    Returns {target: 'base'|'derived', confidence: float}.
+    Defaults to base on any error.
+    """
+    context = (
+        f"Full base report: '{base_query}' ({base_row_count} rows)\n"
+        f"Most recent derived result: '{derived_query}' ({derived_row_count} rows)\n"
+        f"User said: {user_text}"
+    )
+    messages = [
+        {"role": "system", "content": _FOLLOWUP_TARGET_PROMPT},
+        {"role": "user", "content": context},
+    ]
+    payload = {
+        "model": MODEL_NAME,
+        "messages": messages,
+        "max_tokens": 40,
+        "temperature": 0.0,
+        "stream": False,
+        "extra_body": {"guided_json": json.dumps(FOLLOWUP_TARGET_SCHEMA)},
+    }
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{LLM_URL}/v1/chat/completions",
+                json=payload,
+                headers=_LLM_HEADERS,
+                timeout=httpx.Timeout(connect=2.0, read=4.0, write=2.0, pool=2.0),
+            )
+            resp.raise_for_status()
+        content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
+        result = json.loads(content)
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        print(f"  Followup-target: {result['target']} (conf={result['confidence']:.2f}) in {elapsed_ms:.0f}ms")
+        return result
+    except Exception as exc:
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        print(f"  Followup-target error after {elapsed_ms:.0f}ms: {exc} -> defaulting to base")
+        return {"target": "base", "confidence": 0.0}

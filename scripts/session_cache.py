@@ -94,6 +94,19 @@ class SessionCache:
             return None
         return max(bases, key=lambda r: r["timestamp"])
 
+    def derived_reports(self) -> list[dict]:
+        """Non-expired reports tagged as derived."""
+        self._touch()
+        self._evict_expired()
+        return [r for r in self._reports.values() if r.get("kind") == "derived"]
+
+    def get_latest_derived(self) -> dict | None:
+        """Most recent derived report, or None."""
+        deriveds = self.derived_reports()
+        if not deriveds:
+            return None
+        return max(deriveds, key=lambda r: r["timestamp"])
+
     def summary(self) -> list[dict]:
         """Compact summary for Gemma context injection. No raw rows."""
         self._touch()

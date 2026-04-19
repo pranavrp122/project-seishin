@@ -23,7 +23,7 @@ import ormsgpack
 import re
 
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
-from intent_classifier import classify_intent
+from intent_classifier import classify_intent, classify_followup_target
 from session_cache import SessionCache
 from op_spec import generate_op_spec
 from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
@@ -120,22 +120,18 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         "dashboard_b64": dashboard_b64,
     }))
 
-    # Cache report data for follow-up operations.
-    # Only base reports (fresh new_data_request fetches) are cached. Derived
-    # reports (fallback API calls fired from within a follow-up path, op_chain
-    # outputs, compare outputs) are delivered to the UI but never stored --
-    # they would otherwise pollute the op_spec LLM's cache summary and cause
-    # it to target the smaller derived report instead of the original base.
-    if cache_kind == "base" and session_cache is not None and res.get("results"):
+    # Cache report data for follow-up operations. All reports are stored --
+    # kind tags whether it's a fresh base fetch or a derived fallback result.
+    # Follow-up target resolution uses an LLM sub-intent classifier to pick
+    # between the latest base and latest derived based on what the user said.
+    if session_cache is not None and res.get("results"):
         report_id = session_cache.store(
             res,
             query=query,
             sql=res.get("sql") or res.get("sql_text") or "",
-            kind="base",
+            kind=cache_kind,
         )
-        print(f"  Cached report {report_id} kind=base ({len(res.get('results', []))} rows)")
-    elif cache_kind != "base":
-        print(f"  Skipped cache (kind={cache_kind}) — {res.get('row_count', 0)} rows delivered to UI only")
+        print(f"  Cached report {report_id} kind={cache_kind} ({len(res.get('results', []))} rows)")
 
     if raw_summary:
         # LLM only sees the summary — full report already sent to UI via report_log frame.
@@ -519,7 +515,7 @@ async def _apply_op_chain(websocket, intent_result: dict, session_cache, report_
         chain_op.setdefault("explanation", "auto-chained operation")
         try:
             chain_result = executor_instance.execute(chain_op, target)
-            # Don't cache chain outputs — they'd pollute follow-up target resolution.
+            session_cache.store({"results": chain_result["rows"]}, query=report_query, sql=target["sql"], kind="derived")
             await websocket.send(json.dumps({
                 "type": "report_log",
                 "query": report_query,
@@ -829,31 +825,44 @@ async def handler(websocket):
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
-                    # Resolve target report.
-                    # Base-first resolution: follow-ups default to the most recent base
-                    # report (fresh new_data_request). Derived reports (fallback API
-                    # results, op_chain outputs, comparisons) are only used when the
-                    # op_spec model explicitly names them via report_id.
-                    #
-                    # Priority: model-specified report_id (any kind, honors explicit
-                    # "sort these 3" intent) > latest base report > largest base by row
-                    # count > any cached report as last resort.
+                    # Resolve target report via sub-intent classifier.
+                    # Default is the latest base. If a derived report also exists (from a
+                    # prior follow-up's executor output, fallback API, op_chain, or
+                    # compare), call classify_followup_target to decide whether the user
+                    # is referring to the base or the derived ("these 3", "those rows"
+                    # -> derived; anything else -> base).
                     all_cached = session_cache.all_reports()
                     bases = session_cache.base_reports()
+                    latest_base = session_cache.get_latest_base()
+                    latest_derived = session_cache.get_latest_derived()
+
                     if op_spec_result.get("merge_cached"):
                         target_report = (
                             merge_compatible_reports(bases)
-                            or session_cache.get_latest_base()
+                            or latest_base
                             or session_cache.get_latest()
                         )
                     else:
-                        explicit = session_cache.get(op_spec_result.get("report_id"))
-                        target_report = (
-                            explicit
-                            or session_cache.get_latest_base()
-                            or (max(bases, key=lambda r: r.get("row_count", 0)) if bases else None)
-                            or session_cache.get_latest()
-                        )
+                        # Explicit report_id from op_spec model wins if present & valid.
+                        explicit = session_cache.get(op_spec_result.get("report_id")) if op_spec_result.get("report_id") else None
+                        if explicit:
+                            target_report = explicit
+                        elif latest_base and latest_derived and latest_derived["timestamp"] > latest_base["timestamp"]:
+                            # Both exist and derived is newer -- ambiguous, ask the classifier.
+                            decision = await classify_followup_target(
+                                user_text,
+                                base_query=latest_base.get("query", ""),
+                                base_row_count=latest_base.get("row_count", 0),
+                                derived_query=latest_derived.get("query", ""),
+                                derived_row_count=latest_derived.get("row_count", 0),
+                            )
+                            target_report = latest_derived if decision["target"] == "derived" else latest_base
+                        else:
+                            target_report = (
+                                latest_base
+                                or (max(bases, key=lambda r: r.get("row_count", 0)) if bases else None)
+                                or session_cache.get_latest()
+                            )
                     print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows kind={target_report.get('kind') if target_report else '-'} (bases={len(bases)} total={len(all_cached)})")
 
                     if target_report is None:
@@ -951,6 +960,17 @@ async def handler(websocket):
                         "claude_interactions": [],
                         "dashboard_b64": "",
                     }))
+
+                    # Cache the follow-up result as derived so subsequent follow-ups
+                    # can reference it via demonstratives ("these 3", "those rows").
+                    # The LLM target classifier picks between base and derived per turn.
+                    if result.get("rows"):
+                        session_cache.store(
+                            {"results": result["rows"]},
+                            query=user_text,
+                            sql=target_report.get("sql", ""),
+                            kind="derived",
+                        )
 
                     # D-03: Push to undo stack (base report id so undo can restore it)
                     if len(undo_stack) >= 5:
@@ -1317,8 +1337,8 @@ async def handler(websocket):
                         "dashboard_b64": "",
                     }))
 
-                    # Don't cache comparison result — the two topic bases (stored above)
-                    # are the legitimate follow-up targets; the merged output would pollute.
+                    # Cache comparison output as derived so user can reference it via classifier
+                    session_cache.store({"results": result["rows"]}, query=user_text, sql="", kind="derived")
 
                     # Voice results
                     preview_rows = result["rows"][:5]

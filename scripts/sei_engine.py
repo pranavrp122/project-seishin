@@ -403,11 +403,13 @@ async def process_request(connection, request):
         for k in stale:
             del _rate_limit_window[k]
 
-    window = _rate_limit_window[ip]
-    _rate_limit_window[ip] = [t for t in window if now - t < _RATE_LIMIT_SECONDS]
-    _rate_limit_window[ip].append(now)
-    if len(_rate_limit_window[ip]) > _RATE_LIMIT_MAX:
-        return connection.respond(HTTPStatus.TOO_MANY_REQUESTS, "Rate limit exceeded\n")
+    # Exempt loopback from connection rate limiting (dev/test scenarios hit this fast)
+    if ip not in ("127.0.0.1", "::1"):
+        window = _rate_limit_window[ip]
+        _rate_limit_window[ip] = [t for t in window if now - t < _RATE_LIMIT_SECONDS]
+        _rate_limit_window[ip].append(now)
+        if len(_rate_limit_window[ip]) > _RATE_LIMIT_MAX:
+            return connection.respond(HTTPStatus.TOO_MANY_REQUESTS, "Rate limit exceeded\n")
 
     auth = request.headers.get("Authorization", "")
     expected = f"Bearer {AUTH_TOKEN}".encode()

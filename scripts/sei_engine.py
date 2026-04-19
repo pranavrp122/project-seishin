@@ -1433,16 +1433,19 @@ async def handler(websocket):
                             "role": "user",
                             "content": (
                                 f"{user_text}\n\n"
-                                f"[Operation performed: {op_spec_result.get('op_type', '')} — {op_spec_result.get('explanation', '')}. "
-                                f"Result: EXACTLY {n_rows} row{'s' if n_rows != 1 else ''}{more_hint}:\n"
+                                f"[op={op_spec_result.get('op_type', '')}: {op_spec_result.get('explanation', '')}. "
+                                f"Result: EXACTLY {n_rows} row{'s' if n_rows != 1 else ''}{more_hint}\n"
                                 f"<data>{preview_text}</data>\n\n"
-                                "CRITICAL: The data above is the ground truth. Speak ONLY from it — never from memory or training knowledge. "
-                                "Never invent numbers. Never contradict the values shown. "
-                                "If the result is a scalar (single row with one value, e.g. an aggregation), that value IS the answer — read it directly. "
-                                f"If the user asked a count-style question, the row count ({n_rows}) is the answer. "
-                                "If the answer is a single item, name it directly. "
-                                "If you need to list every item by name and not all are shown, output [NEED_ALL_ROWS]. "
-                                "Otherwise present naturally in 1-2 sentences.]"
+                                "RULES (strict):\n"
+                                "1. The <data> block is ground truth. Speak ONLY from it — never from memory, training knowledge, or prior turns.\n"
+                                "2. Never invent numbers, names, or values. Never contradict what's shown.\n"
+                                "3. If a field the user asked about is NOT in <data>, say you don't have that field — do not guess.\n"
+                                "4. Scalar result (single row, single value — e.g. an aggregation): read that value directly.\n"
+                                f"5. Count-style question: the answer is EXACTLY {n_rows}.\n"
+                                "6. Multiple rows: list each row's value individually. Do NOT average or summarize unless the user explicitly said 'average', 'mean', or 'total'.\n"
+                                "7. Single-item answer: name it directly.\n"
+                                "8. Need the full list but not all rows are shown → output [NEED_ALL_ROWS] and stop.\n"
+                                "9. Keep it to 1-2 natural sentences.]"
                             ),
                         }]
 

@@ -92,80 +92,97 @@ OP_SPEC_SCHEMA = {
 
 # --- System prompt for op spec generation ---
 OP_SPEC_SYSTEM_PROMPT = """\
-You are an operations interpreter for a data assistant. Given a user's follow-up \
-request and the available cached reports, determine what operation to perform.
+You translate a user's follow-up request into a structured data operation. Return JSON: {op_type, params..., explanation}.
 
-Return a JSON object with:
-- op_type: the operation to perform
-- All relevant parameters for that operation
-- explanation: a brief natural-language explanation of what you're doing
+You will see: the user's request, the active session cache summary, and (for the target report) the column schema with sample values.
+
+## Anti-hallucination rules
+- Use EXACT column names from the schema — never rename or invent.
+- If the user references a column or value NOT in the schema, return op_type="_error". Do not guess.
+- If the user's phrasing is ambiguous, pick the most literal interpretation of their actual words.
 
 ## Operations
 
 ### filter
 Filter rows where a column matches a condition.
-Use for: "which ones have X", "show me X", and ALSO "how many have X value" — after filtering, the row count IS the answer to "how many".
-Required: column, operator, value (and value2 for "between", values for "in")
-Operators: eq, neq, gt, lt, gte, lte, between, in, contains
+Use for: "which ones have X", "show me X", AND "how many have X value" (after filtering, the row count IS the count answer).
+Required: column, operator, value (value2 for "between", values for "in").
+Operators: eq, neq, gt, lt, gte, lte, between, in, contains.
+Examples:
+- "which ones have rating 3" → filter rating eq 3
+- "how many have 4 star" → filter rating eq 4 (row count = the answer)
+- "show me ones with lead time under 10" → filter lead_time lt 10
+- "suppliers in California" → filter region eq "California"
 
 ### sort
-Sort rows by one or more columns.
-Required: sort_specs (array of {column, direction}) OR column + direction
+Order rows by column(s).
+Required: sort_specs=[{column,direction}] OR column+direction.
+Examples:
+- "sort by revenue descending" → sort revenue desc
+- "order them alphabetically" → sort name asc
 
 ### top_n
-Get the N rows with the LARGEST values in a column.
-Use for: "highest rating", "longest lead time", "most expensive", "top 3", "best", "most", "greatest", "maximum"
-Required: n (default 5), column (to rank by)
+N rows with the LARGEST values in column.
+Use for: "highest", "longest", "most", "biggest", "top", "best", "greatest", "maximum", "who takes the longest".
+Required: n (default 5), column.
+Examples:
+- "top 3 by revenue" → top_n n=3 column=revenue
+- "who takes the longest" → top_n n=1 column=lead_time
+- "longest lead times" → top_n column=lead_time
+- "which 3 have the longest lead time" → top_n n=3 column=lead_time
 
 ### bottom_n
-Get the N rows with the SMALLEST values in a column.
-Use for: "lowest rating", "shortest lead time", "cheapest", "fewest days", "minimum", "least", "bottom 3", "worst"
-Required: n (default 5), column (to rank by)
+N rows with the SMALLEST values in column.
+Use for: "lowest", "shortest", "cheapest", "fewest", "least", "bottom", "worst", "minimum", "fastest" (when small = better).
+Required: n (default 5), column.
+Examples:
+- "3 fastest suppliers" → bottom_n n=3 column=lead_time
+- "lowest ratings" → bottom_n column=rating
+- "which 3 have the lowest lead time" → bottom_n n=3 column=lead_time
 
 ### aggregate
-Compute sum/avg/count/min/max on a column, optionally grouped.
-Use ONLY when the user EXPLICITLY asks for a rollup using words like "average", "mean", "total", "sum", "combined", "overall".
-Examples that ARE aggregate: "average rating", "total revenue", "sum of orders", "what's the mean lead time".
-Examples that are NOT aggregate (default to filter/select_columns/top_n/bottom_n instead):
-  - "how many days is their lead time" -> show each supplier's lead time individually (use select_columns or pass through)
-  - "what's the lead time" for multiple rows -> list each value, do not average
-  - "who takes the longest" -> top_n with n=1, not aggregate max
-  - "how many have X value" -> filter (row count is the answer)
-If in doubt, DO NOT aggregate — the user almost always wants raw per-row values unless they said "average" or "total".
-Required: column, agg_func. Optional: group_by (array of column names)
+Sum / avg / count / min / max on a column, optionally grouped.
+USE ONLY when the user EXPLICITLY says: "average", "mean", "total", "sum", "combined", "overall".
+Required: column, agg_func. Optional: group_by.
+Examples THAT ARE aggregate:
+- "average rating" → aggregate avg rating
+- "total revenue" → aggregate sum revenue
+- "sum of orders" → aggregate sum orders
+- "what's the mean lead time" → aggregate avg lead_time
+Examples that are NOT aggregate (use the op shown instead):
+- "how many days is their lead time" → return per-row values (select_columns or pass through). DO NOT average.
+- "what's the lead time" across multiple rows → list each value. DO NOT average.
+- "who takes the longest" → top_n n=1 (not aggregate max).
+- "how many have X value" → filter (row count is the answer, not count aggregate).
+- "what is its rating" for a named entity → filter by entity name.
+When in doubt, DO NOT aggregate — users want raw per-row values unless they said "average" or "total".
 
 ### pivot
-Reshape data into a pivot table.
-Required: pivot_index, pivot_columns, pivot_values
+Reshape rows into a pivot table.
+Required: pivot_index, pivot_columns, pivot_values.
 
 ### select_columns
 Keep only specific columns.
-Required: columns (array of column names)
+Required: columns (array).
+Use for: "just show me the ratings", "only name and lead time".
 
 ### rename_columns
 Rename columns.
-Required: rename_map (object mapping old_name -> new_name)
+Required: rename_map (old → new).
 
 ### cross_report_compare
 Compare two cached reports on a shared column.
-Required: report_id (primary), compare_report_id, compare_column
+Required: report_id (primary), compare_report_id, compare_column.
 
 ## merge_cached flag
-Set merge_cached: true ONLY when the user needs data from multiple COMPLEMENTARY
-cached reports — i.e. reports that are separate queries covering different rows of
-the same topic (e.g. "sort the top 6" when you have a top-5 report and a separate
-6th-place report pulled in two separate queries).
-
-Do NOT set merge_cached when:
-- The latest report is a filtered/sorted/aggregated SUBSET of an earlier report
-  (e.g. you filtered 20 returns to 4 defective ones — "check again" should operate
-  on those 4, not re-merge back to 20)
-- There is only one cached report
+Set true ONLY when combining COMPLEMENTARY cached reports — separate queries covering different rows of the same topic (e.g. a top-5 report plus a separate rank-6 report, now asked to "sort the top 6").
+Do NOT set true when:
+- The latest report is a filtered/sorted/aggregated SUBSET of an earlier one (e.g. filtered 20 returns to 4 defective — "check again" should operate on those 4, not re-merge to 20).
+- Only one cached report exists.
 
 ## Rules
-- Use the report_id from the cache summary. If only one report exists, use that.
-- For column names, use EXACT names from the cache summary.
-- If the user's request is ambiguous, pick the most likely interpretation.
+- Use report_id from the cache summary. If only one report exists, use that.
+- explanation: one short sentence describing what you're doing (shown to the user).
 """
 
 _SAFE_DEFAULT = {

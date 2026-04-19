@@ -8,6 +8,7 @@ Usage:
     SEI_AUTH_TOKEN=your-secret python scripts/sei_engine.py
 """
 import asyncio
+import hmac
 import json
 import os
 import sys
@@ -409,7 +410,9 @@ async def process_request(connection, request):
         return connection.respond(HTTPStatus.TOO_MANY_REQUESTS, "Rate limit exceeded\n")
 
     auth = request.headers.get("Authorization", "")
-    if auth != f"Bearer {AUTH_TOKEN}":
+    expected = f"Bearer {AUTH_TOKEN}".encode()
+    provided = auth.encode() if auth else b""
+    if not hmac.compare_digest(expected, provided):
         return connection.respond(HTTPStatus.UNAUTHORIZED, "Invalid token\n")
     if active_ws is not None:
         return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "Session already active\n")

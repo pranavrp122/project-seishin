@@ -15,6 +15,7 @@ Requires:
     - SEI_AUTH_TOKEN set (or SEI_DEV_MODE=1 for dev)
     - SEI_TEXT_MODE=1 recommended for intent debug frames
 """
+import argparse
 import asyncio
 import json
 import os
@@ -1043,13 +1044,30 @@ async def run_scenario(scenario_fn: Callable) -> dict | None:
 
 async def main():
     """Run all non-stub scenarios and print final gap summary."""
+    parser = argparse.ArgumentParser(description="Sei Engine E2E Test Harness")
+    parser.add_argument("--filter", nargs="*", metavar="SCENARIO",
+                        help="Run only these scenario names (space-separated)")
+    parser.add_argument("--delay", type=float, default=7.0, metavar="SECONDS",
+                        help="Seconds to wait between scenarios (default: 7)")
+    args = parser.parse_args()
+
+    scenarios = ALL_SCENARIOS
+    if args.filter:
+        scenarios = [s for s in ALL_SCENARIOS if s.__name__ in args.filter]
+        if not scenarios:
+            print(f"No matching scenarios for filter: {args.filter}", file=sys.stderr)
+            sys.exit(1)
+
     print(f"Sei Engine E2E Test Harness")
     print(f"Server: {SERVER_URL}")
     print(f"Auth: Bearer {'*' * 8} ({len(AUTH_TOKEN)} chars)")
     print(f"Timeout: {TURN_TIMEOUT}s per turn")
+    print(f"Inter-scenario delay: {args.delay}s")
 
     all_summaries = []
-    for scenario_fn in ALL_SCENARIOS:
+    for i, scenario_fn in enumerate(scenarios):
+        if i > 0:
+            await asyncio.sleep(args.delay)
         summary = await run_scenario(scenario_fn)
         if summary is not None:
             all_summaries.append(summary)

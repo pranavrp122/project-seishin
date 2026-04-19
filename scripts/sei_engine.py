@@ -279,12 +279,15 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
     return True  # Signal successful delivery
 
 
+_REPORT_API_DEADLINE = float(os.environ.get("SEI_REPORT_DEADLINE", "90"))
+
+
 async def call_report_api(user_request: str) -> dict:
-    """POST user request to the report generator with retry + 15s deadline (D-20-04)."""
+    """POST user request to the report generator with retry + deadline (D-20-04)."""
     user_request = user_request[:1000]
     headers = {"X-API-Key": REPORT_API_KEY} if REPORT_API_KEY else {}
     delays = [0.5, 1.0]
-    deadline = time.monotonic() + 15.0
+    deadline = time.monotonic() + _REPORT_API_DEADLINE
     last_exc = None
     for attempt in range(3):  # initial + 2 retries
         remaining = deadline - time.monotonic()
@@ -296,7 +299,7 @@ async def call_report_api(user_request: str) -> dict:
                     f"{REPORT_API_URL}/report",
                     json={"user_request": user_request},
                     headers=headers,
-                    timeout=httpx.Timeout(connect=2.0, read=min(remaining, 12.0), write=2.0, pool=2.0),
+                    timeout=httpx.Timeout(connect=2.0, read=min(remaining, _REPORT_API_DEADLINE - 2), write=2.0, pool=2.0),
                 )
                 resp.raise_for_status()
                 return resp.json()
@@ -304,7 +307,7 @@ async def call_report_api(user_request: str) -> dict:
             last_exc = exc
             if attempt < len(delays):
                 await asyncio.sleep(delays[attempt])
-    raise last_exc or TimeoutError("Report API: 15s deadline exceeded")
+    raise last_exc or TimeoutError(f"Report API: {_REPORT_API_DEADLINE}s deadline exceeded")
 
 
 def pcm16_to_wav(pcm_data: bytes, sample_rate: int = 16000) -> bytes:
@@ -1103,7 +1106,8 @@ async def handler(websocket):
                     all_referenced = ([referenced_col] if referenced_col else []) + referenced_cols
 
                     # Resolve columns via fuzzy matching before declaring them missing
-                    available_cols = list(target_report["columns"].keys())
+                    _cols = target_report["columns"]
+                    available_cols = list(_cols.keys()) if isinstance(_cols, dict) else list(_cols)
                     resolved_cols = {}
                     missing_cols = []
                     for c in all_referenced:

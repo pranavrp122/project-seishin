@@ -27,6 +27,10 @@ class SessionCache:
 
     def store(self, report_data: dict, query: str, sql: str) -> str:
         """Store a report, return its ID."""
+        import traceback
+        rows_preview = len(report_data.get("results") or report_data.get("rows", []))
+        caller = "".join(traceback.format_stack()[-3:-1]).strip().replace("\n", " | ")
+        print(f"  [cache.store] query={query!r:.40} rows={rows_preview} caller={caller[-120:]}")
         self._touch()
         self._evict_expired()
 

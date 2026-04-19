@@ -161,17 +161,32 @@ async def generate_op_spec(user_text: str, cache_summary: list[dict], report_dat
     Returns:
         Dict with at minimum: op_type, explanation.
     """
-    # Build data context block — use actual rows when available, fall back to summary
+    # Build data context — column schema + sample values only (no full rows).
+    # Sending full rows bloats context; the model only needs column names and
+    # what values exist to generate accurate filter/sort/aggregate operations.
     if report_data and report_data.get("rows"):
-        rows_preview = json.dumps(report_data["rows"][:20], default=str)
+        rows = report_data["rows"]
         columns = report_data.get("columns", {})
+        # Collect up to 5 unique sample values per column
+        samples: dict[str, list] = {}
+        for col in columns:
+            seen: list = []
+            seen_set: set = set()
+            for row in rows:
+                val = row.get(col)
+                key = str(val)
+                if key not in seen_set and len(seen) < 5:
+                    seen.append(val)
+                    seen_set.add(key)
+            samples[col] = seen
         data_context = (
-            f"## Target Report Data\n"
+            f"## Report Schema\n"
             f"Query: {report_data.get('query', 'unknown')}\n"
-            f"Columns: {json.dumps(columns)}\n"
-            f"Row count: {report_data.get('row_count', len(report_data['rows']))}\n"
-            f"Rows (first 20):\n{rows_preview}\n\n"
-            "Use EXACT column names from above. Base your operation on the actual data shown."
+            f"Row count: {report_data.get('row_count', len(rows))}\n"
+            f"Columns and sample values:\n"
+            + "\n".join(f"  {col} ({dtype}): {json.dumps(samples.get(col, []))}" for col, dtype in columns.items())
+            + "\n\nUse EXACT column names above. If the user references a value not in the samples, "
+            "set op_type to '_error' so a fresh query can be fired instead of guessing."
         )
     else:
         data_context = build_cache_summary_block(cache_summary)

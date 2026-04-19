@@ -220,10 +220,13 @@ async def execute_turn(
     result.reply_text = " ".join(reply_parts)
     result.raw_frames = frames
 
-    # Try to extract target_kind from report_log or debug frames
+    # Extract target_kind, report_id, kind from report_log or debug frames
     for f in frames:
-        if f.get("type") == "report_log" and "kind" in f:
-            result.target_kind = f["kind"]
+        if f.get("type") == "report_log":
+            if "kind" in f:
+                result.target_kind = f["kind"]
+            if "report_id" in f:
+                result.target_report_id = f["report_id"]
         if f.get("type") == "debug" and "target_kind" in f:
             result.target_kind = f["target_kind"]
 
@@ -238,10 +241,8 @@ async def execute_turn(
     if turn.expect_max_rows is not None and result.target_row_count > turn.expect_max_rows:
         failures.append(f"max_rows: expected<={turn.expect_max_rows} got={result.target_row_count}")
     if turn.expect_no_fresh_fetch:
-        # Check if a fresh API call happened (report_log without "Using cached data" marker).
-        # D-18 reuse still sends report_log but with cached data summary.
         fresh_fetch = any(
-            f.get("type") == "report_log" and "Using cached data" not in (f.get("summary") or "")
+            f.get("type") == "report_log" and f.get("source") == "fetch"
             for f in frames
         )
         if fresh_fetch:
@@ -443,6 +444,108 @@ def scenario_cancel_mid_turn() -> tuple[str, list[Turn]] | None:
     ])
 
 
+def scenario_deep_derived_chain() -> tuple[str, list[Turn]]:
+    """4-turn deep derived chain testing 3-level lineage. Each follow-up resolves via memory."""
+    return ("deep_derived_chain", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="show me the top 10 by rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="of those, which ones are in California",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="derived",
+        ),
+        Turn(
+            user_text="sort those by lead time",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="derived",
+        ),
+    ])
+
+
+def scenario_cross_topic_demonstrative() -> tuple[str, list[Turn]]:
+    """Cross-topic demonstrative: 'those suppliers' after invoices base should resolve to suppliers base, not invoices."""
+    return ("cross_topic_demonstrative", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="show me the top 3 by rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="pull up our invoices",
+            expect_intent="new_data_request",
+        ),
+        Turn(
+            user_text="show me those suppliers again",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+    ])
+
+
+def scenario_count_then_detail() -> tuple[str, list[Turn]]:
+    """Count/summary derived should still be resolvable as target for 'them'."""
+    return ("count_then_detail", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="how many have a rating above 4",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+        Turn(
+            user_text="show me them",
+            expect_intent="follow_up_on_previous",
+        ),
+    ])
+
+
+def scenario_implicit_pronoun() -> tuple[str, list[Turn]]:
+    """Implicit pronoun with no demonstrative. Should resolve to base."""
+    return ("implicit_pronoun", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="which are in California",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+    ])
+
+
+def scenario_rephrase_base_reuse() -> tuple[str, list[Turn]]:
+    """Rephrase of same base request. Either follow-up or new_data_request+D-18 is acceptable, but MUST NOT trigger a fresh report_log fetch."""
+    return ("rephrase_base_reuse", [
+        Turn(
+            user_text="get me all suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="pull up all our supplier data",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
 # Registry of all scenarios
 ALL_SCENARIOS: list[Callable] = [
     scenario_suppliers_multifilter,
@@ -452,6 +555,11 @@ ALL_SCENARIOS: list[Callable] = [
     scenario_noise_turn,
     scenario_ambiguous_phrasing,
     scenario_cancel_mid_turn,
+    scenario_deep_derived_chain,
+    scenario_cross_topic_demonstrative,
+    scenario_count_then_detail,
+    scenario_implicit_pronoun,
+    scenario_rephrase_base_reuse,
 ]
 
 

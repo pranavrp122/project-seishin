@@ -712,6 +712,7 @@ async def handler(websocket):
             asr_result = {"text": "", "len": 0}
             undo_stack: list[dict] = []  # D-03: last 5 ops
             last_intent_result: dict | None = None  # D-05: stored for op_chain after delivery
+            turn_scope = None  # D-19: per-turn cancellation scope (WR-01: init before loop)
             _last_tracked_task = None  # Track task identity to reset progress flag on new task
             _progress_sent = False     # Only send one "still working" per report task
 

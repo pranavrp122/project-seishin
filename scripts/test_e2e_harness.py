@@ -161,6 +161,9 @@ async def execute_turn(
 
             if ftype == "done":
                 break
+            elif ftype == "cancelled":
+                # D-19: Turn was cancelled cleanly
+                break
             elif ftype == "sentence":
                 text = frame.get("text", "")
                 reply_parts.append(text)
@@ -332,7 +335,7 @@ def scenario_demonstrative_reference() -> tuple[str, list[Turn]]:
 def scenario_fresh_vs_cached_base_reuse() -> tuple[str, list[Turn]]:
     """Fresh vs cached base reuse (D-18): pull suppliers, then 'get me all suppliers' again.
     Must reuse cached base, not fire Report API.
-    NOTE: expects failure until D-18 implemented in Plan 03.
+    D-18 implemented in Plan 03 Task 3.1 — this should now pass.
     """
     return ("fresh_vs_cached_base_reuse", [
         Turn(
@@ -343,7 +346,7 @@ def scenario_fresh_vs_cached_base_reuse() -> tuple[str, list[Turn]]:
         Turn(
             user_text="get me all suppliers",
             expect_intent="new_data_request",
-            expect_no_fresh_fetch=True,  # NOTE expects failure until D-18 implemented
+            expect_no_fresh_fetch=True,  # D-18: should reuse cached base
         ),
     ])
 
@@ -393,9 +396,26 @@ def scenario_ambiguous_phrasing() -> tuple[str, list[Turn]]:
 
 def scenario_cancel_mid_turn() -> tuple[str, list[Turn]] | None:
     """Cancel mid-turn (D-19/D-20): fire data request, cancel before done.
-    TODO: implement when cancel scope is wired.
+    Verifies cancel aborts cleanly and cache stays consistent for next turn.
     """
-    return None
+    return ("cancel_mid_turn", [
+        Turn(
+            user_text="can u get me all the data we have on our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="get me all invoices data",
+            expect_intent="new_data_request",
+            cancel_after_ms=500,
+            expect_cache_consistent=True,
+        ),
+        Turn(
+            user_text="which of our suppliers has the highest rating",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+        ),
+    ])
 
 
 # Registry of all scenarios

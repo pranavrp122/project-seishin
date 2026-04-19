@@ -85,7 +85,7 @@ async def _buffer_llm_tokens(messages: list[dict], cancel_event: asyncio.Event) 
     return "".join(parts).strip()
 
 
-async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "", session_cache=None) -> bool:
+async def deliver_report_result(websocket, report_task: asyncio.Task, history: list, tts_client: httpx.AsyncClient, query: str = "", session_cache=None, cache_result: bool = True) -> bool:
     """Speak Claude's verbatim summary and push a report_log frame to the client."""
     try:
         res = report_task.result()
@@ -120,10 +120,15 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
         "dashboard_b64": dashboard_b64,
     }))
 
-    # Cache report data for follow-up operations
-    if session_cache is not None and res.get("results"):
+    # Cache report data for follow-up operations.
+    # Fallback-path API calls (fired from within a follow-up when op_spec fails or
+    # references a missing column) pass cache_result=False so the small derived
+    # result doesn't displace the base report as the follow-up target.
+    if cache_result and session_cache is not None and res.get("results"):
         report_id = session_cache.store(res, query=query, sql=res.get("sql") or res.get("sql_text") or "")
         print(f"  Cached report {report_id} ({len(res.get('results', []))} rows)")
+    elif not cache_result:
+        print(f"  Skipped caching (fallback delivery) — {res.get('row_count', 0)} rows")
 
     if raw_summary:
         # LLM only sees the summary — full report already sent to UI via report_log frame.
@@ -537,6 +542,7 @@ async def handler(websocket):
             pending_overlap_query = None  # Held query awaiting user confirmation
             active_report_task = None   # Background asyncio.Task for call_report_api
             active_report_query = ""    # The original user query being reported on
+            active_report_cache = True  # If False, deliver result but don't add to session_cache (fallback paths)
             audio_buf = bytearray()  # Streaming PCM accumulation buffer
             is_accumulating = False
             asr_task = None
@@ -567,12 +573,13 @@ async def handler(websocket):
                     except asyncio.TimeoutError:
                         # 20s silence while report runs — deliver result or send one update max
                         if active_report_task.done():
-                            await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
+                            await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache, cache_result=active_report_cache)
                             if last_intent_result:
                                 await _apply_op_chain(websocket, last_intent_result, session_cache, active_report_query)
                                 last_intent_result = None
                             active_report_task = None
                             active_report_query = ""
+                            active_report_cache = True
                             _last_tracked_task = None
                             _progress_sent = False
                         elif not _progress_sent:
@@ -811,6 +818,7 @@ async def handler(websocket):
                             history.append({"role": "assistant", "content": hint_reply})
                         query = data_query or user_text
                         active_report_query = query
+                        active_report_cache = False  # _error fallback: don't displace base report
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
@@ -889,6 +897,7 @@ async def handler(websocket):
                         else:
                             query = data_query or user_text
                         active_report_query = query
+                        active_report_cache = False  # missing-column fallback: don't displace base report
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
@@ -949,6 +958,7 @@ async def handler(websocket):
                         else:
                             query = data_query or user_text
                         active_report_query = query
+                        active_report_cache = False  # zero-result fallback: don't displace base report
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
                     else:
@@ -1460,10 +1470,11 @@ async def handler(websocket):
                 # Deliver report result only when the current turn finished cleanly (not interrupted).
                 # If interrupted, the result will surface on next silence or next clean turn.
                 if active_report_task is not None and active_report_task.done() and not interrupted:
-                    await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache)
+                    await deliver_report_result(websocket, active_report_task, history, tts_client, active_report_query, session_cache=session_cache, cache_result=active_report_cache)
                     if last_intent_result:
                         await _apply_op_chain(websocket, last_intent_result, session_cache, active_report_query)
                         last_intent_result = None
+                    active_report_cache = True
                     active_report_task = None
                     active_report_query = ""
     finally:

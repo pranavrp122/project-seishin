@@ -27,7 +27,7 @@ import re
 
 from system_prompts import SYSTEM_PROMPT, SEED_HISTORY
 from intent_classifier import classify_intent
-from session_cache import SessionCache, SessionMemory, SEI_DATA_DIR
+from session_cache import SessionCache, SessionMemory, SEI_DATA_DIR, JsonFileBackend, deserialize_into_cache
 from op_spec import generate_op_spec
 from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
 from text_utils import _normalize_datetime
@@ -277,18 +277,31 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
 
 
 async def call_report_api(user_request: str) -> dict:
-    """POST user request to the report generator and return the response dict."""
+    """POST user request to the report generator with retry + 15s deadline (D-20-04)."""
     user_request = user_request[:1000]
     headers = {"X-API-Key": REPORT_API_KEY} if REPORT_API_KEY else {}
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{REPORT_API_URL}/report",
-            json={"user_request": user_request},
-            headers=headers,
-            timeout=httpx.Timeout(connect=5.0, read=240.0, write=5.0, pool=5.0),
-        )
-        resp.raise_for_status()
-        return resp.json()
+    delays = [0.5, 1.0]
+    deadline = time.monotonic() + 15.0
+    last_exc = None
+    for attempt in range(3):  # initial + 2 retries
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{REPORT_API_URL}/report",
+                    json={"user_request": user_request},
+                    headers=headers,
+                    timeout=httpx.Timeout(connect=2.0, read=min(remaining, 12.0), write=2.0, pool=2.0),
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < len(delays):
+                await asyncio.sleep(delays[attempt])
+    raise last_exc or TimeoutError("Report API: 15s deadline exceeded")
 
 
 def pcm16_to_wav(pcm_data: bytes, sample_rate: int = 16000) -> bytes:
@@ -661,6 +674,15 @@ async def handler(websocket):
     session_cache = SessionCache(ttl_seconds=600)
     session_memory = SessionMemory(session_cache)
     msg_limiter = MessageRateLimiter()  # D-20-08.3: per-connection 60 msg/min
+
+    # D-20-09: Load persisted session memory and attach for ongoing saves
+    _persistence = JsonFileBackend()
+    saved = _persistence.load()
+    if saved:
+        deserialize_into_cache(saved, session_cache)
+        print(f"[persistence] Loaded {len(saved.get('reports', {}))} reports from {_persistence.path}")
+    session_cache.attach_persistence(_persistence)
+
     print(f"Client connected: {websocket.remote_address}")
 
     try:
@@ -1486,22 +1508,23 @@ async def handler(websocket):
                         pass
 
                     if not topics_text:
-                        # Fallback: hardcoded known domains + session cache
-                        known_domains = "clients, invoices, tax cases, payments, warehouses, orders, products"
+                        # D-20-06: Dynamic fallback — use cached reports or conversational prompt
                         cached = session_cache.all_reports()
                         if cached:
                             cached_queries = [r["query"] for r in cached]
-                            topics_text = f"{known_domains}. You've already pulled: {', '.join(cached_queries)}"
+                            topics_text = f"You've already pulled: {', '.join(cached_queries)}"
                         else:
-                            topics_text = known_domains
+                            topics_text = "No data pulled yet this session"
 
                     discovery_messages = list(history) + [{
                         "role": "user",
                         "content": (
                             f"[INTERNAL: The user wants to know what data topics are available. "
-                            f"Available topics: {topics_text}. "
-                            "List these naturally — like telling a colleague what's in the system. "
-                            "Keep it brief and conversational. Don't read a technical list.]"
+                            f"{topics_text}. "
+                            "If data has been pulled, list those topics naturally. "
+                            "If no data yet, let them know you can help explore any data they have access to "
+                            "and ask what kind of information they're looking for. "
+                            "Keep it brief and conversational.]"
                         ),
                     }]
                     _ce = asyncio.Event()

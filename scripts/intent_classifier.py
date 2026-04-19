@@ -74,7 +74,7 @@ INTENT_SCHEMA = {
             },
         },
     },
-    "required": ["intent", "data_query", "confidence"],
+    "required": ["intent", "data_query", "confidence", "opening_phrase"],
     "additionalProperties": False,
 }
 

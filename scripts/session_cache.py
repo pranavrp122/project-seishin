@@ -6,8 +6,16 @@ Exports:
     SessionMemory - facade: record/resolve_target/summary_for_context/lineage/list.
 """
 
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import tempfile
 import time
 import uuid
+from pathlib import Path
+from typing import Protocol
 
 _MAX_CACHED_REPORTS = 20
 
@@ -57,6 +65,8 @@ class SessionCache:
         self._reports: dict[str, dict] = {}
         self._last_activity: float = time.monotonic()
         self._cap: int = _MAX_CACHED_REPORTS
+        self._persistence_backend: PersistenceBackend | None = None
+        self._debounced_saver: DebouncedSaver | None = None
 
     def store(
         self,
@@ -116,6 +126,8 @@ class SessionCache:
             "timestamp": time.monotonic(),
             "semantic_key": _semantic_key(query) if kind == "base" else "",
         }
+        if self._debounced_saver is not None:
+            self._debounced_saver.mark_dirty(lambda: serialize_cache(self))
         return report_id
 
     def get(self, report_id: str) -> dict | None:
@@ -239,6 +251,11 @@ class SessionCache:
                 overlaps.append(r)
 
         return overlaps if overlaps else None
+
+    def attach_persistence(self, backend: PersistenceBackend, delay: float = 2.0) -> None:
+        """Wire a persistence backend with debounced saving on store()."""
+        self._persistence_backend = backend
+        self._debounced_saver = DebouncedSaver(backend, delay=delay)
 
     def _touch(self):
         self._last_activity = time.monotonic()
@@ -447,3 +464,177 @@ class SessionMemory:
         if topic:
             reports = [r for r in reports if topic.lower() in r.get("topic", "").lower()]
         return reports
+
+
+# ---------------------------------------------------------------------------
+# Persistence layer (D-20-09)
+# ---------------------------------------------------------------------------
+
+SEI_DATA_DIR = Path.home() / ".sei"
+
+
+class PersistenceBackend(Protocol):
+    """Abstract persistence contract for session memory."""
+
+    def load(self) -> dict: ...
+    def save(self, state: dict) -> None: ...
+    def clear(self) -> None: ...
+
+
+def atomic_write_json(path: Path, data: dict, mode: int = 0o600) -> None:
+    """Write JSON atomically: temp file in same dir + os.replace(). Sets permissions."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.NamedTemporaryFile(
+        mode="w", dir=path.parent, suffix=".tmp", delete=False
+    ) as tmp:
+        json.dump(data, tmp, default=str)
+        tmp_path = Path(tmp.name)
+    os.chmod(tmp_path, mode)
+    os.replace(tmp_path, path)
+
+
+_METADATA_FIELDS = (
+    "report_id", "query", "sql", "kind", "parent_report_id",
+    "origin_op", "timestamp", "semantic_key", "columns", "row_count",
+)
+
+
+class JsonFileBackend:
+    """File-based persistence at ~/.sei/memory.json with atomic writes and 0600 perms."""
+
+    def __init__(self) -> None:
+        self.path: Path = SEI_DATA_DIR / "memory.json"
+
+    def load(self) -> dict:
+        if not self.path.exists():
+            return {}
+        with open(self.path) as f:
+            return json.load(f)
+
+    def save(self, state: dict) -> None:
+        # Enforce 5MB size bound before writing
+        raw = json.dumps(state, default=str)
+        if len(raw) > 5_000_000:
+            state = _enforce_size_bound(state)
+        atomic_write_json(self.path, state)
+
+    def clear(self) -> None:
+        if self.path.exists():
+            self.path.unlink()
+
+
+def _enforce_size_bound(state: dict) -> dict:
+    """Drop oldest non-base reports until serialized JSON is under 5MB."""
+    reports = dict(state.get("reports", {}))
+    while True:
+        raw = json.dumps({"version": state.get("version", 1), "reports": reports}, default=str)
+        if len(raw) <= 5_000_000:
+            break
+        # Find oldest non-base report
+        non_base = [
+            (rid, r) for rid, r in reports.items()
+            if r.get("kind") != "base"
+        ]
+        if not non_base:
+            break  # Only base reports left, cannot trim further
+        oldest_rid = min(non_base, key=lambda x: x[1].get("timestamp", 0))[0]
+        del reports[oldest_rid]
+    return {"version": state.get("version", 1), "reports": reports}
+
+
+def serialize_cache(cache: SessionCache) -> dict:
+    """Serialize a SessionCache to a persistence-ready dict (metadata only).
+
+    Converts time.monotonic() timestamps to time.time() epoch values.
+    Columns are serialized as a list of names (not the type-inference dict).
+    """
+    now_mono = time.monotonic()
+    now_epoch = time.time()
+    reports = {}
+    for rid, report in cache._reports.items():
+        meta = {}
+        for field in _METADATA_FIELDS:
+            val = report.get(field)
+            if field == "timestamp" and val is not None:
+                # Convert monotonic offset to epoch
+                offset = now_mono - val
+                meta["timestamp"] = now_epoch - offset
+            elif field == "columns":
+                # Store column names as a list, not the {name: type} dict
+                cols = val
+                if isinstance(cols, dict):
+                    meta["columns"] = list(cols.keys())
+                elif isinstance(cols, list):
+                    meta["columns"] = cols
+                else:
+                    meta["columns"] = []
+            else:
+                meta[field] = val
+        reports[rid] = meta
+    return {"version": 1, "reports": reports}
+
+
+def deserialize_into_cache(data: dict, cache: SessionCache) -> None:
+    """Rehydrate a SessionCache from a persisted dict.
+
+    Sets all loaded report timestamps to current time.monotonic() so TTL
+    works correctly from load time (Pitfall 1: monotonic resets on reboot).
+    """
+    reports = data.get("reports", {})
+    now = time.monotonic()
+    for rid, meta in reports.items():
+        # Build a minimal report_data for store()
+        report_data: dict = {"results": []}
+        cache.store(
+            report_data,
+            query=meta.get("query", ""),
+            sql=meta.get("sql", ""),
+            kind=meta.get("kind", "base"),
+            parent_report_id=meta.get("parent_report_id"),
+            origin_op=meta.get("origin_op", "fetch"),
+            topic=meta.get("topic", ""),
+            derivation_summary=meta.get("derivation_summary", ""),
+        )
+        # Patch the stored report with persisted metadata
+        # Find the report we just stored (last one added)
+        for stored_rid, stored in cache._reports.items():
+            if stored.get("query") == meta.get("query", "") and stored.get("sql") == meta.get("sql", ""):
+                stored["timestamp"] = now
+                stored["semantic_key"] = meta.get("semantic_key", "")
+                stored["columns"] = meta.get("columns", [])
+                stored["row_count"] = meta.get("row_count", 0)
+                break
+
+
+class DebouncedSaver:
+    """Debounce persistence writes by N seconds after last cache mutation.
+
+    Uses dirty-flag + single-pending-timer pattern (Pitfall 2).
+    state_fn is called at save time for fresh state.
+    """
+
+    def __init__(self, backend: PersistenceBackend, delay: float = 2.0) -> None:
+        self._backend = backend
+        self._delay = delay
+        self._handle: asyncio.TimerHandle | None = None
+        self._dirty = False
+        self._state_fn = None
+
+    def mark_dirty(self, state_fn) -> None:
+        """Schedule a save. state_fn() called at save time for fresh state."""
+        self._dirty = True
+        self._state_fn = state_fn
+        if self._handle is not None:
+            self._handle.cancel()
+        try:
+            loop = asyncio.get_running_loop()
+            self._handle = loop.call_later(self._delay, self._fire)
+        except RuntimeError:
+            # No running event loop (e.g. in sync tests) -- save immediately
+            self._fire()
+
+    def _fire(self) -> None:
+        if self._dirty and self._state_fn is not None:
+            self._backend.save(self._state_fn())
+            self._dirty = False
+            self._handle = None

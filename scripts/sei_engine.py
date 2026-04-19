@@ -694,13 +694,8 @@ async def handler(websocket):
     session_memory = SessionMemory(session_cache)
     msg_limiter = MessageRateLimiter()  # D-20-08.3: per-connection 60 msg/min
 
-    # D-20-09: Load persisted session memory and attach for ongoing saves
-    _persistence = JsonFileBackend()
-    saved = _persistence.load()
-    if saved:
-        deserialize_into_cache(saved, session_cache)
-        print(f"[persistence] Loaded {len(saved.get('reports', {}))} reports from {_persistence.path}")
-    session_cache.attach_persistence(_persistence)
+    # D-20-09: Persistence disabled — per-session memory only until DB+client setup
+    # session_cache.attach_persistence(JsonFileBackend())
 
     print(f"Client connected: {websocket.remote_address}")
 
@@ -931,12 +926,11 @@ async def handler(websocket):
                     _op_ce = asyncio.Event()
                     await tts_full_response(websocket, opening_phrase, tts_client, _op_ce)
 
-                # Debug: show classified intent in chat (TEXT_MODE)
-                if TEXT_MODE:
-                    await websocket.send(json.dumps({
-                        "type": "sentence",
-                        "text": f"(intent: {intent}, confidence: {confidence:.2f})"
-                    }))
+                # Always show classified intent in chat for testing visibility
+                await websocket.send(json.dumps({
+                    "type": "sentence",
+                    "text": f"(intent: {intent}, confidence: {confidence:.2f})"
+                }))
 
                 if intent == "new_data_request" and confidence >= 0.6:
                     # Fire report immediately — no confirmation gate

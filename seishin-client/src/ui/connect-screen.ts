@@ -34,8 +34,8 @@ export function renderConnectScreen(parent: HTMLElement): void {
 
   urlInput = document.createElement('input');
   urlInput.type = 'text';
-  urlInput.placeholder = 'ws://127.0.0.1:5052';
-  urlInput.value = 'ws://127.0.0.1:5052';
+  urlInput.placeholder = 'ws://<WINDOWS_HOST_IP>:5052';
+  urlInput.value = 'ws://<WINDOWS_HOST_IP>:5052';
   urlInput.style.cssText = `
     flex: 1;
     padding: 10px 14px;

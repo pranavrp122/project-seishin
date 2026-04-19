@@ -193,16 +193,18 @@ FOLLOWUP_TARGET_SCHEMA = {
     "properties": {
         "report_id": {"type": "string"},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "reason": {"type": "string"},
     },
-    "required": ["report_id", "confidence"],
+    "required": ["report_id", "confidence", "reason"],
     "additionalProperties": False,
 }
 
 _FOLLOWUP_TARGET_PROMPT = """You pick which cached report a follow-up question refers to.
 
 Each report has an id, a topic query, a kind (base = original full fetch,
-derived = a smaller result from a prior follow-up), a row count, and an age
-(most-recent is top of the list).
+derived = a smaller result from a prior follow-up), a row count, an age
+(most-recent is top of the list), and a derivation summary (how it was
+produced from its parent, if derived).
 
 Rules:
 - Default to the most recent BASE report whose topic matches the user's
@@ -233,10 +235,12 @@ async def classify_followup_target(user_text: str, reports: list[dict]) -> dict:
     # Build a compact listing for the prompt
     lines = []
     for r in reports:
+        deriv = r.get('derivation_summary', '')
+        deriv_part = f" derivation={deriv[:100]!r}" if deriv else ""
         lines.append(
             f"- id={r['report_id']} kind={r.get('kind', 'base')} "
             f"rows={r.get('row_count', 0)} age={r.get('age_seconds', 0):.0f}s "
-            f"topic={r.get('query', '')[:80]!r}"
+            f"topic={r.get('query', '')[:80]!r}{deriv_part}"
         )
     context = "Cached reports (most recent first):\n" + "\n".join(lines) + f"\n\nUser said: {user_text}"
 
@@ -247,7 +251,7 @@ async def classify_followup_target(user_text: str, reports: list[dict]) -> dict:
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
-        "max_tokens": 40,
+        "max_tokens": 80,
         "temperature": 0.0,
         "stream": False,
         "extra_body": {"guided_json": json.dumps(FOLLOWUP_TARGET_SCHEMA)},

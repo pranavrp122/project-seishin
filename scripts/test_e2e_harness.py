@@ -708,6 +708,110 @@ def scenario_parallel_topics() -> tuple[str, list[Turn]]:
     ])
 
 
+def scenario_scope_widening_after_derived() -> tuple[str, list[Turn]]:
+    """After a derived narrow result, 'rank ALL X' widens back to base."""
+    return ("scope_widening_after_derived", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="show me the top 3 by rating",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="rank all of our suppliers by lead time",
+            expect_intent="follow_up_on_previous",
+            expect_target_kind="base",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_subset_dedup_short_to_long() -> tuple[str, list[Turn]]:
+    """Terse first, verbose rephrase. Subset dedup should catch it."""
+    return ("subset_dedup_short_to_long", [
+        Turn(
+            user_text="get our suppliers",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="pull up the full supplier data listing",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_subset_dedup_long_to_short() -> tuple[str, list[Turn]]:
+    """Verbose first, terse rephrase. Subset dedup should catch it in reverse."""
+    return ("subset_dedup_long_to_short", [
+        Turn(
+            user_text="pull up all of the supplier data we have available",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="get suppliers",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_forgetful_reference() -> tuple[str, list[Turn]]:
+    """Long-range reference: many turns later, ask about something mentioned earlier."""
+    return ("forgetful_reference", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="which one has the highest rating",
+            expect_intent="follow_up_on_previous",
+        ),
+        Turn(
+            user_text="hey what day is it",
+            expect_intent="normal_chat",
+        ),
+        Turn(
+            user_text="tell me a fun fact",
+            expect_intent="normal_chat",
+        ),
+        Turn(
+            user_text="hows the weather",
+            expect_intent="normal_chat",
+        ),
+        Turn(
+            user_text="what was the rating of that top one i asked about earlier",
+            expect_intent="follow_up_on_previous",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
+def scenario_contradiction_resort() -> tuple[str, list[Turn]]:
+    """Sort by X asc, then now desc. No refetch, both operate on base."""
+    return ("contradiction_resort", [
+        Turn(
+            user_text="get me all supplier data",
+            expect_intent="new_data_request",
+            expect_min_rows=16,
+        ),
+        Turn(
+            user_text="sort by rating ascending",
+            expect_intent="follow_up_on_previous",
+            expect_no_fresh_fetch=True,
+        ),
+        Turn(
+            user_text="now sort descending",
+            expect_intent="follow_up_on_previous",
+            expect_no_fresh_fetch=True,
+        ),
+    ])
+
+
 # Registry of all scenarios
 ALL_SCENARIOS: list[Callable] = [
     scenario_suppliers_multifilter,
@@ -727,6 +831,11 @@ ALL_SCENARIOS: list[Callable] = [
     scenario_long_conversation,
     scenario_semantic_duplicate_base,
     scenario_parallel_topics,
+    scenario_scope_widening_after_derived,
+    scenario_subset_dedup_short_to_long,
+    scenario_subset_dedup_long_to_short,
+    scenario_forgetful_reference,
+    scenario_contradiction_resort,
 ]
 
 

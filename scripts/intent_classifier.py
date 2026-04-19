@@ -304,11 +304,12 @@ async def classify_followup_target(user_text: str, reports: list[dict], op_conte
             print(f"  Followup-target: LLM returned invalid id {result.get('report_id')!r} in {elapsed_ms:.0f}ms -> falling back")
             return _fallback()
         chosen = next(r for r in reports if r["report_id"] == result["report_id"])
+        conf = float(result.get("confidence", 0.0))
         print(
             f"  Followup-target: {result['report_id']} kind={chosen.get('kind')} "
-            f"rows={chosen.get('row_count')} (conf={result['confidence']:.2f}) in {elapsed_ms:.0f}ms"
+            f"rows={chosen.get('row_count')} (conf={conf:.2f}) in {elapsed_ms:.0f}ms"
         )
-        return result
+        return {"report_id": result["report_id"], "confidence": conf, "reason": result.get("reason", "")}
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         print(f"  Followup-target error after {elapsed_ms:.0f}ms: {exc} -> fallback")

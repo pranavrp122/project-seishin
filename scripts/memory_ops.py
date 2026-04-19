@@ -1,6 +1,10 @@
 """Pure-function in-memory ops over list[dict]. No pandas dependency."""
 
 
+class OpSpecError(Exception):
+    """Raised when an op_spec is missing required fields — caller should fall back to refetch."""
+
+
 def execute_op(rows: list[dict], op_spec: dict) -> list[dict]:
     op_type = op_spec.get("op_type", "")
     dispatch = {
@@ -15,8 +19,11 @@ def execute_op(rows: list[dict], op_spec: dict) -> list[dict]:
     }
     fn = dispatch.get(op_type)
     if fn is None:
-        raise ValueError(f"Unknown op_type: {op_type!r}")
-    return fn(rows, op_spec)
+        raise OpSpecError(f"Unknown op_type: {op_type!r}")
+    try:
+        return fn(rows, op_spec)
+    except KeyError as exc:
+        raise OpSpecError(f"op_spec missing required field {exc!s} for op_type={op_type!r}") from exc
 
 
 def aggregate_multi(rows: list[dict], spec: dict) -> dict:

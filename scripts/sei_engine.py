@@ -28,7 +28,7 @@ from session_cache import SessionCache, SessionMemory
 from op_spec import generate_op_spec
 from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
 from text_utils import _normalize_datetime
-from memory_ops import execute_op, aggregate_multi
+from memory_ops import execute_op, aggregate_multi, OpSpecError
 
 # --- Configuration ---
 AUTH_TOKEN = os.environ.get("SEI_AUTH_TOKEN", "")
@@ -1045,7 +1045,7 @@ async def handler(websocket):
                                         missing_cols = []
                                         climb_resolved = True
                                         break
-                                except ValueError:
+                                except (ValueError, OpSpecError):
                                     continue
                         if not climb_resolved:
                             prev_query = target_report.get("query", "")
@@ -1103,8 +1103,8 @@ async def handler(websocket):
                                 if cf_reply:
                                     history.append({"role": "assistant", "content": cf_reply})
                                 continue
-                        except ValueError:
-                            # Missing column — try lineage climb before refetch
+                        except (ValueError, OpSpecError):
+                            # Missing column or incomplete op_spec — try lineage climb before refetch
                             chain = session_memory.lineage(target_report["report_id"])
                             climb_ok = False
                             for ancestor in chain[1:]:
@@ -1137,7 +1137,7 @@ async def handler(websocket):
                                         )
                                         climb_ok = True
                                         break
-                                except ValueError:
+                                except (ValueError, OpSpecError):
                                     continue
                             if climb_ok:
                                 cf_messages = list(history) + [{

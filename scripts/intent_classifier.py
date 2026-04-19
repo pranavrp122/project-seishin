@@ -157,46 +157,60 @@ async def classify_intent(
     return dict(_SAFE_DEFAULT)
 
 
-# --- Follow-up sub-intent: base vs derived target ---
+# --- Follow-up sub-intent: pick which cached report the user means ---
 
 FOLLOWUP_TARGET_SCHEMA = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "enum": ["base", "derived"]},
+        "report_id": {"type": "string"},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
     },
-    "required": ["target", "confidence"],
+    "required": ["report_id", "confidence"],
     "additionalProperties": False,
 }
 
-_FOLLOWUP_TARGET_PROMPT = """You decide whether a follow-up operation applies to the ORIGINAL full report
-or to the SMALLER DERIVED result the user just saw.
+_FOLLOWUP_TARGET_PROMPT = """You pick which cached report a follow-up question refers to.
 
-- base    -> the full original report (default when unclear or when user says "all", "everything", "the full report", "the original")
-- derived -> the smaller most-recent result (only when user uses demonstratives like "these", "those", "them", "the top N", "those entries", "the ones you just showed", clearly referring back to the last derived output)
+Each report has an id, a topic query, a kind (base = original full fetch,
+derived = a smaller result from a prior follow-up), a row count, and an age
+(most-recent is top of the list).
 
-When the user's meaning is ambiguous, choose base.
+Rules:
+- Default to the most recent BASE report whose topic matches the user's
+  wording (e.g. "sort all by rating" after "pull suppliers" -> suppliers base).
+- Pick a DERIVED report only when the user uses demonstratives ("these",
+  "those", "them", "the top N", "the ones you just showed") or clearly refers
+  to the immediately previous smaller result.
+- If the user names a different topic ("show me the suppliers again",
+  "back to the invoices"), pick the base report matching that topic even if
+  it's not the most recent.
+- If ambiguous, pick the most recent base.
 
-Respond only with JSON matching the schema."""
+Respond only with JSON containing the chosen report_id."""
 
 
-async def classify_followup_target(
-    user_text: str,
-    base_query: str,
-    base_row_count: int,
-    derived_query: str,
-    derived_row_count: int,
-) -> dict:
-    """Decide whether a follow-up targets the base or derived report.
+async def classify_followup_target(user_text: str, reports: list[dict]) -> dict:
+    """Pick the cached report_id a follow-up refers to.
 
-    Returns {target: 'base'|'derived', confidence: float}.
-    Defaults to base on any error.
+    reports: list of dicts with keys report_id, query, kind, row_count,
+             age_seconds (smallest = newest). Typically the top 10.
+
+    Returns {report_id, confidence}. On any error returns the most-recent
+    base report (or first report if none are base).
     """
-    context = (
-        f"Full base report: '{base_query}' ({base_row_count} rows)\n"
-        f"Most recent derived result: '{derived_query}' ({derived_row_count} rows)\n"
-        f"User said: {user_text}"
-    )
+    if not reports:
+        return {"report_id": "", "confidence": 0.0}
+
+    # Build a compact listing for the prompt
+    lines = []
+    for r in reports:
+        lines.append(
+            f"- id={r['report_id']} kind={r.get('kind', 'base')} "
+            f"rows={r.get('row_count', 0)} age={r.get('age_seconds', 0):.0f}s "
+            f"topic={r.get('query', '')[:80]!r}"
+        )
+    context = "Cached reports (most recent first):\n" + "\n".join(lines) + f"\n\nUser said: {user_text}"
+
     messages = [
         {"role": "system", "content": _FOLLOWUP_TARGET_PROMPT},
         {"role": "user", "content": context},
@@ -209,6 +223,13 @@ async def classify_followup_target(
         "stream": False,
         "extra_body": {"guided_json": json.dumps(FOLLOWUP_TARGET_SCHEMA)},
     }
+
+    def _fallback() -> dict:
+        for r in reports:
+            if r.get("kind") == "base":
+                return {"report_id": r["report_id"], "confidence": 0.0}
+        return {"report_id": reports[0]["report_id"], "confidence": 0.0}
+
     t0 = time.perf_counter()
     try:
         async with httpx.AsyncClient() as client:
@@ -222,9 +243,18 @@ async def classify_followup_target(
         content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
         result = json.loads(content)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        print(f"  Followup-target: {result['target']} (conf={result['confidence']:.2f}) in {elapsed_ms:.0f}ms")
+        # Validate: returned id must exist in the passed set
+        valid_ids = {r["report_id"] for r in reports}
+        if result.get("report_id") not in valid_ids:
+            print(f"  Followup-target: LLM returned invalid id {result.get('report_id')!r} in {elapsed_ms:.0f}ms -> falling back")
+            return _fallback()
+        chosen = next(r for r in reports if r["report_id"] == result["report_id"])
+        print(
+            f"  Followup-target: {result['report_id']} kind={chosen.get('kind')} "
+            f"rows={chosen.get('row_count')} (conf={result['confidence']:.2f}) in {elapsed_ms:.0f}ms"
+        )
         return result
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        print(f"  Followup-target error after {elapsed_ms:.0f}ms: {exc} -> defaulting to base")
-        return {"target": "base", "confidence": 0.0}
+        print(f"  Followup-target error after {elapsed_ms:.0f}ms: {exc} -> fallback")
+        return _fallback()

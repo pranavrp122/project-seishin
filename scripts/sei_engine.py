@@ -825,16 +825,14 @@ async def handler(websocket):
                         active_report_task = asyncio.create_task(call_report_api(query))
                         continue
 
-                    # Resolve target report via sub-intent classifier.
-                    # Default is the latest base. If a derived report also exists (from a
-                    # prior follow-up's executor output, fallback API, op_chain, or
-                    # compare), call classify_followup_target to decide whether the user
-                    # is referring to the base or the derived ("these 3", "those rows"
-                    # -> derived; anything else -> base).
+                    # Resolve target report.
+                    # Priority: explicit report_id from op_spec > LLM follow-up classifier
+                    # over all cached reports > latest base. The classifier sees every
+                    # cached report (base + derived, with topic, rows, age) and picks by
+                    # topic match + recency + demonstrative reference.
                     all_cached = session_cache.all_reports()
                     bases = session_cache.base_reports()
                     latest_base = session_cache.get_latest_base()
-                    latest_derived = session_cache.get_latest_derived()
 
                     if op_spec_result.get("merge_cached"):
                         target_report = (
@@ -843,27 +841,35 @@ async def handler(websocket):
                             or session_cache.get_latest()
                         )
                     else:
-                        # Explicit report_id from op_spec model wins if present & valid.
                         explicit = session_cache.get(op_spec_result.get("report_id")) if op_spec_result.get("report_id") else None
                         if explicit:
                             target_report = explicit
-                        elif latest_base and latest_derived and latest_derived["timestamp"] > latest_base["timestamp"]:
-                            # Both exist and derived is newer -- ambiguous, ask the classifier.
-                            decision = await classify_followup_target(
-                                user_text,
-                                base_query=latest_base.get("query", ""),
-                                base_row_count=latest_base.get("row_count", 0),
-                                derived_query=latest_derived.get("query", ""),
-                                derived_row_count=latest_derived.get("row_count", 0),
+                        elif len(all_cached) >= 2:
+                            # Two or more cached reports -- let the classifier pick across them all.
+                            now = time.monotonic()
+                            report_list = sorted(
+                                all_cached,
+                                key=lambda r: r.get("timestamp", 0),
+                                reverse=True,
                             )
-                            target_report = latest_derived if decision["target"] == "derived" else latest_base
+                            classifier_input = [
+                                {
+                                    "report_id": r["report_id"],
+                                    "query": r.get("query", ""),
+                                    "kind": r.get("kind", "base"),
+                                    "row_count": r.get("row_count", 0),
+                                    "age_seconds": max(0.0, now - r.get("timestamp", now)),
+                                }
+                                for r in report_list[:10]
+                            ]
+                            decision = await classify_followup_target(user_text, classifier_input)
+                            target_report = session_cache.get(decision.get("report_id", "")) or latest_base
                         else:
                             target_report = (
                                 latest_base
-                                or (max(bases, key=lambda r: r.get("row_count", 0)) if bases else None)
-                                or session_cache.get_latest()
+                                or (all_cached[0] if all_cached else None)
                             )
-                    print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows kind={target_report.get('kind') if target_report else '-'} (bases={len(bases)} total={len(all_cached)})")
+                    print(f"  Follow-up target: {target_report.get('row_count') if target_report else 'None'} rows kind={target_report.get('kind') if target_report else '-'} topic={target_report.get('query', '')[:40] if target_report else '-'!r} (cached={len(all_cached)})")
 
                     if target_report is None:
                         # Cache expired — reconstruct query from history context

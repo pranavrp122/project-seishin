@@ -32,6 +32,7 @@ from op_spec import generate_op_spec
 from cache_executor import CacheExecutor, _fuzzy_match_column, merge_compatible_reports
 from text_utils import _normalize_datetime
 from memory_ops import execute_op, aggregate_multi, OpSpecError
+from fastpath_patterns import is_fastpath_chat
 
 
 # --- Log redaction (D-20-08.5) ---
@@ -834,9 +835,9 @@ async def handler(websocket):
 
                 # --- Overlap confirmation handling ---
                 skip_classification = False
-                speculative_op_task = None
                 speculative_chat_task = None
                 speculative_cancel = asyncio.Event()
+                opening_phrase = ""
 
                 if pending_overlap_query is not None:
                     overlap_intent = await classify_intent(user_text, history, bool(session_cache.all_reports()))
@@ -847,18 +848,6 @@ async def handler(websocket):
                         intent = "follow_up_on_previous"
                         confidence = 0.95
                         data_query = None
-                        # Speculatively use the latest BASE report's schema. If target
-                        # resolution later picks a different report, op_spec will be
-                        # re-fired with the right schema in the follow-up branch.
-                        speculative_op_task = asyncio.create_task(
-                            generate_op_spec(
-                                user_text,
-                                session_memory.summary_for_context(),
-                                merge_compatible_reports(session_cache.base_reports())
-                                or session_cache.get_latest_base()
-                                or session_cache.get_latest(),
-                            )
-                        )
                         skip_classification = True
                     else:
                         saved_query = pending_overlap_query
@@ -872,48 +861,56 @@ async def handler(websocket):
                 print(f"  User: {_redact_log(user_text)}")
 
                 if not skip_classification:
-                    # --- Intent classification ---
-                    # Speculative op_spec for follow-up latency optimization
-                    # Report in cache OR one currently running = follow_up_on_previous is valid
+                    # --- D-20-01: Fast-path for small-talk — skip classification entirely ---
                     has_reports = bool(session_cache.all_reports()) or (
                         active_report_task is not None and not active_report_task.done()
                     )
-                    if has_reports:
-                        # Speculatively use the latest BASE report's schema. If target
-                        # resolution later picks a different report, op_spec will be
-                        # re-fired with the right schema in the follow-up branch.
-                        speculative_op_task = asyncio.create_task(
-                            generate_op_spec(
-                                user_text,
-                                session_memory.summary_for_context(),
-                                merge_compatible_reports(session_cache.base_reports())
-                                or session_cache.get_latest_base()
-                                or session_cache.get_latest(),
-                            )
-                        )
+                    if (
+                        pending_overlap_query is None
+                        and not (history and history[-1].get("role") == "assistant"
+                                 and history[-1].get("content", "").rstrip().endswith("?"))
+                        and is_fastpath_chat(user_text)
+                    ):
+                        intent = "normal_chat"
+                        confidence = 1.0
+                        data_query = None
+                        opening_phrase = ""
+                        skip_classification = True
+                        print(f"[fastpath] Matched: {_redact_log(user_text)}")
 
-                    # Speculative chat buffer: when no reports exist, normal_chat is
-                    # most likely — start buffering the LLM response in parallel with
-                    # intent classification. Nothing is sent to the UI or TTS until
-                    # intent is confirmed. If intent != normal_chat, we cancel and discard.
+                if not skip_classification:
+                    # --- Intent classification (D-20-03: always speculate chat, never op_spec) ---
                     speculative_cancel = asyncio.Event()
-                    speculative_chat_task = None
-                    if not has_reports:
-                        speculative_chat_task = asyncio.create_task(
-                            _buffer_llm_tokens(history, speculative_cancel)
-                        )
+                    speculative_chat_task = asyncio.create_task(
+                        _buffer_llm_tokens(history, speculative_cancel)
+                    )
 
                     intent_result = await classify_intent(user_text, history, has_reports)
                     intent = intent_result["intent"]
                     confidence = intent_result["confidence"]
                     data_query = intent_result["data_query"]
+                    opening_phrase = intent_result.get("opening_phrase", "")
                     last_intent_result = intent_result  # D-05: store for op_chain after delivery
 
                     # Cancel speculative chat buffer if intent won't use it.
                     # confirm/cancel fall through to normal_chat so they keep it.
                     if speculative_chat_task is not None and intent not in ("normal_chat", "confirm", "cancel"):
+                        speculative_cancel.set()
                         speculative_chat_task.cancel()
                         speculative_chat_task = None
+                else:
+                    # Fast-path or overlap-confirm: still fire speculative chat for the reply
+                    if speculative_chat_task is None:
+                        speculative_cancel = asyncio.Event()
+                        speculative_chat_task = asyncio.create_task(
+                            _buffer_llm_tokens(history, speculative_cancel)
+                        )
+
+                # D-20-02: Flush opening_phrase to TTS immediately if non-empty and not normal_chat
+                if opening_phrase and intent not in ("normal_chat", "confirm", "cancel"):
+                    await websocket.send(json.dumps({"type": "sentence", "text": opening_phrase}))
+                    _op_ce = asyncio.Event()
+                    await tts_full_response(websocket, opening_phrase, tts_client, _op_ce)
 
                 # Debug: show classified intent in chat (TEXT_MODE)
                 if TEXT_MODE:
@@ -923,8 +920,6 @@ async def handler(websocket):
                     }))
 
                 if intent == "new_data_request" and confidence >= 0.6:
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
                     # Fire report immediately — no confirmation gate
                     query = data_query or user_text
 
@@ -988,24 +983,12 @@ async def handler(websocket):
 
                     active_report_query = query
                     active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
-                    # LLM-generated ack in Miyako's voice
-                    ack_messages = list(history) + [{
-                        "role": "user",
-                        "content": (
-                            "[INTERNAL: You just kicked off a data pull for the user. "
-                            "Give a short, natural one-sentence acknowledgment that you're on it. "
-                            "Vary your phrasing — don't repeat yourself across turns.]"
-                        ),
-                    }]
-                    cancel_event = asyncio.Event()
-                    ack_reply = await handle_llm_response(websocket, ack_messages, tts_client, cancel_event)
-                    if ack_reply:
-                        history.append({"role": "assistant", "content": ack_reply})
+                    # D-20-02: opening_phrase already flushed to TTS above (replaces old ack LLM call)
+                    if opening_phrase:
+                        history.append({"role": "assistant", "content": opening_phrase})
                     continue
 
                 elif intent == "new_data_request" and confidence < 0.6:
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
                     # Ambiguous — ask a clarifying question (per INTENT-06)
                     clarify_messages = list(history) + [{
                         "role": "user",
@@ -1023,12 +1006,14 @@ async def handler(websocket):
 
                 elif intent == "follow_up_on_previous" and session_cache.all_reports():
                     # FOLLOW-02: LLM interprets follow-up via guided_json op spec
-                    if speculative_op_task is not None:
-                        op_spec_result = await speculative_op_task
-                    else:
-                        op_spec_result = await generate_op_spec(
-                            user_text, session_memory.summary_for_context(), session_cache.get_latest()
-                        )
+                    # D-20-03: op_spec fires sequentially after classification (never speculative)
+                    op_spec_result = await generate_op_spec(
+                        user_text,
+                        session_memory.summary_for_context(),
+                        merge_compatible_reports(session_cache.base_reports())
+                        or session_cache.get_latest_base()
+                        or session_cache.get_latest(),
+                    )
 
                     # LLM parse error — voice a natural hint before re-firing
                     if op_spec_result.get("op_type") == "_error":
@@ -1364,8 +1349,6 @@ async def handler(websocket):
                     continue
 
                 elif intent == "follow_up_on_previous" and not session_cache.all_reports():
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
                     # No cached data — infer a new data request from conversation context.
                     # Find the most recent user data request in history to use as base query.
                     prev_data_query = None
@@ -1382,8 +1365,6 @@ async def handler(websocket):
                     continue
 
                 elif intent == "list_cached_data":
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
                     reports = session_cache.all_reports()
                     if not reports:
                         empty_messages = list(history) + [{
@@ -1422,8 +1403,6 @@ async def handler(websocket):
                     continue
 
                 elif intent == "undo":
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
                     if not undo_stack:
                         # Nothing to undo
                         no_undo_messages = list(history) + [{
@@ -1487,8 +1466,6 @@ async def handler(websocket):
                     continue
 
                 elif intent == "what_can_i_ask":
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
                     # Try report API /topics endpoint
                     topics_text = None
                     try:
@@ -1534,8 +1511,6 @@ async def handler(websocket):
                     continue
 
                 elif intent == "compare_reports":
-                    if speculative_op_task is not None:
-                        speculative_op_task.cancel()
                     query = data_query or user_text
                     # Split on "and", "with", "versus", "vs"
                     parts = re.split(r'\b(?:and|with|versus|vs\.?)\b', query, maxsplit=1, flags=re.IGNORECASE)
@@ -1568,16 +1543,9 @@ async def handler(websocket):
                             # Topics are too similar -- treat as single new_data_request
                             active_report_query = query
                             active_report_task = turn_scope.track(asyncio.create_task(call_report_api(query)))
-                            ack_messages = list(history) + [{
-                                "role": "user",
-                                "content": (
-                                    "[INTERNAL: Pulling that data now. Brief ack. One sentence.]"
-                                ),
-                            }]
-                            _ce = asyncio.Event()
-                            ack_reply = await handle_llm_response(websocket, ack_messages, tts_client, _ce)
-                            if ack_reply:
-                                history.append({"role": "assistant", "content": ack_reply})
+                            # D-20-02: opening_phrase already flushed to TTS above
+                            if opening_phrase:
+                                history.append({"role": "assistant", "content": opening_phrase})
                             continue
 
                     # Voice progress
@@ -1708,8 +1676,6 @@ async def handler(websocket):
 
                 # confirm and cancel intents fall through to normal_chat
                 # normal_chat falls through to the existing generation phase below
-                if speculative_op_task is not None:
-                    speculative_op_task.cancel()
 
                 # --- Phase B: Concurrent generation + stop listener ---
                 cancel_event = asyncio.Event()

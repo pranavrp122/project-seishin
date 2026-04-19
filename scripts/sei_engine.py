@@ -121,17 +121,21 @@ async def deliver_report_result(websocket, report_task: asyncio.Task, history: l
     }))
 
     # Cache report data for follow-up operations.
-    # cache_kind="base": fresh new_data_request — eligible as follow-up target.
-    # cache_kind="derived": fallback API call from within a follow-up path —
-    # kept addressable by id but excluded from base-report target resolution.
-    if session_cache is not None and res.get("results"):
+    # Only base reports (fresh new_data_request fetches) are cached. Derived
+    # reports (fallback API calls fired from within a follow-up path, op_chain
+    # outputs, compare outputs) are delivered to the UI but never stored --
+    # they would otherwise pollute the op_spec LLM's cache summary and cause
+    # it to target the smaller derived report instead of the original base.
+    if cache_kind == "base" and session_cache is not None and res.get("results"):
         report_id = session_cache.store(
             res,
             query=query,
             sql=res.get("sql") or res.get("sql_text") or "",
-            kind=cache_kind,
+            kind="base",
         )
-        print(f"  Cached report {report_id} kind={cache_kind} ({len(res.get('results', []))} rows)")
+        print(f"  Cached report {report_id} kind=base ({len(res.get('results', []))} rows)")
+    elif cache_kind != "base":
+        print(f"  Skipped cache (kind={cache_kind}) — {res.get('row_count', 0)} rows delivered to UI only")
 
     if raw_summary:
         # LLM only sees the summary — full report already sent to UI via report_log frame.
@@ -515,7 +519,7 @@ async def _apply_op_chain(websocket, intent_result: dict, session_cache, report_
         chain_op.setdefault("explanation", "auto-chained operation")
         try:
             chain_result = executor_instance.execute(chain_op, target)
-            session_cache.store({"results": chain_result["rows"]}, query=report_query, sql=target["sql"], kind="derived")
+            # Don't cache chain outputs — they'd pollute follow-up target resolution.
             await websocket.send(json.dumps({
                 "type": "report_log",
                 "query": report_query,
@@ -1313,8 +1317,8 @@ async def handler(websocket):
                         "dashboard_b64": "",
                     }))
 
-                    # Cache comparison result as derived (not eligible as base-report target)
-                    session_cache.store({"results": result["rows"]}, query=user_text, sql="", kind="derived")
+                    # Don't cache comparison result — the two topic bases (stored above)
+                    # are the legitimate follow-up targets; the merged output would pollute.
 
                     # Voice results
                     preview_rows = result["rows"][:5]

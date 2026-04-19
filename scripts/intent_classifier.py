@@ -7,12 +7,22 @@ Exports:
 
 import json
 import os
+import re
 import time
 
 import httpx
 
 from intent_prompt import INTENT_SYSTEM_PROMPT
 from text_utils import _strip_json_fences
+
+# D-12 guardrail: deterministic verb/pattern set for re-routing low-confidence
+# normal_chat to follow_up_on_previous when active report exists.
+_FOLLOWUP_VERB_PATTERNS = re.compile(
+    r"\b(which|show me|top|lowest|highest|fastest|shortest|longest|"
+    r"rating|lead time|sort|filter|best|worst|how many|average|total|"
+    r"the ones|those with|what about)\b",
+    re.IGNORECASE,
+)
 
 # --- Configuration (same env vars as sei_engine.py, self-contained) ---
 LLM_URL = os.environ.get("SEI_LLM_URL", "http://127.0.0.1:8000")
@@ -65,6 +75,24 @@ INTENT_SCHEMA = {
 }
 
 _SAFE_DEFAULT = {"intent": "normal_chat", "data_query": None, "confidence": 0.0, "op_chain": None}
+
+
+def _apply_guardrails(result: dict, user_text: str, has_active_report: bool) -> dict:
+    """D-12 guardrail: re-route low-confidence normal_chat to follow_up when
+    active report exists and utterance contains data-reference verbs."""
+    if (
+        result["intent"] == "normal_chat"
+        and result["confidence"] < 0.8
+        and has_active_report
+        and _FOLLOWUP_VERB_PATTERNS.search(user_text)
+    ):
+        print(
+            f"  [intent.guardrail] D-12 re-route: normal_chat conf={result['confidence']:.2f} "
+            f"-> follow_up_on_previous for '{user_text[:50]}'"
+        )
+        result["intent"] = "follow_up_on_previous"
+        result["confidence"] = max(result["confidence"], 0.6)
+    return result
 
 
 async def classify_intent(
@@ -137,6 +165,7 @@ async def classify_intent(
             content = _strip_json_fences(resp.json()["choices"][0]["message"]["content"])
             result = json.loads(content)
 
+            result = _apply_guardrails(result, user_text, has_active_report)
             print(f"  Intent latency: {elapsed_ms:.0f}ms")
             print(
                 f"  Intent: {result['intent']} (conf={result['confidence']:.2f})"

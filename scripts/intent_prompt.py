@@ -116,4 +116,18 @@ Examples: "Hey how are you?" / "I saw a weather report today" / "Let me report b
   For normal_chat: a brief complete conversational reply (not an opener).
   For confirm/cancel: empty string "".
 - op_chain: array of operations to apply after data delivery, or null if none.
+- file_query: Required ONLY when intent=find_file. Null otherwise. Extract:
+    - keywords: nouns/descriptors naming the file, space-separated. Drop articles and possessives ("my", "the", "a").
+        "find my resume" → keywords="resume"
+        "find the Johnson contract" → keywords="Johnson contract"
+        "where is my tax return from last year" → keywords="tax return"
+        "find files with 'budget' in the name" → keywords="budget"
+    - file_type: extension without dot if user specified one, else null.
+        "find PDFs from this month" → file_type="pdf"
+        "find spreadsheets" → file_type="xlsx"
+        "find my resume" → file_type=null (unspecified)
+    - modified_after / modified_before: ISO date YYYY-MM-DD if user gave a date range, else null.
+        "find PDFs from this month" → modified_after=first day of current month
+        "find files from the last 3 days" → modified_after=3 days ago
+        "find my resume" → both null
 """

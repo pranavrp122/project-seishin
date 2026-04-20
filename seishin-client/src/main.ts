@@ -18,14 +18,10 @@ async function onConnected(): Promise<void> {
   initOrchestrator();
   if (mainContainer) renderLayout(mainContainer);
 
-  // Start OpenClaw in background — don't block the UI
+  // Start OpenClaw in background — foundation for future phases (email, calendar, etc.)
+  // File search (Phase 1.3) uses direct WSL shell, so does not require OpenClaw.
   startOpenClaw().then(healthy => {
-    if (healthy) {
-      console.log('[main] OpenClaw ready');
-    } else {
-      console.warn('[main] OpenClaw failed to start — file search will be unavailable');
-      addMessage({ role: 'companion', text: 'Note: Local automation engine failed to start. File search may be unavailable.', audioState: 'complete' });
-    }
+    console.log(healthy ? '[main] OpenClaw ready' : '[main] OpenClaw unavailable (not required for file search)');
   });
 }
 

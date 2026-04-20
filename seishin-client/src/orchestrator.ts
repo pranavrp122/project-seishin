@@ -68,10 +68,13 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
     }
     case 'find_file_command': {
       const query = (msg as SeiFindFileCommandMessage).query;
+      console.log('[file search] received find_file_command, query:', JSON.stringify(query));
       try {
         const results = await searchFiles(query);
+        console.log('[file search] got results count:', results.length);
         updateState({ fileResults: results });
         await sendRaw(JSON.stringify({ type: 'file_results', results }));
+        console.log('[file search] sent file_results back');
       } catch (err) {
         console.error('[file search] error:', err);
         updateState({ fileResults: [] });

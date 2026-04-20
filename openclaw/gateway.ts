@@ -117,30 +117,28 @@ export async function searchFiles(query: {
     };
   });
 
-  // Score: full-phrase match > (keywords matched count) > recency
+  // Score: phrase match > matched keyword count > recency
   const phrase = keywordList.join(' ').toLowerCase();
   const scored = results.map(r => {
-    const lname = r.name.toLowerCase();
-    const baseName = lname.replace(/\.[^.]+$/, '');  // strip extension for matching
-    let score = 0;
+    const baseName = r.name.toLowerCase().replace(/\.[^.]+$/, '');
+    const matched = keywordList.filter(k => baseName.includes(k.toLowerCase())).length;
+    let score = matched * 10;
     if (phrase && baseName.includes(phrase)) score += 100;
-    for (const k of keywordList) {
-      if (baseName.includes(k.toLowerCase())) score += 10;
-    }
-    // Penalize tiny noise files (< 1KB) slightly
+    if (keywordList.length > 0 && matched === keywordList.length) score += 30;  // all-keywords bonus
     if (r.size_bytes < 1024) score -= 1;
-    return { r, score };
+    return { r, score, matched };
   });
 
   scored.sort((a, b) => (b.score - a.score) || (b.r._epoch - a.r._epoch));
 
-  // If the top result clearly dominates, show only it.
-  // "Clear winner" = top scored at least 2x the runner-up AND has a phrase match (score >= 100).
+  // Clear winner = top matches strictly more keywords than runner-up,
+  // OR top has a full phrase match and is 2x the runner-up's score.
   const top = scored[0];
   const runnerUp = scored[1];
   const clearWinner =
-    top && top.score >= 100 &&
-    (!runnerUp || top.score >= 2 * Math.max(runnerUp.score, 1));
+    top && (!runnerUp ||
+      top.matched > runnerUp.matched ||
+      (top.score >= 100 && top.score >= 2 * Math.max(runnerUp.score, 1)));
 
   const cutoff = clearWinner ? 1 : 5;
   return scored.slice(0, cutoff).map(({ r }) => {

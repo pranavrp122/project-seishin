@@ -28,15 +28,10 @@ export interface SeiReportLogMessage {
   claude_interactions?: ClaudeInteraction[];
   dashboard_b64?: string;
 }
-export interface SeiFindFileCommandMessage {
-  type: 'find_file_command';
-  query: {
-    keywords: string | null;
-    file_type: string | null;
-    modified_after: string | null;
-    modified_before: string | null;
-    exhaustive?: boolean;
-  };
+export interface SeiLocalOpCommandMessage {
+  type: 'local_op_command';
+  user_text: string;
+  exhaustive?: boolean;
 }
 export type SeiMessage =
   | SeiSentenceMessage
@@ -45,7 +40,7 @@ export type SeiMessage =
   | SeiErrorMessage
   | SeiTranscriptMessage
   | SeiReportLogMessage
-  | SeiFindFileCommandMessage;
+  | SeiLocalOpCommandMessage;
 
 // Outgoing message types
 export interface SeiOutMessage { type: 'message'; text: string; }

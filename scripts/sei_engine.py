@@ -881,7 +881,6 @@ async def handler(websocket):
             asr_result = {"text": "", "len": 0}
             undo_stack: list[dict] = []  # D-03: last 5 ops
             last_intent_result: dict | None = None  # D-05: stored for op_chain after delivery
-            file_results_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
             turn_scope = None  # D-19: per-turn cancellation scope (WR-01: init before loop)
             _last_tracked_task = None  # Track task identity to reset progress flag on new task
             _progress_sent = False     # Only send one "still working" per report task
@@ -982,14 +981,6 @@ async def handler(websocket):
                                 continue
                         else:
                             continue
-
-                # Route file_results from Tauri client back to the waiting find_file handler
-                if msg.get("type") == "file_results":
-                    try:
-                        file_results_queue.put_nowait(msg)
-                    except asyncio.QueueFull:
-                        pass
-                    continue
 
                 # D-20-08.3: Per-connection message rate limit
                 if not msg_limiter.allow():
@@ -1930,62 +1921,42 @@ async def handler(websocket):
                     await websocket.send(json.dumps({"type": "done"}))
                     continue
 
-                elif intent == "find_file":
-                    file_query = intent_result.get("file_query") or {}
-                    keywords = file_query.get("keywords")
-
-                    # Detect "exhaustive" intent — user wants all matches, not just top ones.
-                    # Triggered by words like "all", "every", "list", "every single", "each".
+                elif intent == "local_op":
+                    # Forward raw user text to the Tauri client; it calls OpenClaw's
+                    # agent (POST /v1/responses) which routes to the right skill/tool.
+                    # OpenClaw's LLM decides which tool to invoke — we do not classify.
                     lower_text = user_text.lower()
                     exhaustive = any(tok in lower_text.split() for tok in
                                      ["all", "every", "each"]) or "list all" in lower_text
 
-                    # Fallback: if LLM didn't extract keywords, derive from user text
-                    if not keywords:
-                        stop_words = {
-                            "find", "search", "look", "for", "the", "a", "an", "my", "me",
-                            "files", "file", "i", "need", "want", "where", "is", "are",
-                            "on", "in", "of", "please", "can", "you", "get",
-                            "all", "every", "each", "list", "with", "name", "named",
-                        }
-                        words = [w for w in lower_text.split() if w.strip('.,!?') not in stop_words]
-                        keywords = " ".join(words).strip() or None
-
-                    # Send command to Tauri client — client runs OpenClaw locally
                     await websocket.send(json.dumps({
-                        "type": "find_file_command",
-                        "query": {
-                            "keywords": keywords,
-                            "file_type": file_query.get("file_type"),
-                            "modified_after": file_query.get("modified_after"),
-                            "modified_before": file_query.get("modified_before"),
-                            "exhaustive": exhaustive,
-                        }
+                        "type": "local_op_command",
+                        "user_text": user_text,
+                        "exhaustive": exhaustive,
                     }))
 
-                    # Receive file_results directly — queue approach deadlocks because
-                    # the outer recv() loop is suspended while waiting for the queue.
+                    # Await the client's response. OpenClaw's agent drives everything
+                    # on the Tauri side; we just wait for the final result envelope.
                     try:
-                        raw_result = await asyncio.wait_for(websocket.recv(), timeout=30.0)
+                        raw_result = await asyncio.wait_for(websocket.recv(), timeout=60.0)
                         result_msg = json.loads(raw_result) if isinstance(raw_result, str) else {}
-                        if result_msg.get("type") == "file_results":
+                        if result_msg.get("type") == "local_op_results":
                             results = result_msg.get("results", [])
                         else:
-                            pending_msg = result_msg  # unexpected message, re-process next turn
+                            pending_msg = result_msg
                             results = None
                     except (asyncio.TimeoutError, Exception):
                         results = None
 
                     if results is None:
-                        spoken = "(serious) The file search timed out. Make sure the automation engine is running."
+                        spoken = "(serious) That operation timed out. Make sure the automation engine is running."
                         await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
                         await websocket.send(json.dumps({"type": "done"}))
                         continue
 
                     count = len(results)
                     if count == 0:
-                        kw = file_query.get("keywords") or "that"
-                        spoken = f"(neutral) I didn't find any files matching '{kw}'. Try a different keyword."
+                        spoken = f"(neutral) I didn't find anything matching that. Try different keywords."
                     elif count == 1:
                         r = results[0]
                         spoken = f"(happy) Found one file: {r['name']}, in {r['dir']}, modified {r.get('modified_label', 'recently')}."

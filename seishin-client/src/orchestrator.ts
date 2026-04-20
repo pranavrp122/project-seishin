@@ -1,9 +1,9 @@
 import { connectionManager } from './net/connection.ts';
 import { updateState, addMessage, appState } from './state.ts';
 import { markResponseComplete, markResponseInterrupted } from './ui/chat.ts';
-import { SeiMessage, SeiFindFileCommandMessage, FileResult, ReportLogEntry } from './types.ts';
+import { SeiMessage, SeiLocalOpCommandMessage, ReportLogEntry } from './types.ts';
 import { addReportLogEntry } from './ui/report-log.ts';
-import { searchFiles } from '@openclaw/gateway.ts';
+import { searchFilesForUserText } from '@openclaw/gateway.ts';
 import { sendRaw } from './net/websocket.ts';
 
 let messageSentAt = 0;
@@ -66,19 +66,18 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
       addReportLogEntry(entry);
       break;
     }
-    case 'find_file_command': {
-      const query = (msg as SeiFindFileCommandMessage).query;
-      console.log('[file search] received find_file_command, query:', JSON.stringify(query));
+    case 'local_op_command': {
+      const cmd = msg as SeiLocalOpCommandMessage;
+      console.log('[local_op] user_text:', cmd.user_text, 'exhaustive:', !!cmd.exhaustive);
       try {
-        const results = await searchFiles(query);
-        console.log('[file search] got results count:', results.length);
+        const results = await searchFilesForUserText(cmd.user_text, { exhaustive: !!cmd.exhaustive });
+        console.log('[local_op] result count:', results.length);
         updateState({ fileResults: results });
-        await sendRaw(JSON.stringify({ type: 'file_results', results }));
-        console.log('[file search] sent file_results back');
+        await sendRaw(JSON.stringify({ type: 'local_op_results', results }));
       } catch (err) {
-        console.error('[file search] error:', err);
+        console.error('[local_op] error:', err);
         updateState({ fileResults: [] });
-        await sendRaw(JSON.stringify({ type: 'file_results', results: [] }));
+        await sendRaw(JSON.stringify({ type: 'local_op_results', results: [] }));
       }
       break;
     }

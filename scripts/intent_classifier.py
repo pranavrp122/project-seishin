@@ -46,7 +46,7 @@ INTENT_SCHEMA = {
                 "undo",
                 "what_can_i_ask",
                 "compare_reports",
-                "find_file",
+                "local_op",
             ],
         },
         "data_query": {"type": ["string", "null"]},
@@ -74,23 +74,12 @@ INTENT_SCHEMA = {
                 "additionalProperties": False,
             },
         },
-        "file_query": {
-            "type": ["object", "null"],
-            "description": "Populated only for find_file intent. Null for all others.",
-            "properties": {
-                "keywords": {"type": ["string", "null"], "description": "Filename search terms, space-separated"},
-                "file_type": {"type": ["string", "null"], "description": "Extension without dot, e.g. pdf, docx"},
-                "modified_after": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD"},
-                "modified_before": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD"},
-            },
-            "additionalProperties": False,
-        },
     },
     "required": ["intent", "data_query", "confidence", "opening_phrase"],
     "additionalProperties": False,
 }
 
-_SAFE_DEFAULT = {"intent": "normal_chat", "data_query": None, "confidence": 0.0, "op_chain": None, "opening_phrase": "", "file_query": None}
+_SAFE_DEFAULT = {"intent": "normal_chat", "data_query": None, "confidence": 0.0, "op_chain": None, "opening_phrase": ""}
 
 
 def _apply_guardrails(result: dict, user_text: str, has_active_report: bool) -> dict:

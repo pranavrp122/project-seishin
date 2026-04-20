@@ -6,10 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR/.."
 VENV="$PROJECT_ROOT/.sei_venv"
 
-# Load .env from project root
+# Load .env — strip Windows CRLF line endings before sourcing
 if [ -f "$PROJECT_ROOT/.env" ]; then
   set -a
-  source "$PROJECT_ROOT/.env"
+  source <(sed 's/\r//' "$PROJECT_ROOT/.env")
   set +a
 fi
 

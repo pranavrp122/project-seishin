@@ -3,6 +3,7 @@ import { ChatMessage } from '../types.ts';
 import { renderFileCards } from './file-cards.ts';
 
 let chatContainer: HTMLDivElement | null = null;
+let scrollWrap: HTMLDivElement | null = null;
 let interimEl: HTMLDivElement | null = null;
 
 // Regex to strip emotion/physical/pause tags like [happy], [long-break], etc. from display text.
@@ -26,15 +27,20 @@ function clearChildren(el: HTMLElement): void {
  * Sets up state change listener for reactive updates.
  */
 export function renderChat(parent: HTMLElement): void {
+  // Scroll wrapper: chat messages + file cards scroll together as one surface
+  scrollWrap = document.createElement('div');
+  scrollWrap.className = 'chat-scroll';
+  parent.appendChild(scrollWrap);
+
   chatContainer = document.createElement('div');
   chatContainer.id = 'chat-container';
   chatContainer.className = 'chat-container';
-  parent.appendChild(chatContainer);
+  scrollWrap.appendChild(chatContainer);
 
-  // File search result cards (rendered below chat, above interim transcript)
+  // File search result cards (rendered inline with chat, scrolls with messages)
   const fileCardsArea = document.createElement('div');
   fileCardsArea.id = 'file-cards-area';
-  parent.appendChild(fileCardsArea);
+  scrollWrap.appendChild(fileCardsArea);
   renderFileCards(fileCardsArea);
 
   // Interim transcript indicator (bottom of chat area)
@@ -69,8 +75,8 @@ function renderMessages(state: typeof appState): void {
     chatContainer.appendChild(bubble);
   }
 
-  // Auto-scroll to bottom
-  chatContainer.scrollTop = chatContainer.scrollHeight;
+  // Auto-scroll the wrapper (contains both messages and file cards)
+  if (scrollWrap) scrollWrap.scrollTop = scrollWrap.scrollHeight;
 
   // Update interim transcript per D-09
   if (state.interimTranscript) {

@@ -1932,12 +1932,23 @@ async def handler(websocket):
 
                 elif intent == "find_file":
                     file_query = intent_result.get("file_query") or {}
+                    keywords = file_query.get("keywords")
+
+                    # Fallback: if LLM didn't extract keywords, derive from user text
+                    if not keywords:
+                        stop_words = {
+                            "find", "search", "look", "for", "the", "a", "an", "my", "me",
+                            "files", "file", "i", "need", "want", "where", "is", "are",
+                            "on", "in", "of", "please", "can", "you", "get"
+                        }
+                        words = [w for w in user_text.lower().split() if w.strip('.,!?') not in stop_words]
+                        keywords = " ".join(words).strip() or None
 
                     # Send command to Tauri client — client runs OpenClaw locally
                     await websocket.send(json.dumps({
                         "type": "find_file_command",
                         "query": {
-                            "keywords": file_query.get("keywords"),
+                            "keywords": keywords,
                             "file_type": file_query.get("file_type"),
                             "modified_after": file_query.get("modified_after"),
                             "modified_before": file_query.get("modified_before"),

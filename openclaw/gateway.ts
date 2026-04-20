@@ -134,7 +134,16 @@ export async function searchFiles(query: {
 
   scored.sort((a, b) => (b.score - a.score) || (b.r._epoch - a.r._epoch));
 
-  return scored.slice(0, 5).map(({ r }) => {
+  // If the top result clearly dominates, show only it.
+  // "Clear winner" = top scored at least 2x the runner-up AND has a phrase match (score >= 100).
+  const top = scored[0];
+  const runnerUp = scored[1];
+  const clearWinner =
+    top && top.score >= 100 &&
+    (!runnerUp || top.score >= 2 * Math.max(runnerUp.score, 1));
+
+  const cutoff = clearWinner ? 1 : 5;
+  return scored.slice(0, cutoff).map(({ r }) => {
     const { _epoch, ...rest } = r;
     return rest;
   });

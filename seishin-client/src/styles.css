@@ -763,3 +763,115 @@ html, body {
   overflow-y: auto;
   margin: 0;
 }
+
+/* File search result cards */
+.file-cards-container {
+  padding: 0 16px 12px 16px;
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.file-cards-header {
+  font-size: 12px;
+  color: #8888a0;
+  margin-bottom: 8px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.file-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #1a1a24;
+  border: 1px solid #2a2a3a;
+  border-radius: 8px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.file-card:hover {
+  border-color: #3a3a55;
+  background: #1e1e2a;
+}
+
+.file-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-card-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.file-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-card-name {
+  color: #e0e0e6;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-card-meta {
+  font-size: 12px;
+  color: #8888a0;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-card-sep {
+  color: #44445a;
+}
+
+.file-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.file-card-btn {
+  padding: 6px 12px;
+  border: 1px solid #2a2a3a;
+  border-radius: 6px;
+  background: #1a1a24;
+  color: #c0c0cc;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.file-card-btn:hover {
+  background: #24243a;
+  border-color: #3a3a55;
+}
+
+.file-card-btn-primary {
+  background: #4a9eff;
+  border-color: #4a9eff;
+  color: #fff;
+}
+
+.file-card-btn-primary:hover {
+  background: #3a8eef;
+  border-color: #3a8eef;
+}

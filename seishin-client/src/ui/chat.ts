@@ -1,5 +1,6 @@
 import { onStateChange, appState, updateState } from '../state.ts';
 import { ChatMessage } from '../types.ts';
+import { renderFileCards } from './file-cards.ts';
 
 let chatContainer: HTMLDivElement | null = null;
 let interimEl: HTMLDivElement | null = null;
@@ -29,6 +30,12 @@ export function renderChat(parent: HTMLElement): void {
   chatContainer.id = 'chat-container';
   chatContainer.className = 'chat-container';
   parent.appendChild(chatContainer);
+
+  // File search result cards (rendered below chat, above interim transcript)
+  const fileCardsArea = document.createElement('div');
+  fileCardsArea.id = 'file-cards-area';
+  parent.appendChild(fileCardsArea);
+  renderFileCards(fileCardsArea);
 
   // Interim transcript indicator (bottom of chat area)
   interimEl = document.createElement('div');

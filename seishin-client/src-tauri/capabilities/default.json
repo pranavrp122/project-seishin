@@ -6,6 +6,8 @@
     "core:default",
     "websocket:default",
     "opener:default",
+    "opener:allow-open-path",
+    "opener:allow-reveal-item-in-dir",
     "http:default",
     "shell:allow-spawn",
     "shell:allow-execute",

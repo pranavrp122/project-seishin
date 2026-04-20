@@ -115,7 +115,7 @@ export function renderLayout(parent: HTMLElement): void {
     resetLatency();
     addMessage({ role: 'user', text });
     setMessageSentTimestamp(performance.now());
-    updateState({ isGenerating: true });
+    updateState({ isGenerating: true, fileResults: [] });
     await sendMessage(text);
   };
 

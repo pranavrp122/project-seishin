@@ -41,6 +41,11 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       '@openclaw': resolve(__dirname, '../openclaw'),
+      // openclaw/ is outside seishin-client/ — resolve its Tauri imports from here
+      '@tauri-apps/plugin-shell': resolve(__dirname, 'node_modules/@tauri-apps/plugin-shell'),
+      '@tauri-apps/plugin-opener': resolve(__dirname, 'node_modules/@tauri-apps/plugin-opener'),
+      '@tauri-apps/plugin-fs': resolve(__dirname, 'node_modules/@tauri-apps/plugin-fs'),
+      '@tauri-apps/api': resolve(__dirname, 'node_modules/@tauri-apps/api'),
     },
   },
   envPrefix: ['VITE_', 'SEI_'],

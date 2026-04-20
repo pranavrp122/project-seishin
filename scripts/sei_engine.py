@@ -106,6 +106,7 @@ TTS_MAX_NEW_TOKENS = int(os.environ.get("TTS_MAX_NEW_TOKENS", "1024"))
 WAV_HEADER_SIZE = 44  # Fallback if data chunk parsing fails
 
 ASR_URL = os.environ.get("SEI_ASR_URL", "http://127.0.0.1:9876")
+OPENCLAW_URL = os.environ.get("OPENCLAW_URL", "http://127.0.0.1:18789")
 
 REPORT_API_URL = os.environ.get("REPORT_API_URL", "http://127.0.0.1:9000")
 REPORT_API_KEY = os.environ.get("REPORT_API_KEY", "")
@@ -122,6 +123,22 @@ if os.environ.get("SEI_DEV_MODE") == "1" and BIND_ADDR != "127.0.0.1":
 
 # Text mode: skip TTS entirely, responses show as text only
 TEXT_MODE = os.environ.get("SEI_TEXT_MODE", "0") == "1"
+
+_FILE_SEARCH_SYSTEM_PROMPT = """\
+You are a file search tool running on Windows. Use PowerShell commands (Get-ChildItem) \
+or ripgrep (rg --files --glob) to search the user's home directory for matching files.
+
+Return ONLY a valid JSON array with no surrounding text, no markdown fences, no explanation. \
+Each element: {"name": str, "path": str, "dir": str, "modified_iso": str, "modified_label": str, "size_bytes": int, "file_type": str}.
+
+Rules:
+- Search common directories: Desktop, Documents, Downloads, OneDrive, Pictures
+- file_type is the extension without dot (e.g. "pdf", "docx", "xlsx")
+- modified_label is human-readable relative time (e.g. "3 days ago", "last week")
+- modified_iso is ISO 8601 format
+- Max 20 results, newest first
+- If no files found, return []
+- ONLY return the JSON array. No prose, no explanation, no markdown fences."""
 
 
 class TurnCancelScope:
@@ -1920,6 +1937,109 @@ async def handler(websocket):
                     await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
                     _ce2 = asyncio.Event()
                     await tts_full_response(websocket, spoken, tts_client, _ce2)
+                    await websocket.send(json.dumps({"type": "done"}))
+                    continue
+
+                elif intent == "find_file":
+                    file_query = intent_result.get("file_query") or {}
+                    keywords = file_query.get("keywords") or data_query or user_text
+                    file_type = file_query.get("file_type") or ""
+
+                    user_msg_parts = [f"Find files matching: {keywords}"]
+                    if file_type:
+                        user_msg_parts.append(f"File type filter: .{file_type}")
+                    modified_after = file_query.get("modified_after")
+                    modified_before = file_query.get("modified_before")
+                    if modified_after:
+                        user_msg_parts.append(f"Modified after: {modified_after}")
+                    if modified_before:
+                        user_msg_parts.append(f"Modified before: {modified_before}")
+
+                    openclaw_user_msg = "\n".join(user_msg_parts)
+
+                    try:
+                        async with httpx.AsyncClient() as oc_client:
+                            oc_resp = await oc_client.post(
+                                f"{OPENCLAW_URL}/v1/chat/completions",
+                                json={
+                                    "model": "gemma-4",
+                                    "messages": [
+                                        {"role": "system", "content": _FILE_SEARCH_SYSTEM_PROMPT},
+                                        {"role": "user", "content": openclaw_user_msg},
+                                    ],
+                                    "max_tokens": 2048,
+                                    "temperature": 0.0,
+                                },
+                                timeout=httpx.Timeout(connect=3.0, read=15.0, write=3.0, pool=3.0),
+                            )
+                            oc_resp.raise_for_status()
+
+                        raw_content = oc_resp.json()["choices"][0]["message"]["content"]
+                        cleaned = raw_content.strip()
+                        if cleaned.startswith("```"):
+                            first_newline = cleaned.index("\n")
+                            cleaned = cleaned[first_newline + 1:]
+                        if cleaned.endswith("```"):
+                            cleaned = cleaned[:-3]
+                        cleaned = cleaned.strip()
+
+                        try:
+                            results = json.loads(cleaned)
+                            if not isinstance(results, list):
+                                results = []
+                        except json.JSONDecodeError:
+                            print(f"  [find_file] JSON parse error from OpenClaw response: {cleaned[:200]}")
+                            results = []
+
+                        # Send structured results to client for card rendering
+                        await websocket.send(json.dumps({
+                            "type": "file_results",
+                            "results": results[:20],
+                        }))
+
+                        # Generate and send voice summary
+                        n = len(results)
+                        if n == 0:
+                            summary = f"I didn't find any files matching '{keywords}'."
+                        elif n == 1:
+                            summary = f"Found one file: {results[0].get('name', 'unknown')}."
+                        elif n <= 5:
+                            names = ", ".join(r.get("name", "unknown") for r in results[:3])
+                            summary = f"Found {n} files. {names}."
+                        else:
+                            names = ", ".join(r.get("name", "unknown") for r in results[:3])
+                            summary = f"Found {n} files. Top results: {names}, and {n - 3} more."
+
+                        await websocket.send(json.dumps({"type": "sentence", "text": summary}))
+                        history.append({"role": "assistant", "content": summary})
+
+                        if tts_client:
+                            _tts_ce = asyncio.Event()
+                            await tts_full_response(websocket, summary, tts_client, _tts_ce)
+
+                    except httpx.ConnectError:
+                        error_msg = "The local automation engine isn't running. I can't search your files right now."
+                        await websocket.send(json.dumps({"type": "sentence", "text": error_msg}))
+                        history.append({"role": "assistant", "content": error_msg})
+                        if tts_client:
+                            _tts_ce = asyncio.Event()
+                            await tts_full_response(websocket, error_msg, tts_client, _tts_ce)
+                    except httpx.TimeoutException:
+                        error_msg = "File search timed out. The search may have been too broad -- try being more specific."
+                        await websocket.send(json.dumps({"type": "sentence", "text": error_msg}))
+                        history.append({"role": "assistant", "content": error_msg})
+                        if tts_client:
+                            _tts_ce = asyncio.Event()
+                            await tts_full_response(websocket, error_msg, tts_client, _tts_ce)
+                    except Exception as exc:
+                        print(f"  [find_file] error: {exc}")
+                        error_msg = "Something went wrong searching for files. Please try again."
+                        await websocket.send(json.dumps({"type": "sentence", "text": error_msg}))
+                        history.append({"role": "assistant", "content": error_msg})
+                        if tts_client:
+                            _tts_ce = asyncio.Event()
+                            await tts_full_response(websocket, error_msg, tts_client, _tts_ce)
+
                     await websocket.send(json.dumps({"type": "done"}))
                     continue
 

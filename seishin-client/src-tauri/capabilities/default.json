@@ -4,12 +4,23 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-on-close-requested",
     "websocket:default",
+    "opener:default",
     "shell:allow-spawn",
     "shell:allow-execute",
     {
       "identifier": "shell:allow-execute",
-      "allow": [{ "name": "binaries/whisper-server", "sidecar": true, "args": true }]
+      "allow": [
+        { "name": "binaries/whisper-server", "sidecar": true, "args": true },
+        { "name": "wsl", "args": true }
+      ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        { "name": "wsl", "args": true }
+      ]
     }
   ]
 }

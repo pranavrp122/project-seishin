@@ -63,6 +63,7 @@ export async function searchFiles(query: {
   file_type?: string | null;
   modified_after?: string | null;
   modified_before?: string | null;
+  exhaustive?: boolean;
 }): Promise<FileSearchResult[]> {
   const rawKeywords = (query.keywords ?? '').replace(/[^a-zA-Z0-9 ._\-]/g, '').trim();
   const fileType = (query.file_type ?? '').replace(/[^a-zA-Z0-9]/g, '').trim();
@@ -86,11 +87,11 @@ export async function searchFiles(query: {
   ].map(p => `-not -path "${p}"`).join(' ');
 
   const user = `$(whoami | tr -d '\\r')`;
-  // Fetch more than we need (100) so scoring can pick the best 5.
+  const headLimit = query.exhaustive ? 300 : 100;
   const findCmd =
     `find "/mnt/c/Users/${user}/Downloads" "/mnt/c/Users/${user}/Documents" "/mnt/c/Users/${user}/OneDrive"` +
     ` -maxdepth 5 -type f ${excludes} \\( ${nameConditions} \\) ${typeCondition} ${dateCondition}` +
-    ` -printf "%p\\t%T@\\t%s\\n" 2>/dev/null | head -100`;
+    ` -printf "%p\\t%T@\\t%s\\n" 2>/dev/null | head -${headLimit}`;
 
   const output = await Command.create('wsl', ['--', 'bash', '-c', findCmd]).execute();
   if (!output.stdout.trim()) return [];
@@ -130,6 +131,11 @@ export async function searchFiles(query: {
   });
 
   scored.sort((a, b) => (b.score - a.score) || (b.r._epoch - a.r._epoch));
+
+  // Exhaustive mode: return all matches (no clear-winner trimming, no top-5 cap).
+  if (query.exhaustive) {
+    return scored.map(({ r }) => { const { _epoch, ...rest } = r; return rest; });
+  }
 
   // Clear winner = top matches strictly more keywords than runner-up,
   // OR top has a full phrase match and is 2x the runner-up's score.

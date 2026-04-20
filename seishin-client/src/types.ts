@@ -35,6 +35,7 @@ export interface SeiFindFileCommandMessage {
     file_type: string | null;
     modified_after: string | null;
     modified_before: string | null;
+    exhaustive?: boolean;
   };
 }
 export type SeiMessage =

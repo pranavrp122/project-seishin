@@ -1934,14 +1934,21 @@ async def handler(websocket):
                     file_query = intent_result.get("file_query") or {}
                     keywords = file_query.get("keywords")
 
+                    # Detect "exhaustive" intent — user wants all matches, not just top ones.
+                    # Triggered by words like "all", "every", "list", "every single", "each".
+                    lower_text = user_text.lower()
+                    exhaustive = any(tok in lower_text.split() for tok in
+                                     ["all", "every", "each"]) or "list all" in lower_text
+
                     # Fallback: if LLM didn't extract keywords, derive from user text
                     if not keywords:
                         stop_words = {
                             "find", "search", "look", "for", "the", "a", "an", "my", "me",
                             "files", "file", "i", "need", "want", "where", "is", "are",
-                            "on", "in", "of", "please", "can", "you", "get"
+                            "on", "in", "of", "please", "can", "you", "get",
+                            "all", "every", "each", "list", "with", "name", "named",
                         }
-                        words = [w for w in user_text.lower().split() if w.strip('.,!?') not in stop_words]
+                        words = [w for w in lower_text.split() if w.strip('.,!?') not in stop_words]
                         keywords = " ".join(words).strip() or None
 
                     # Send command to Tauri client — client runs OpenClaw locally
@@ -1952,6 +1959,7 @@ async def handler(websocket):
                             "file_type": file_query.get("file_type"),
                             "modified_after": file_query.get("modified_after"),
                             "modified_before": file_query.get("modified_before"),
+                            "exhaustive": exhaustive,
                         }
                     }))
 

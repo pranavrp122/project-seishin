@@ -12,6 +12,8 @@ export const appState: AppState = {
   interimTranscript: '',
   latency: { asrMs: null, networkSendMs: null, ttftMs: null, ttsMs: null, totalMs: null },
   fileResults: [],
+  emailResults: [],
+  gmailConnected: false,
 };
 
 export function updateState(partial: Partial<AppState>): void {

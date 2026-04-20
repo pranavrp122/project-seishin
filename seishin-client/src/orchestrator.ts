@@ -1,7 +1,7 @@
 import { connectionManager } from './net/connection.ts';
 import { updateState, addMessage, appState } from './state.ts';
 import { markResponseComplete, markResponseInterrupted } from './ui/chat.ts';
-import { SeiMessage, SeiLocalOpCommandMessage, ReportLogEntry } from './types.ts';
+import { SeiMessage, SeiLocalOpCommandMessage, SeiEmailListMessage, SeiGmailAuthStatusMessage, ReportLogEntry } from './types.ts';
 import { addReportLogEntry } from './ui/report-log.ts';
 import { searchFilesForUserText } from '@openclaw/gateway.ts';
 import { sendRaw } from './net/websocket.ts';
@@ -79,6 +79,18 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
         updateState({ fileResults: [] });
         await sendRaw(JSON.stringify({ type: 'local_op_results', results: [] }));
       }
+      break;
+    }
+    case 'email_list': {
+      const emailMsg = msg as SeiEmailListMessage;
+      console.log('[email] received', emailMsg.emails.length, 'emails');
+      updateState({ emailResults: emailMsg.emails });
+      break;
+    }
+    case 'gmail_auth_status': {
+      const authMsg = msg as SeiGmailAuthStatusMessage;
+      console.log('[gmail] auth status:', authMsg.connected);
+      updateState({ gmailConnected: authMsg.connected });
       break;
     }
   }

@@ -2,7 +2,7 @@
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'degraded' | 'reconnecting';
 
 // Sei Engine incoming message types (from sei_engine.py protocol)
-export type SeiMessageType = 'sentence' | 'done' | 'interrupted' | 'error' | 'transcript' | 'report_log';
+export type SeiMessageType = 'sentence' | 'done' | 'interrupted' | 'error' | 'transcript' | 'report_log' | 'email_list' | 'gmail_auth_status';
 export interface SeiSentenceMessage { type: 'sentence'; text: string; }
 export interface SeiDoneMessage { type: 'done'; }
 export interface SeiInterruptedMessage { type: 'interrupted'; }
@@ -33,6 +33,22 @@ export interface SeiLocalOpCommandMessage {
   user_text: string;
   exhaustive?: boolean;
 }
+export interface EmailResult {
+  id: string;
+  sender: string;
+  subject: string;
+  snippet: string;
+  timestamp: string;
+}
+export interface SeiEmailListMessage {
+  type: 'email_list';
+  emails: EmailResult[];
+  summary: string;
+}
+export interface SeiGmailAuthStatusMessage {
+  type: 'gmail_auth_status';
+  connected: boolean;
+}
 export type SeiMessage =
   | SeiSentenceMessage
   | SeiDoneMessage
@@ -40,7 +56,9 @@ export type SeiMessage =
   | SeiErrorMessage
   | SeiTranscriptMessage
   | SeiReportLogMessage
-  | SeiLocalOpCommandMessage;
+  | SeiLocalOpCommandMessage
+  | SeiEmailListMessage
+  | SeiGmailAuthStatusMessage;
 
 // Outgoing message types
 export interface SeiOutMessage { type: 'message'; text: string; }
@@ -86,6 +104,8 @@ export interface AppState {
   interimTranscript: string;  // Live transcription text per D-09
   latency: LatencyMetrics;
   fileResults: FileResult[];  // Latest file search results from OpenClaw
+  emailResults: EmailResult[];  // Latest email results from Gmail
+  gmailConnected: boolean;  // Gmail OAuth connection status
 }
 
 // Report log entry — one per completed report run

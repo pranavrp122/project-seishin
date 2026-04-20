@@ -83,16 +83,28 @@ function buildCard(file: FileResult): HTMLElement {
   openBtn.className = 'file-card-btn file-card-btn-primary';
   openBtn.textContent = 'Open';
   openBtn.addEventListener('click', async () => {
-    try { await openPath(pathToWindows(file.path)); }
-    catch (err) { console.error('[file-cards] open failed:', err); }
+    const winPath = pathToWindows(file.path);
+    console.log('[file-cards] opening:', winPath);
+    try {
+      await openPath(winPath);
+    } catch (err) {
+      console.error('[file-cards] open failed:', err);
+      alert(`Could not open file:\n${winPath}\n\n${err}`);
+    }
   });
 
   const revealBtn = document.createElement('button');
   revealBtn.className = 'file-card-btn';
   revealBtn.textContent = 'Show in folder';
   revealBtn.addEventListener('click', async () => {
-    try { await revealItemInDir(pathToWindows(file.path)); }
-    catch (err) { console.error('[file-cards] reveal failed:', err); }
+    const winPath = pathToWindows(file.path);
+    console.log('[file-cards] revealing:', winPath);
+    try {
+      await revealItemInDir(winPath);
+    } catch (err) {
+      console.error('[file-cards] reveal failed:', err);
+      alert(`Could not reveal file:\n${winPath}\n\n${err}`);
+    }
   });
 
   actions.append(openBtn, revealBtn);
@@ -121,11 +133,12 @@ function shortenPath(dir: string): string {
   return dir;
 }
 
-/** WSL path → Windows path for Tauri opener (Tauri runs on Windows). */
+/** WSL path → Windows path for Tauri opener (Tauri runs on Windows).
+ *  Uses forward slashes since Windows accepts both and Tauri opener docs show them. */
 function pathToWindows(wslPath: string): string {
   const m = wslPath.match(/^\/mnt\/([a-z])\/(.*)$/);
   if (!m) return wslPath;
-  return `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`;
+  return `${m[1].toUpperCase()}:/${m[2]}`;
 }
 
 function formatSize(bytes: number): string {

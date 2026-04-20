@@ -64,13 +64,13 @@ export async function searchFiles(query: {
   modified_after?: string | null;
   modified_before?: string | null;
 }): Promise<FileSearchResult[]> {
-  // Sanitize keywords to prevent shell injection
   const rawKeywords = (query.keywords ?? '').replace(/[^a-zA-Z0-9 ._\-]/g, '').trim();
   const fileType = (query.file_type ?? '').replace(/[^a-zA-Z0-9]/g, '').trim();
+  const keywordList = rawKeywords.length > 0 ? rawKeywords.split(/\s+/) : [];
 
-  // Build -iname conditions for each keyword (OR logic)
-  const nameConditions = rawKeywords.length > 0
-    ? rawKeywords.split(/\s+/).map(k => `-iname "*${k}*"`).join(' -o ')
+  // Match if filename contains ANY keyword (OR); we rank by how many match later.
+  const nameConditions = keywordList.length > 0
+    ? keywordList.map(k => `-iname "*${k}*"`).join(' -o ')
     : '-name "*"';
 
   const typeCondition = fileType ? `-a -iname "*.${fileType}"` : '';
@@ -78,17 +78,24 @@ export async function searchFiles(query: {
   const dateCondition = query.modified_after
     ? `-a -newermt "${query.modified_after.replace(/[^0-9\-]/g, '')}"` : '';
 
+  // Exclude junk paths (dev folders, caches, git internals, OS metadata).
+  const excludes = [
+    '*/node_modules/*', '*/.git/*', '*/.venv/*', '*/venv/*', '*/__pycache__/*',
+    '*/build/*', '*/dist/*', '*/.next/*', '*/.cache/*', '*/target/*',
+    '*/AppData/*', '*/.vscode/*', '*/.idea/*',
+  ].map(p => `-not -path "${p}"`).join(' ');
+
   const user = `$(whoami | tr -d '\\r')`;
+  // Fetch more than we need (100) so scoring can pick the best 5.
   const findCmd =
     `find "/mnt/c/Users/${user}/Downloads" "/mnt/c/Users/${user}/Documents" "/mnt/c/Users/${user}/OneDrive"` +
-    ` -maxdepth 5 -type f \\( ${nameConditions} \\) ${typeCondition} ${dateCondition}` +
-    ` -printf "%p\\t%T@\\t%s\\n" 2>/dev/null | sort -t$'\\t' -k2 -rn | head -20`;
+    ` -maxdepth 5 -type f ${excludes} \\( ${nameConditions} \\) ${typeCondition} ${dateCondition}` +
+    ` -printf "%p\\t%T@\\t%s\\n" 2>/dev/null | head -100`;
 
   const output = await Command.create('wsl', ['--', 'bash', '-c', findCmd]).execute();
-
   if (!output.stdout.trim()) return [];
 
-  return output.stdout.trim().split('\n').filter(Boolean).map(line => {
+  const results = output.stdout.trim().split('\n').filter(Boolean).map(line => {
     const parts = line.split('\t');
     const filePath = parts[0] ?? '';
     const epochMs = parseFloat(parts[1] ?? '0') * 1000;
@@ -106,7 +113,30 @@ export async function searchFiles(query: {
       modified_label: isNaN(epochMs) ? '' : relativeTime(date),
       size_bytes: sizeBytes,
       file_type: ext,
+      _epoch: epochMs,
     };
+  });
+
+  // Score: full-phrase match > (keywords matched count) > recency
+  const phrase = keywordList.join(' ').toLowerCase();
+  const scored = results.map(r => {
+    const lname = r.name.toLowerCase();
+    const baseName = lname.replace(/\.[^.]+$/, '');  // strip extension for matching
+    let score = 0;
+    if (phrase && baseName.includes(phrase)) score += 100;
+    for (const k of keywordList) {
+      if (baseName.includes(k.toLowerCase())) score += 10;
+    }
+    // Penalize tiny noise files (< 1KB) slightly
+    if (r.size_bytes < 1024) score -= 1;
+    return { r, score };
+  });
+
+  scored.sort((a, b) => (b.score - a.score) || (b.r._epoch - a.r._epoch));
+
+  return scored.slice(0, 5).map(({ r }) => {
+    const { _epoch, ...rest } = r;
+    return rest;
   });
 }
 

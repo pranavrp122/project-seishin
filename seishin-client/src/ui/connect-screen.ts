@@ -6,6 +6,9 @@ let urlInput: HTMLInputElement | null = null;
 let connectBtn: HTMLButtonElement | null = null;
 let errorMsg: HTMLDivElement | null = null;
 
+declare const __SEI_URL__: string;
+const DEFAULT_URL = __SEI_URL__ || '';
+
 export function renderConnectScreen(parent: HTMLElement): void {
   connectEl = document.createElement('div');
   connectEl.id = 'connect-screen';
@@ -34,8 +37,8 @@ export function renderConnectScreen(parent: HTMLElement): void {
 
   urlInput = document.createElement('input');
   urlInput.type = 'text';
-  urlInput.placeholder = 'ws://<WINDOWS_HOST_IP>:5052';
-  urlInput.value = 'ws://<WINDOWS_HOST_IP>:5052';
+  urlInput.placeholder = 'ws://127.0.0.1:5052';
+  urlInput.value = DEFAULT_URL;
   urlInput.style.cssText = `
     flex: 1;
     padding: 10px 14px;
@@ -148,6 +151,6 @@ export function hideConnectScreen(): void {
 export function showConnectScreen(): void {
   if (connectEl) connectEl.style.display = 'flex';
   // Clear URL field on re-show per D-07 (no persistence)
-  if (urlInput) urlInput.value = '';
+  if (urlInput) urlInput.value = DEFAULT_URL;
   hideError();
 }

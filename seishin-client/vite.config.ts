@@ -45,6 +45,7 @@ export default defineConfig(async ({ mode }) => {
     define: {
       // Loaded from project root .env — no need to set in shell every time
       '__SEI_AUTH_TOKEN__': JSON.stringify(env.SEI_AUTH_TOKEN || ''),
+      '__SEI_URL__': JSON.stringify(env.SEI_URL || ''),
     },
   };
 });

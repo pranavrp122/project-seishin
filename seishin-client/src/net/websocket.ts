@@ -46,6 +46,12 @@ export async function sendMessage(text: string): Promise<void> {
   await ws.send(JSON.stringify({ type: 'message', text }));
 }
 
+/** Send a pre-serialized JSON string directly over the WebSocket. */
+export async function sendRaw(json: string): Promise<void> {
+  if (!ws) throw new Error('Not connected');
+  await ws.send(json);
+}
+
 export async function sendPCMChunk(pcm: ArrayBuffer): Promise<void> {
   if (!ws) return;
   await ws.send(Array.from(new Uint8Array(pcm)));

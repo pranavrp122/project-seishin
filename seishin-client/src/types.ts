@@ -28,13 +28,23 @@ export interface SeiReportLogMessage {
   claude_interactions?: ClaudeInteraction[];
   dashboard_b64?: string;
 }
+export interface SeiFindFileCommandMessage {
+  type: 'find_file_command';
+  query: {
+    keywords: string | null;
+    file_type: string | null;
+    modified_after: string | null;
+    modified_before: string | null;
+  };
+}
 export type SeiMessage =
   | SeiSentenceMessage
   | SeiDoneMessage
   | SeiInterruptedMessage
   | SeiErrorMessage
   | SeiTranscriptMessage
-  | SeiReportLogMessage;
+  | SeiReportLogMessage
+  | SeiFindFileCommandMessage;
 
 // Outgoing message types
 export interface SeiOutMessage { type: 'message'; text: string; }
@@ -59,6 +69,16 @@ export interface LatencyMetrics {
   totalMs: number | null;      // End-to-end from speech end to first audio
 }
 
+export interface FileResult {
+  name: string;
+  path: string;
+  dir: string;
+  modified_iso: string;
+  modified_label: string;
+  size_bytes: number;
+  file_type: string;
+}
+
 // App state
 export interface AppState {
   connection: ConnectionStatus;
@@ -69,6 +89,7 @@ export interface AppState {
   isGenerating: boolean;      // Server is generating response
   interimTranscript: string;  // Live transcription text per D-09
   latency: LatencyMetrics;
+  fileResults: FileResult[];  // Latest file search results from OpenClaw
 }
 
 // Report log entry — one per completed report run

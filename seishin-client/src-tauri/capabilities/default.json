@@ -4,7 +4,6 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "core:window:allow-on-close-requested",
     "websocket:default",
     "opener:default",
     "shell:allow-spawn",

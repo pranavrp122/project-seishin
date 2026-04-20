@@ -13,8 +13,13 @@
     "isolatedModules": true,
     "noEmit": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "baseUrl": ".",
+    "paths": {
+      "@openclaw/*": ["../openclaw/*"],
+      "@tauri-apps/*": ["./node_modules/@tauri-apps/*"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../openclaw"],
   "exclude": ["src/audio/playback-processor.ts"]
 }

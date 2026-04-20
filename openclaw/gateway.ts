@@ -55,18 +55,18 @@ export async function startOpenClaw(): Promise<boolean> {
       `. ~/.nvm/nvm.sh && openclaw gateway run --port ${OPENCLAW_PORT}`,
     ]);
 
-    command.on('error', (err) => {
+    command.on('error', (err: string) => {
       console.error('[openclaw] process error:', err);
       setStatus('failed');
     });
 
-    command.on('close', (data) => {
+    command.on('close', (data: { code: number | null }) => {
       console.log('[openclaw] process exited:', data.code);
       if (status !== 'stopped') setStatus('failed');
     });
 
-    command.stdout.on('data', (line) => console.log('[openclaw:stdout]', line));
-    command.stderr.on('data', (line) => console.warn('[openclaw:stderr]', line));
+    command.stdout.on('data', (line: string) => console.log('[openclaw:stdout]', line));
+    command.stderr.on('data', (line: string) => console.warn('[openclaw:stderr]', line));
 
     childProcess = await command.spawn();
     console.log('[openclaw] spawned child process, pid:', childProcess.pid);

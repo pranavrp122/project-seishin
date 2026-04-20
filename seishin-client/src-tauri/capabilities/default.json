@@ -6,19 +6,20 @@
     "core:default",
     "websocket:default",
     "opener:default",
+    "http:default",
     "shell:allow-spawn",
     "shell:allow-execute",
     {
       "identifier": "shell:allow-execute",
       "allow": [
         { "name": "binaries/whisper-server", "sidecar": true, "args": true },
-        { "name": "wsl", "args": true }
+        { "name": "wsl", "cmd": "wsl", "args": true }
       ]
     },
     {
       "identifier": "shell:allow-spawn",
       "allow": [
-        { "name": "wsl", "args": true }
+        { "name": "wsl", "cmd": "wsl", "args": true }
       ]
     }
   ]

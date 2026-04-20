@@ -1944,13 +1944,17 @@ async def handler(websocket):
                         }
                     }))
 
-                    # Wait for client to return file_results (OpenClaw runs on laptop)
+                    # Receive file_results directly — queue approach deadlocks because
+                    # the outer recv() loop is suspended while waiting for the queue.
                     try:
-                        result_msg = await asyncio.wait_for(
-                            file_results_queue.get(), timeout=20.0
-                        )
-                        results = result_msg.get("results", [])
-                    except asyncio.TimeoutError:
+                        raw_result = await asyncio.wait_for(websocket.recv(), timeout=30.0)
+                        result_msg = json.loads(raw_result) if isinstance(raw_result, str) else {}
+                        if result_msg.get("type") == "file_results":
+                            results = result_msg.get("results", [])
+                        else:
+                            pending_msg = result_msg  # unexpected message, re-process next turn
+                            results = None
+                    except (asyncio.TimeoutError, Exception):
                         results = None
 
                     if results is None:

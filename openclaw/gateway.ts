@@ -1,7 +1,7 @@
 /**
  * OpenClaw gateway module — reusable integration point for all OpenClaw features.
  * Manages the OpenClaw sidecar lifecycle (spawn, health-poll, teardown) and provides
- * an OpenAI-compatible completions client for local AI operations.
+ * direct WSL shell execution for file operations.
  *
  * OpenClaw runs inside WSL2. The Tauri shell plugin spawns `wsl` which in turn
  * runs `openclaw gateway run`. Health checks and API calls go through
@@ -9,6 +9,9 @@
  */
 
 import { Command, Child } from '@tauri-apps/plugin-shell';
+import { fetch } from '@tauri-apps/plugin-http';
+
+declare const __OPENCLAW_TOKEN__: string;
 
 const OPENCLAW_PORT = 18789;
 const OPENCLAW_HEALTH_URL = `http://127.0.0.1:${OPENCLAW_PORT}/health`;
@@ -18,6 +21,16 @@ const HEALTH_POLL_TIMEOUT_MS = 60_000;
 const DEFAULT_COMPLETIONS_TIMEOUT_MS = 15_000;
 
 export type OpenClawStatus = 'stopped' | 'starting' | 'healthy' | 'failed';
+
+export interface FileSearchResult {
+  name: string;
+  path: string;
+  dir: string;
+  modified_iso: string;
+  modified_label: string;
+  size_bytes: number;
+  file_type: string;
+}
 
 let childProcess: Child | null = null;
 let status: OpenClawStatus = 'stopped';
@@ -41,12 +54,97 @@ export function onOpenClawStatusChange(fn: (s: OpenClawStatus) => void): () => v
 }
 
 /**
+ * Search Windows files via WSL find command.
+ * Searches common Windows user directories via /mnt/c/Users/$USER mount.
+ * Does not require OpenClaw to be healthy — uses direct shell execution.
+ */
+export async function searchFiles(query: {
+  keywords?: string | null;
+  file_type?: string | null;
+  modified_after?: string | null;
+  modified_before?: string | null;
+}): Promise<FileSearchResult[]> {
+  // Sanitize keywords to prevent shell injection
+  const rawKeywords = (query.keywords ?? '').replace(/[^a-zA-Z0-9 ._\-]/g, '').trim();
+  const fileType = (query.file_type ?? '').replace(/[^a-zA-Z0-9]/g, '').trim();
+
+  // Build -iname conditions for each keyword (OR logic)
+  const nameConditions = rawKeywords.length > 0
+    ? rawKeywords.split(/\s+/).map(k => `-iname "*${k}*"`).join(' -o ')
+    : '-name "*"';
+
+  const typeCondition = fileType ? `-a -iname "*.${fileType}"` : '';
+
+  const dateCondition = query.modified_after
+    ? `-a -newermt "${query.modified_after.replace(/[^0-9\-]/g, '')}"` : '';
+
+  const user = `$(whoami | tr -d '\\r')`;
+  const findCmd =
+    `find "/mnt/c/Users/${user}/Downloads" "/mnt/c/Users/${user}/Documents" "/mnt/c/Users/${user}/OneDrive"` +
+    ` -maxdepth 5 -type f \\( ${nameConditions} \\) ${typeCondition} ${dateCondition}` +
+    ` -printf "%p\\t%T@\\t%s\\n" 2>/dev/null | sort -t$'\\t' -k2 -rn | head -20`;
+
+  const output = await Command.create('wsl', ['--', 'bash', '-c', findCmd]).execute();
+
+  if (!output.stdout.trim()) return [];
+
+  return output.stdout.trim().split('\n').filter(Boolean).map(line => {
+    const parts = line.split('\t');
+    const filePath = parts[0] ?? '';
+    const epochMs = parseFloat(parts[1] ?? '0') * 1000;
+    const sizeBytes = parseInt(parts[2] ?? '0') || 0;
+    const name = filePath.split('/').pop() ?? '';
+    const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+    const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : '';
+    const date = new Date(epochMs);
+
+    return {
+      name,
+      path: filePath,
+      dir,
+      modified_iso: isNaN(epochMs) ? '' : date.toISOString(),
+      modified_label: isNaN(epochMs) ? '' : relativeTime(date),
+      size_bytes: sizeBytes,
+      file_type: ext,
+    };
+  });
+}
+
+function relativeTime(date: Date): string {
+  const diff = Date.now() - date.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.floor(days / 30)} months ago`;
+  return `${Math.floor(days / 365)} years ago`;
+}
+
+/**
  * Spawn `openclaw gateway run --port 18789` inside WSL2 as a child process.
  * Polls health endpoint until ready or timeout.
  * Returns true if healthy, false if failed/timed out.
  */
 export async function startOpenClaw(): Promise<boolean> {
   if (status === 'healthy') return true;
+
+  // Reuse a running instance (e.g. left over from a previous dev restart)
+  try {
+    const probe = await fetch(OPENCLAW_HEALTH_URL);
+    if (probe.ok) {
+      console.log('[openclaw] reusing already-running instance');
+      setStatus('healthy');
+      return true;
+    }
+  } catch { /* not running yet, proceed to spawn */ }
+
+  // Kill any stale locked instance before spawning
+  try {
+    await Command.create('wsl', ['--', 'bash', '-c', 'pkill -9 -f openclaw-gateway 2>/dev/null; true']).execute();
+    await new Promise(r => setTimeout(r, 1000));
+  } catch { /* best-effort */ }
+
   setStatus('starting');
 
   try {
@@ -112,10 +210,10 @@ export async function stopOpenClaw(): Promise<void> {
     childProcess = null;
   }
 
-  // Fallback: ensure no orphaned openclaw processes in WSL
+  // Ensure no orphaned openclaw processes in WSL
   try {
     await Command.create('wsl', [
-      '--', 'bash', '-c', 'pkill -f "openclaw gateway" 2>/dev/null || true',
+      '--', 'bash', '-c', 'pkill -9 -f openclaw-gateway 2>/dev/null; true',
     ]).execute();
   } catch {
     // Best-effort cleanup
@@ -126,7 +224,7 @@ export async function stopOpenClaw(): Promise<void> {
 
 /**
  * Call OpenClaw's OpenAI-compatible completions endpoint.
- * Used for local AI operations (file search, email drafting, etc.).
+ * Used for future phases requiring LLM reasoning (email, calendar, etc.).
  */
 export async function callCompletions(
   systemPrompt: string,
@@ -140,7 +238,10 @@ export async function callCompletions(
   try {
     const resp = await fetch(OPENCLAW_COMPLETIONS_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${__OPENCLAW_TOKEN__}`,
+      },
       body: JSON.stringify({
         model: 'openclaw:main',
         messages: [

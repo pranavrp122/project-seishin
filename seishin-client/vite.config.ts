@@ -6,7 +6,7 @@ const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async ({ mode }) => {
   // Load .env from project root (parent of seishin-client/) automatically
-  const env = loadEnv(mode, resolve(__dirname, '..'), ['SEI_', 'VITE_']);
+  const env = loadEnv(mode, resolve(__dirname, '..'), ['SEI_', 'VITE_', 'OPENCLAW_']);
 
   return {
     clearScreen: false,
@@ -39,6 +39,7 @@ export default defineConfig(async ({ mode }) => {
         '@tauri-apps/plugin-opener': resolve(__dirname, 'node_modules/@tauri-apps/plugin-opener'),
         '@tauri-apps/plugin-fs': resolve(__dirname, 'node_modules/@tauri-apps/plugin-fs'),
         '@tauri-apps/api': resolve(__dirname, 'node_modules/@tauri-apps/api'),
+        '@tauri-apps/plugin-http': resolve(__dirname, 'node_modules/@tauri-apps/plugin-http'),
       },
     },
     envPrefix: ['VITE_', 'SEI_'],
@@ -46,6 +47,7 @@ export default defineConfig(async ({ mode }) => {
       // Loaded from project root .env — no need to set in shell every time
       '__SEI_AUTH_TOKEN__': JSON.stringify(env.SEI_AUTH_TOKEN || ''),
       '__SEI_URL__': JSON.stringify(env.SEI_URL || ''),
+      '__OPENCLAW_TOKEN__': JSON.stringify(env.OPENCLAW_TOKEN || ''),
     },
   };
 });

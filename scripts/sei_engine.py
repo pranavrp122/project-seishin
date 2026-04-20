@@ -1921,6 +1921,46 @@ async def handler(websocket):
                     await websocket.send(json.dumps({"type": "done"}))
                     continue
 
+                elif intent == "read_email":
+                    from gmail_client import list_inbox_messages, fetch_message
+                    from email_sanitizer import sanitize_email_content, build_email_summary_prompt
+
+                    try:
+                        messages_list = list_inbox_messages(max_results=10)
+                        emails = []
+                        for msg_meta in messages_list:
+                            detail = fetch_message(msg_meta["id"])
+                            detail["snippet"] = sanitize_email_content(detail.get("snippet", ""))
+                            emails.append(detail)
+
+                        # Direct LLM call for summary — NO tools, NO agent (Layer 3 security)
+                        summary_prompt = build_email_summary_prompt(emails)
+                        summary_messages = list(history) + [{"role": "user", "content": summary_prompt}]
+                        _ce = asyncio.Event()
+                        summary = await handle_llm_response_text_only(websocket, summary_messages, _ce)
+                        if not summary or len(summary) < 15:
+                            summary = f"You have {len(emails)} emails in your inbox."
+
+                        # Send email_list to Tauri client for card rendering
+                        await websocket.send(json.dumps({
+                            "type": "email_list",
+                            "emails": emails,
+                            "summary": summary,
+                        }))
+
+                        # Voice the summary
+                        history.append({"role": "assistant", "content": summary})
+                        await websocket.send(json.dumps({"type": "sentence", "text": summary}))
+                        _ce2 = asyncio.Event()
+                        await tts_full_response(websocket, summary, tts_client, _ce2)
+                        await websocket.send(json.dumps({"type": "done"}))
+                    except Exception as e:
+                        print(f"  [read_email] Error: {e}")
+                        spoken = "(serious) I couldn't access your email. Make sure Gmail is connected."
+                        await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
+                        await websocket.send(json.dumps({"type": "done"}))
+                    continue
+
                 elif intent == "local_op":
                     # Forward raw user text to the Tauri client; it calls OpenClaw's
                     # agent (POST /v1/responses) which routes to the right skill/tool.

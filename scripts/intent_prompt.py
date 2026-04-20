@@ -68,18 +68,27 @@ Examples: "What can I ask for?" / "What data do you have?" / "What reports can I
 User wants to compare TWO different data topics side by side.
 Examples: "Compare clients and invoices" / "How do sales and returns compare?" / "Compare warehouse data with shipping data" / "Show me clients versus tax cases"
 
+### read_email
+User wants to CHECK, READ, or VIEW their emails/inbox. Includes "what's in my inbox", "read my emails", "check email", "any new messages", "latest emails". This is for READING email only — composing/sending/drafting goes to a different intent (future phase).
+Examples:
+- "What's in my inbox?"
+- "Read my emails"
+- "Check my email"
+- "Any new messages?"
+- "Show me my latest emails"
+- "What emails do I have?"
+- "Read my unread emails"
+
 ### local_op
-User wants to perform a LOCAL operation on their machine: find/move/open files, read/send emails, check/book calendar events, open browser pages, send messages, etc. Anything that touches the local filesystem, user's email/calendar, or opens apps. NOT a database query.
+User wants to perform a LOCAL operation on their machine: find/move/open files, check/book calendar events, open browser pages, send messages, etc. Anything that touches the local filesystem, user's calendar, or opens apps. NOT a database query. NOT email reading (use read_email for that).
 Examples:
 - "Find my resume"
 - "Find all PDFs I downloaded this month"
 - "Where is the Johnson project file?"
 - "Move the contract to the archive folder"
-- "Email John the Q3 summary"
 - "What's on my calendar tomorrow"
 - "Open GitHub in my browser"
 - "Delete the draft in my Downloads"
-- "Show me unread emails from yesterday"
 - "Text Sarah I'll be late"
 
 ### normal_chat
@@ -95,15 +104,17 @@ Examples: "Hey how are you?" / "I saw a weather report today" / "Let me report b
 - Prior report exists + user asks for an aggregate (average, sum, count, min, max, total) or a property of a column WITHOUT naming a new source → follow_up_on_previous.
 - list_cached_data = what's already pulled THIS session. what_can_i_ask = what CAN be pulled.
 - compare_reports = two DIFFERENT topics. Comparing values within a single report → follow_up_on_previous.
-- local_op = anything that operates on the user's local machine (files, email, calendar, browser, messages, apps). NOT database queries.
+- read_email = user wants to check/read/view emails or inbox. NOT composing or sending (future phase).
+- local_op = anything that operates on the user's local machine (files, calendar, browser, messages, apps). NOT database queries. NOT email reading (use read_email).
 - "Find" + local file description → local_op. "Find" + database entity → new_data_request.
-- "Email / move / open / delete / text / call / schedule" targeting local resources → local_op.
+- "Check email / read inbox / what's in my inbox" → read_email.
+- "Move / open / delete / text / call / schedule" targeting local resources → local_op.
 - User requests data AND a refinement in one utterance (e.g. "show me VIP clients sorted by revenue"): populate op_chain with the refinement ONLY if it's clearly a separate operation from the data pull. Otherwise leave op_chain null.
 - undo requires at least one prior operation in this session.
 
 ## Output Format
 
-- intent: one of new_data_request, follow_up_on_previous, confirm, cancel, list_cached_data, normal_chat, undo, what_can_i_ask, compare_reports, local_op.
+- intent: one of new_data_request, follow_up_on_previous, confirm, cancel, list_cached_data, normal_chat, undo, what_can_i_ask, compare_reports, read_email, local_op.
 - data_query: short restatement of the data the user wants (string), or null if not a data request.
 - confidence: float 0.0-1.0.
 - opening_phrase: Miyako's short opener (5-12 words) spoken immediately before the action. MUST be unique and reference something concrete from the user's actual request (topic, column, filter, or number) so the user hears that you understood them. Conversational and warm. Generate fresh every turn — no templates.

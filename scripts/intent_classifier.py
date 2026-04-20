@@ -46,6 +46,7 @@ INTENT_SCHEMA = {
                 "undo",
                 "what_can_i_ask",
                 "compare_reports",
+                "read_email",
                 "local_op",
             ],
         },

@@ -218,8 +218,14 @@ function parseJsonFileList(raw: string): FileSearchResult[] {
  */
 async function searchFilesViaShell(userText: string, exhaustive: boolean): Promise<FileSearchResult[]> {
   const keywordList = extractKeywords(userText);
+  // Typo-tolerant shell filter: for keywords ≥5 chars use a shortened prefix so
+  // single-character typos still surface candidates (fuzzy re-scored in ranker).
   const nameConditions = keywordList.length > 0
-    ? keywordList.map(k => `-iname "*${k}*"`).join(' -o ')
+    ? keywordList.map(k => {
+        // For ≥5-char words, shorten by 1 char (keep ≥4) so trailing-char typos still match.
+        const pattern = k.length >= 5 ? k.slice(0, Math.max(4, k.length - 1)) : k;
+        return `-iname "*${pattern}*"`;
+      }).join(' -o ')
     : '-name "*"';
   const excludes = [
     '*/node_modules/*', '*/.git/*', '*/.venv/*', '*/venv/*', '*/__pycache__/*',
@@ -284,13 +290,23 @@ function rankAndTrim(
 
   const scored = results.map(r => {
     const baseName = r.name.toLowerCase().replace(/\.[^.]+$/, '');
-    const matched = keywordList.filter(k => baseName.includes(k)).length;
+    let matched = 0;
+    let fuzzyBonus = 0;
+    for (const k of keywordList) {
+      if (baseName.includes(k)) {
+        matched += 1;
+      } else if (fuzzyContains(baseName, k)) {
+        // Typo tolerance: treat as 0.7 of a full match
+        matched += 0.7;
+        fuzzyBonus += 1;
+      }
+    }
     let score = matched * 10;
     if (phrase && baseName.includes(phrase)) score += 100;
-    if (keywordList.length > 0 && matched === keywordList.length) score += 30;
+    if (keywordList.length > 0 && matched >= keywordList.length) score += 30;
     if (r.size_bytes < 1024) score -= 1;
     const epoch = r.modified_iso ? new Date(r.modified_iso).getTime() : 0;
-    return { r, score, matched, epoch };
+    return { r, score, matched, epoch, fuzzyBonus };
   });
   scored.sort((a, b) => (b.score - a.score) || (b.epoch - a.epoch));
 
@@ -304,6 +320,42 @@ function rankAndTrim(
       (top.score >= 100 && top.score >= 2 * Math.max(runnerUp.score, 1)));
   const cutoff = clearWinner ? 1 : 5;
   return scored.slice(0, cutoff).map(({ r }) => r);
+}
+
+/**
+ * Fuzzy substring match: returns true if any window of haystack within ±1 length
+ * of needle has edit distance ≤ maxDistance. Used to tolerate single-char typos.
+ * Only activates for needles ≥4 chars (shorter words have too many false positives).
+ */
+function fuzzyContains(haystack: string, needle: string): boolean {
+  if (needle.length < 4) return false;
+  const maxDistance = needle.length <= 5 ? 1 : 2;
+  const widths = [needle.length - 1, needle.length, needle.length + 1];
+  for (const w of widths) {
+    if (w <= 0 || w > haystack.length) continue;
+    for (let i = 0; i + w <= haystack.length; i++) {
+      if (levenshtein(haystack.slice(i, i + w), needle) <= maxDistance) return true;
+    }
+  }
+  return false;
+}
+
+/** Classic O(m*n) edit distance. Small strings only. */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = new Array(b.length + 1).fill(0).map((_, i) => i);
+  let curr = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
 }
 
 function relativeTime(date: Date): string {

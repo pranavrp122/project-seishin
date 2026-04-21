@@ -3,7 +3,7 @@ import { updateState, addMessage, appState } from './state.ts';
 import { markResponseComplete, markResponseInterrupted } from './ui/chat.ts';
 import { SeiMessage, SeiLocalOpCommandMessage, SeiEmailListMessage, SeiGmailAuthStatusMessage, ReportLogEntry } from './types.ts';
 import { addReportLogEntry } from './ui/report-log.ts';
-import { searchFilesForUserText } from '@openclaw/gateway.ts';
+import { searchFilesForUserText, invokeOpenClawAgent } from '@openclaw/gateway.ts';
 import { sendRaw } from './net/websocket.ts';
 
 let messageSentAt = 0;
@@ -69,15 +69,23 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
     case 'local_op_command': {
       const cmd = msg as SeiLocalOpCommandMessage;
       console.log('[local_op] user_text:', cmd.user_text, 'exhaustive:', !!cmd.exhaustive);
+      const isEmailOp = /\b(email|emails|inbox|unread|gmail|my messages?|check mail|read mail)\b/i.test(cmd.user_text);
       try {
-        const results = await searchFilesForUserText(cmd.user_text, { exhaustive: !!cmd.exhaustive });
-        console.log('[local_op] result count:', results.length);
-        updateState({ fileResults: results });
-        await sendRaw(JSON.stringify({ type: 'local_op_results', results }));
+        if (isEmailOp) {
+          // Route email requests to OpenClaw agent (uses gog Gmail skill)
+          console.log('[local_op] routing to OpenClaw agent for email');
+          const agentResult = await invokeOpenClawAgent(cmd.user_text);
+          await sendRaw(JSON.stringify({ type: 'local_op_results', results: [], agent_text: agentResult }));
+        } else {
+          const results = await searchFilesForUserText(cmd.user_text, { exhaustive: !!cmd.exhaustive });
+          console.log('[local_op] result count:', results.length);
+          updateState({ fileResults: results });
+          await sendRaw(JSON.stringify({ type: 'local_op_results', results }));
+        }
       } catch (err) {
         console.error('[local_op] error:', err);
         updateState({ fileResults: [] });
-        await sendRaw(JSON.stringify({ type: 'local_op_results', results: [] }));
+        await sendRaw(JSON.stringify({ type: 'local_op_results', results: [], agent_text: '' }));
       }
       break;
     }

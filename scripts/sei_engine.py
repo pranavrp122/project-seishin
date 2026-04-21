@@ -1967,6 +1967,18 @@ async def handler(websocket):
                         await websocket.send(json.dumps({"type": "done"}))
                         continue
 
+                    # Email ops return agent_text from OpenClaw gog skill — speak it directly
+                    agent_text = result_msg.get("agent_text", "")
+                    if agent_text:
+                        spoken = agent_text
+                        history.append({"role": "assistant", "content": spoken})
+                        await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
+                        if tts_client:
+                            _tts_ce = asyncio.Event()
+                            await tts_full_response(websocket, spoken, tts_client, _tts_ce)
+                        await websocket.send(json.dumps({"type": "done"}))
+                        continue
+
                     count = len(results)
                     if count == 0:
                         spoken = f"(neutral) I didn't find anything matching that. Try different keywords."

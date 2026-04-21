@@ -15,6 +15,13 @@ import httpx
 from intent_prompt import INTENT_SYSTEM_PROMPT
 from text_utils import _strip_json_fences
 
+# Deterministic email → local_op fastpath (Gemma 4 misclassifies email as normal_chat)
+_EMAIL_PATTERNS = re.compile(
+    r"\b(email|emails|inbox|unread|gmail|my messages?|check mail|read mail"
+    r"|latest emails?|new emails?|last \d+ emails?|recent emails?)\b",
+    re.IGNORECASE,
+)
+
 # D-12 guardrail: deterministic verb/pattern set for re-routing low-confidence
 # normal_chat to follow_up_on_previous when active report exists.
 _FOLLOWUP_VERB_PATTERNS = re.compile(
@@ -153,6 +160,11 @@ async def classify_intent(
             + "\nUse this to resolve pronouns, references ('those', 'that'), and terse elliptical "
             "follow-ups like 'and 5 star?' or 'what about 4?' that reuse the prior filter/column."
         )
+
+    # Deterministic fastpath: email requests always → local_op before LLM
+    if _EMAIL_PATTERNS.search(user_text):
+        print(f"  Intent: local_op (email fastpath) for '{user_text[:50]}'")
+        return {"intent": "local_op", "data_query": None, "confidence": 1.0, "opening_phrase": "", "op_chain": None}
 
     messages = [{"role": "system", "content": INTENT_SYSTEM_PROMPT + prior_block}]
 

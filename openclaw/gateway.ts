@@ -395,7 +395,7 @@ export async function startOpenClaw(): Promise<boolean> {
   try {
     const command = Command.create('wsl', [
       '--', 'bash', '-c',
-      `. ~/.nvm/nvm.sh && openclaw gateway run --port ${OPENCLAW_PORT}`,
+      `. ~/.nvm/nvm.sh && [ -f ~/.profile ] && . ~/.profile; openclaw gateway run --port ${OPENCLAW_PORT}`,
     ]);
     command.on('error', (err: string) => {
       console.error('[openclaw] process error:', err);

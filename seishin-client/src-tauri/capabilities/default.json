@@ -15,6 +15,13 @@
       "allow": [{ "path": "**" }]
     },
     "http:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "http://127.0.0.1:18789/*" },
+        { "url": "http://localhost:18789/*" }
+      ]
+    },
     "shell:allow-spawn",
     "shell:allow-execute",
     {

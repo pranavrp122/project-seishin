@@ -381,6 +381,7 @@ export async function startOpenClaw(): Promise<boolean> {
     if (probe.ok) {
       console.log('[openclaw] reusing already-running instance');
       setStatus('healthy');
+      warmUpAgent();
       return true;
     }
   } catch { /* not running yet, proceed to spawn */ }
@@ -423,6 +424,7 @@ export async function startOpenClaw(): Promise<boolean> {
       if (resp.ok) {
         console.log('[openclaw] health check passed');
         setStatus('healthy');
+        warmUpAgent();
         return true;
       }
     } catch { /* expected during startup */ }
@@ -432,6 +434,35 @@ export async function startOpenClaw(): Promise<boolean> {
   console.error('[openclaw] health check timed out after', HEALTH_POLL_TIMEOUT_MS, 'ms');
   setStatus('failed');
   return false;
+}
+
+/**
+ * Fire-and-forget warmup ping — hits OpenClaw's /v1/chat/completions directly
+ * to pre-load the vLLM model weights and KV cache without engaging the agent
+ * loop (which does tool-consideration + skill-scanning and can exceed its own
+ * internal timeoutSeconds on a cold boot). Failures are non-fatal.
+ */
+function warmUpAgent(): void {
+  const start = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  fetch(`${OPENCLAW_BASE}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${__OPENCLAW_TOKEN__}`,
+    },
+    body: JSON.stringify({
+      model: 'openclaw',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 5,
+      stream: false,
+    }),
+    signal: controller.signal,
+  })
+    .then(() => console.log(`[openclaw] warmup completed in ${Date.now() - start}ms`))
+    .catch(err => console.warn('[openclaw] warmup failed (non-fatal):', err))
+    .finally(() => clearTimeout(timer));
 }
 
 export async function stopOpenClaw(): Promise<void> {

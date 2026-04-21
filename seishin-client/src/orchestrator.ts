@@ -75,10 +75,14 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
         // only if the agent returns nothing useful.
         console.log('[local_op] routing to OpenClaw agent');
         const isEmailOp = /\b(email|emails|inbox|unread|gmail|messages?|check mail|read mail)\b/i.test(cmd.user_text);
+        // Detect if user explicitly asked for a non-primary category/label so we
+        // don't override their intent (promotions/updates/social/all mail/etc).
+        const explicitCategory = /\b(promotions?|updates?|social|forums?|spam|trash|all (mail|inbox)|every (mail|email)|unread|starred|important)\b/i.test(cmd.user_text);
+        const inboxFilter = explicitCategory ? '' : ' Default to the PRIMARY inbox only (use query "in:inbox category:primary") unless the user explicitly asked for a different category.';
         const agentPrompt = isEmailOp
-          ? `Use the gog Gmail skill to handle this request. For listing emails use: gog gmail messages search with appropriate query. For reading content use --include-body flag. Request: ${cmd.user_text}`
+          ? `Use the gog Gmail skill to handle this request. For listing emails use: gog gmail messages search with appropriate query. For reading content use --include-body flag.${inboxFilter} Request: ${cmd.user_text}`
           : cmd.user_text;
-        const agentResult = await invokeOpenClawAgent(agentPrompt, { timeoutMs: 180_000 });
+        const agentResult = await invokeOpenClawAgent(agentPrompt, { timeoutMs: 300_000 });
         if (agentResult && agentResult.trim().length > 0) {
           await sendRaw(JSON.stringify({ type: 'local_op_results', results: [], agent_text: agentResult }));
         } else {

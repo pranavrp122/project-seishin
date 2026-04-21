@@ -162,6 +162,29 @@ html, body {
   display: inline;
 }
 
+.chat-bubble-loading {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 10px 14px;
+}
+
+.chat-loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9090a6;
+  animation: chat-loading-bounce 1.2s infinite ease-in-out both;
+}
+
+.chat-loading-dot:nth-child(1) { animation-delay: -0.32s; }
+.chat-loading-dot:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes chat-loading-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
 /* --- Interim Transcript (Listening indicator per D-09) --- */
 .interim-transcript {
   padding: 8px 16px;

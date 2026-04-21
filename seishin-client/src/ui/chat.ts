@@ -75,6 +75,21 @@ function renderMessages(state: typeof appState): void {
     chatContainer.appendChild(bubble);
   }
 
+  // Loading indicator: show as long as generation is in flight. Intent
+  // acknowledgements may arrive before the real answer, so keep the dots
+  // pinned to the bottom until sei_engine sends `done`/`interrupted`
+  // (which flips isGenerating off).
+  if (state.isGenerating) {
+    const loader = document.createElement('div');
+    loader.className = 'chat-bubble chat-bubble-companion chat-bubble-loading';
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement('span');
+      dot.className = 'chat-loading-dot';
+      loader.appendChild(dot);
+    }
+    chatContainer.appendChild(loader);
+  }
+
   // Auto-scroll the wrapper (contains both messages and file cards)
   if (scrollWrap) scrollWrap.scrollTop = scrollWrap.scrollHeight;
 

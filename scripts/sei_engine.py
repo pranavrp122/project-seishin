@@ -1951,7 +1951,7 @@ async def handler(websocket):
                     # Await the client's response. OpenClaw's agent drives everything
                     # on the Tauri side; we just wait for the final result envelope.
                     try:
-                        raw_result = await asyncio.wait_for(websocket.recv(), timeout=180.0)
+                        raw_result = await asyncio.wait_for(websocket.recv(), timeout=300.0)
                         result_msg = json.loads(raw_result) if isinstance(raw_result, str) else {}
                         if result_msg.get("type") == "local_op_results":
                             results = result_msg.get("results", [])
@@ -1967,16 +1967,34 @@ async def handler(websocket):
                         await websocket.send(json.dumps({"type": "done"}))
                         continue
 
-                    # Email ops return agent_text from OpenClaw gog skill — speak it directly
+                    # Email/local ops return agent_text from OpenClaw. Rephrase it
+                    # through Gemma so the voice/tone matches Seishin's system prompt
+                    # (emotion tags for Fish Speech, casual phrasing, no markdown).
                     agent_text = result_msg.get("agent_text", "")
                     if agent_text:
-                        spoken = agent_text
+                        rephrase_messages = [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            *history,
+                            {"role": "user", "content": user_text},
+                            {
+                                "role": "system",
+                                "content": (
+                                    "[INTERNAL: The tool returned the raw output below. "
+                                    "Respond to the user naturally as Seishin — keep the "
+                                    "facts exact, drop markdown/bullets, lead with an "
+                                    "emotion tag, and keep it concise enough to speak.]\n\n"
+                                    "Tool output:\n" + agent_text
+                                ),
+                            },
+                        ]
+                        _ce = asyncio.Event()
+                        spoken = await handle_llm_response(websocket, rephrase_messages, tts_client, _ce)
+                        if not spoken:
+                            # Fallback to raw output if LLM fails
+                            spoken = agent_text
+                            await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
+                            await websocket.send(json.dumps({"type": "done"}))
                         history.append({"role": "assistant", "content": spoken})
-                        await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
-                        if tts_client:
-                            _tts_ce = asyncio.Event()
-                            await tts_full_response(websocket, spoken, tts_client, _tts_ce)
-                        await websocket.send(json.dumps({"type": "done"}))
                         continue
 
                     count = len(results)

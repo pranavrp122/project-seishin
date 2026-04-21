@@ -74,7 +74,7 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
         // (gog for email, shell_exec for files, etc). Fall back to direct file search
         // only if the agent returns nothing useful.
         console.log('[local_op] routing to OpenClaw agent');
-        const agentResult = await invokeOpenClawAgent(cmd.user_text);
+        const agentResult = await invokeOpenClawAgent(cmd.user_text, { timeoutMs: 180_000 });
         if (agentResult && agentResult.trim().length > 0) {
           await sendRaw(JSON.stringify({ type: 'local_op_results', results: [], agent_text: agentResult }));
         } else {

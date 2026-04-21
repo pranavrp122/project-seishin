@@ -1951,7 +1951,7 @@ async def handler(websocket):
                     # Await the client's response. OpenClaw's agent drives everything
                     # on the Tauri side; we just wait for the final result envelope.
                     try:
-                        raw_result = await asyncio.wait_for(websocket.recv(), timeout=60.0)
+                        raw_result = await asyncio.wait_for(websocket.recv(), timeout=180.0)
                         result_msg = json.loads(raw_result) if isinstance(raw_result, str) else {}
                         if result_msg.get("type") == "local_op_results":
                             results = result_msg.get("results", [])

@@ -1,6 +1,8 @@
 import { renderChat } from './chat.ts';
 import { renderReportLog } from './report-log.ts';
 import { renderMetrics } from './metrics.ts';
+import { renderGmailConnect } from './gmail-connect.ts';
+import { renderEmailCards } from './email-cards.ts';
 
 /**
  * Text-mode layout — no waveform, no mic button.
@@ -43,6 +45,11 @@ export function renderLayout(parent: HTMLElement): void {
     navEls.push(btn);
     sideNav.appendChild(btn);
   }
+
+  const gmailConnectContainer = document.createElement('div');
+  gmailConnectContainer.className = 'side-nav-section';
+  renderGmailConnect(gmailConnectContainer);
+  sideNav.appendChild(gmailConnectContainer);
 
   parent.appendChild(sideNav);
 

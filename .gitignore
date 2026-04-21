@@ -16,3 +16,10 @@ dataset_pipeline/*.wav
 # Docker image tarballs (huge binary artifacts, never commit)
 *.tar.gz
 !dataset_pipeline/audio_wavs.tar.gz
+
+# OAuth credentials and tokens — never commit
+~/.sei/
+*.token.json
+gmail_token.json
+gmail_credentials.json
+client_secret_*.json

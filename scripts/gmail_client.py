@@ -7,12 +7,27 @@ Exports:
 """
 
 import os
+import subprocess
 from pathlib import Path
 
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+
+
+def _open_browser(url: str) -> None:
+    """Open URL in Windows Chrome from WSL."""
+    chrome_paths = [
+        "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+        "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+    ]
+    for path in chrome_paths:
+        if os.path.exists(path):
+            subprocess.Popen([path, url])
+            return
+    # Fallback: use Windows cmd to open default browser
+    subprocess.Popen(["cmd.exe", "/c", "start", url])
 
 # Read-only scope — Google API rejects all writes at credential level (Layer 1)
 _SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -44,6 +59,9 @@ def authenticate_gmail() -> Credentials:
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(_CLIENT_SECRETS_PATH), _SCOPES
             )
+            # Monkey-patch webbrowser.open so run_local_server opens Chrome on Windows
+            import webbrowser
+            webbrowser.open = lambda url, new=0, autoraise=True: _open_browser(url)
             creds = flow.run_local_server(port=0)
 
         # Save refreshed/new token
@@ -59,13 +77,25 @@ def _build_service():
     return build("gmail", "v1", credentials=creds)
 
 
-def list_inbox_messages(max_results: int = 10) -> list[dict]:
-    """List inbox message IDs. Returns list of {"id": str, "threadId": str}."""
+def list_inbox_messages(max_results: int = 10, label: str = "CATEGORY_PERSONAL") -> list[dict]:
+    """List inbox message IDs. Defaults to Primary tab unless label overridden."""
     service = _build_service()
     response = (
         service.users()
         .messages()
-        .list(userId="me", labelIds=["INBOX"], maxResults=max_results)
+        .list(userId="me", labelIds=["INBOX", label], maxResults=max_results)
+        .execute()
+    )
+    return response.get("messages", [])
+
+
+def search_messages(query: str, max_results: int = 5) -> list[dict]:
+    """Search all mail (all labels) using Gmail search query syntax."""
+    service = _build_service()
+    response = (
+        service.users()
+        .messages()
+        .list(userId="me", q=query, maxResults=max_results)
         .execute()
     )
     return response.get("messages", [])

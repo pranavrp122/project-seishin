@@ -1007,6 +1007,19 @@ async def handler(websocket):
                 if not user_text:
                     continue
 
+                # Gmail OAuth trigger — sent by Connect Gmail button in Tauri UI
+                if user_text == "__gmail_oauth_start__":
+                    try:
+                        import webbrowser
+                        from gmail_client import authenticate_gmail
+                        authenticate_gmail()
+                        await websocket.send(json.dumps({"type": "gmail_auth_status", "connected": True}))
+                        print("  [gmail] OAuth complete, token saved")
+                    except Exception as _e:
+                        print(f"  [gmail] OAuth failed: {_e}")
+                        await websocket.send(json.dumps({"type": "gmail_auth_status", "connected": False}))
+                    continue
+
                 # D-08: Normalize relative date references before any classification
                 user_text = _normalize_datetime(user_text)
 
@@ -1922,11 +1935,23 @@ async def handler(websocket):
                     continue
 
                 elif intent == "read_email":
-                    from gmail_client import list_inbox_messages, fetch_message
+                    from gmail_client import list_inbox_messages, fetch_message, search_messages
                     from email_sanitizer import sanitize_email_content, build_email_summary_prompt
 
                     try:
-                        messages_list = list_inbox_messages(max_results=10)
+                        # If user mentions specific keywords, search all mail; otherwise fetch primary inbox
+                        _stop_words = {"email", "emails", "inbox", "my", "the", "get", "check",
+                                       "read", "show", "find", "latest", "last", "recent", "a", "an"}
+                        _query_words = [w for w in user_text.lower().split() if w not in _stop_words and len(w) > 2]
+                        if _query_words:
+                            _query = " ".join(_query_words)
+                            print(f"  [read_email] searching: {_query}")
+                            messages_list = search_messages(query=_query, max_results=5)
+                            if not messages_list:
+                                # Fallback to inbox if search returns nothing
+                                messages_list = list_inbox_messages(max_results=10)
+                        else:
+                            messages_list = list_inbox_messages(max_results=10)
                         emails = []
                         for msg_meta in messages_list:
                             detail = fetch_message(msg_meta["id"])

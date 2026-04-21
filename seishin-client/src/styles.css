@@ -351,6 +351,29 @@ html, body {
   pointer-events: none;
 }
 
+/* Gmail Connect button */
+.gmail-connect-btn {
+  width: 100%;
+  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #1a1a24;
+  color: #6b6b80;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+.gmail-connect-btn:hover { color: #c0c0d0; background: #131320; }
+.gmail-connect-btn.gmail-connected { color: #4ade80; }
+.side-nav:not(.open) .gmail-connect-btn {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* Hide input + waveform when Report Log tab is active */
 .main-content.view-mode-log .input-bar,
 .main-content.view-mode-log .waveform-bar {

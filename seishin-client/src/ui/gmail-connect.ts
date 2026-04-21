@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import { onStateChange, appState } from '../state.ts';
 
 let connectBtn: HTMLButtonElement | null = null;
@@ -16,9 +15,11 @@ export function renderGmailConnect(parent: HTMLElement): void {
 
 async function handleConnect(): Promise<void> {
   try {
-    await invoke('gmail_oauth_start');
+    // Tell sei_engine to start the OAuth flow — it opens the browser and saves the token
+    const { sendMessage } = await import('../net/websocket.ts');
+    await sendMessage('__gmail_oauth_start__');
   } catch (err) {
-    console.error('[gmail-connect] OAuth invoke failed:', err);
+    console.error('[gmail-connect] OAuth start failed:', err);
   }
 }
 

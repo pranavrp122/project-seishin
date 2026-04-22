@@ -1,7 +1,7 @@
 import { connectionManager } from './net/connection.ts';
 import { updateState, addMessage, appState } from './state.ts';
 import { markResponseComplete, markResponseInterrupted } from './ui/chat.ts';
-import { SeiMessage, SeiLocalOpCommandMessage, SeiEmailListMessage, SeiGmailAuthStatusMessage, ReportLogEntry } from './types.ts';
+import { SeiMessage, SeiLocalOpCommandMessage, SeiEmailListMessage, SeiGmailAuthStatusMessage, EmailResult, ReportLogEntry } from './types.ts';
 import { addReportLogEntry } from './ui/report-log.ts';
 import { searchFilesForUserText, invokeOpenClawAgent } from '@openclaw/gateway.ts';
 import { sendRaw } from './net/websocket.ts';
@@ -79,12 +79,49 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
         // don't override their intent (promotions/updates/social/all mail/etc).
         const explicitCategory = /\b(promotions?|updates?|social|forums?|spam|trash|all (mail|inbox)|every (mail|email)|unread|starred|important)\b/i.test(cmd.user_text);
         const inboxFilter = explicitCategory ? '' : ' Default to the PRIMARY inbox only (use query "in:inbox category:primary") unless the user explicitly asked for a different category.';
+        const emailCardInstruction = ' At the end of your reply, also emit a fenced block exactly like: ```json-email-cards\n[{"id":"...", "sender":"...", "subject":"...", "snippet":"...", "timestamp":"..."}, ...]\n``` with one entry per message.';
         const agentPrompt = isEmailOp
-          ? `Use the gog Gmail skill to handle this request. For listing emails use: gog gmail messages search with appropriate query. For reading content use --include-body flag.${inboxFilter} Request: ${cmd.user_text}`
+          ? `Use the gog Gmail skill to handle this request. For listing emails use: gog gmail messages search with appropriate query. For reading content use --include-body flag.${inboxFilter}${emailCardInstruction} Request: ${cmd.user_text}`
           : cmd.user_text;
         const agentResult = await invokeOpenClawAgent(agentPrompt, { timeoutMs: 300_000 });
         if (agentResult && agentResult.trim().length > 0) {
-          await sendRaw(JSON.stringify({ type: 'local_op_results', results: [], agent_text: agentResult }));
+          let agentTextForRephrase = agentResult;
+
+          // Parse structured email cards from fenced block if this is an email op
+          if (isEmailOp) {
+            const fenceMatch = agentResult.match(/```json-email-cards\s*([\s\S]*?)```/);
+            if (fenceMatch) {
+              try {
+                const parsed = JSON.parse(fenceMatch[1]);
+                if (Array.isArray(parsed)) {
+                  const validated: EmailResult[] = parsed.filter(
+                    (r: unknown): r is EmailResult =>
+                      typeof r === 'object' && r !== null &&
+                      typeof (r as Record<string, unknown>).id === 'string' &&
+                      typeof (r as Record<string, unknown>).sender === 'string' &&
+                      typeof (r as Record<string, unknown>).subject === 'string' &&
+                      typeof (r as Record<string, unknown>).snippet === 'string' &&
+                      typeof (r as Record<string, unknown>).timestamp === 'string'
+                  );
+                  console.log('[local_op] parsed email cards:', validated.length);
+                  updateState({ emailResults: validated });
+                } else {
+                  console.warn('[local_op] json-email-cards block is not an array');
+                  updateState({ emailResults: [] });
+                }
+              } catch (parseErr) {
+                console.warn('[local_op] failed to parse json-email-cards:', parseErr);
+                updateState({ emailResults: [] });
+              }
+              // Strip the fenced block so it doesn't leak into the spoken rephrase
+              agentTextForRephrase = agentResult.replace(/```json-email-cards\s*[\s\S]*?```/, '').trim();
+            } else {
+              // No fenced block found — clear cards, agent_text still flows
+              updateState({ emailResults: [] });
+            }
+          }
+
+          await sendRaw(JSON.stringify({ type: 'local_op_results', results: [], agent_text: agentTextForRephrase }));
         } else {
           // Agent returned empty — fall back to file search
           console.log('[local_op] agent returned empty, falling back to file search');

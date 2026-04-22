@@ -11,7 +11,7 @@ import numpy as np
 
 OUT_DIR = Path("/home/prana/tts-test/outputs/s2pro_streaming")
 HF_REPO = "EternalFlame549/archie-voice-test-clips"
-HF_TOKEN = "REDACTED_HF_TOKEN"
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 API_URL = "http://127.0.0.1:8080/v1/tts"
 REFERENCE_ID = "archie"  # Pre-registered reference, avoids re-encoding VQ each request
 

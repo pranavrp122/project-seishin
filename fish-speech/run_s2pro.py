@@ -13,7 +13,7 @@ REF_AUDIO = Path("/home/prana/project-seishin/dataset_pipeline/master_seed.wav")
 REF_TEXT  = "Beautiful flowers always have thorns, and as for feeling protective... I sometimes get consumed by that, too. But I know that she's a softie deep down. After all, she and March are flowers that bloomed from the same seed."
 OUT_DIR   = Path("/home/prana/tts-test/outputs/s2pro")
 HF_REPO   = "EternalFlame549/archie-voice-test-clips"
-HF_TOKEN  = "REDACTED_HF_TOKEN"
+HF_TOKEN  = os.environ.get("HF_TOKEN", "")
 API_URL   = "http://127.0.0.1:8080/v1/tts"
 
 # S2 Pro uses inline [tag] for emotion

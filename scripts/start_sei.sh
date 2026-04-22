@@ -18,8 +18,8 @@ export SEI_DEV_MODE="${SEI_DEV_MODE:-1}"
 export SEI_LLM_URL="${SEI_LLM_URL:-http://<SERVER_IP>:8000}"
 
 # gog Gmail CLI — keyring password required for non-interactive use
-export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-seishin-gog-local}"
-export GOG_ACCOUNT="${GOG_ACCOUNT:-pranavpatlola@gmail.com}"
+export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD}"
+export GOG_ACCOUNT="${GOG_ACCOUNT}"
 
 source "$VENV/bin/activate"
 cd "$SCRIPT_DIR"

@@ -2006,8 +2006,8 @@ async def handler(websocket):
                         _ce = asyncio.Event()
                         spoken = await handle_llm_response(websocket, rephrase_messages, tts_client, _ce)
                         if not spoken:
-                            # Fallback to raw output if LLM fails
-                            spoken = agent_text
+                            # Fallback: use sanitized text for email ops, raw for others
+                            spoken = sanitized if is_email_op else agent_text
                             await websocket.send(json.dumps({"type": "sentence", "text": spoken}))
                             await websocket.send(json.dumps({"type": "done"}))
                         history.append({"role": "assistant", "content": spoken})

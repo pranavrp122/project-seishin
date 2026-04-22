@@ -6,6 +6,7 @@ Exports:
 """
 
 import re
+import unicodedata
 
 # Patterns that indicate prompt injection attempts in email bodies
 _INJECTION_PATTERNS = [
@@ -38,6 +39,14 @@ def sanitize_email_content(body: str, max_length: int = 4000) -> str:
 
     Strips injection patterns, HTML tags, truncates to prevent context overflow.
     """
+    # 0a. NFKC normalization: collapses full-width chars and homoglyphs to ASCII equivalents
+    body = unicodedata.normalize('NFKC', body)
+
+    # 0b. Strip zero-width characters that can split tokens and bypass regex patterns
+    # U+200B ZWSP, U+200C ZWNJ, U+200D ZWJ, U+FEFF BOM/ZWNBSP, U+00AD soft hyphen
+    _ZERO_WIDTH = '​‌‍﻿­'
+    body = body.translate(str.maketrans('', '', _ZERO_WIDTH))
+
     # 1. Truncate to prevent context overflow attacks
     sanitized = body[:max_length]
 

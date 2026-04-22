@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seishin E2E Test Harness</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; padding: 16px; }
+    .email-cards-container { max-width: 600px; }
+    .email-cards-header { font-size: 14px; color: #aaa; margin-bottom: 8px; }
+    .email-cards-list { display: flex; flex-direction: column; gap: 8px; }
+    .email-card { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 12px; }
+    .email-card-sender { font-weight: 600; font-size: 14px; color: #e94560; }
+    .email-card-subject { font-size: 13px; color: #e0e0e0; margin-top: 4px; }
+    .email-card-snippet { font-size: 12px; color: #888; margin-top: 4px; }
+    .email-card-time { font-size: 11px; color: #555; margin-top: 6px; }
+    .gmail-connect-btn { padding: 8px 16px; border: 1px solid #0f3460; border-radius: 6px; background: #16213e; color: #e0e0e0; cursor: pointer; margin-bottom: 16px; }
+    .gmail-connect-btn.gmail-connected { border-color: #2ecc71; color: #2ecc71; }
+    .side-nav-section { margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    /**
+     * Minimal reproduction of state.ts, email-cards.ts, gmail-connect.ts.
+     * Uses the EXACT same DOM construction patterns (textContent, not innerHTML).
+     * Exposed on window.__testHooks for Playwright injection.
+     */
+
+    // -- State (mirrors state.ts) --
+    const listeners = [];
+    const appState = {
+      emailResults: [],
+      gmailConnected: false,
+    };
+
+    function updateState(partial) {
+      Object.assign(appState, partial);
+      listeners.forEach(fn => fn(appState));
+    }
+
+    function onStateChange(fn) {
+      listeners.push(fn);
+      return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); };
+    }
+
+    // -- Email Cards (mirrors email-cards.ts exactly) --
+    let cardsContainer = null;
+
+    function renderEmailCards(parent) {
+      cardsContainer = document.createElement('div');
+      cardsContainer.className = 'email-cards-container';
+      parent.appendChild(cardsContainer);
+      onStateChange(renderCards);
+      renderCards(appState);
+    }
+
+    function renderCards(state) {
+      if (!cardsContainer) return;
+      while (cardsContainer.firstChild) cardsContainer.removeChild(cardsContainer.firstChild);
+
+      if (!state.emailResults || state.emailResults.length === 0) {
+        cardsContainer.style.display = 'none';
+        return;
+      }
+      cardsContainer.style.display = 'block';
+
+      const header = document.createElement('div');
+      header.className = 'email-cards-header';
+      const n = state.emailResults.length;
+      header.textContent = `${n} email${n !== 1 ? 's' : ''}`;
+      cardsContainer.appendChild(header);
+
+      const list = document.createElement('div');
+      list.className = 'email-cards-list';
+      for (const e of state.emailResults) list.appendChild(buildCard(e));
+      cardsContainer.appendChild(list);
+    }
+
+    function buildCard(email) {
+      const card = document.createElement('div');
+      card.className = 'email-card';
+
+      const sender = document.createElement('div');
+      sender.className = 'email-card-sender';
+      sender.textContent = email.sender;
+      card.appendChild(sender);
+
+      const subject = document.createElement('div');
+      subject.className = 'email-card-subject';
+      subject.textContent = email.subject;
+      card.appendChild(subject);
+
+      const snippet = document.createElement('div');
+      snippet.className = 'email-card-snippet';
+      snippet.textContent = email.snippet.length > 120
+        ? email.snippet.slice(0, 120) + '...'
+        : email.snippet;
+      card.appendChild(snippet);
+
+      const time = document.createElement('div');
+      time.className = 'email-card-time';
+      time.textContent = email.timestamp;
+      card.appendChild(time);
+
+      return card;
+    }
+
+    // -- Gmail Connect (mirrors gmail-connect.ts exactly) --
+    let connectBtn = null;
+
+    function renderGmailConnect(parent) {
+      connectBtn = document.createElement('button');
+      connectBtn.className = 'gmail-connect-btn';
+      updateButtonLabel(appState.gmailConnected);
+      connectBtn.addEventListener('click', () => {
+        window.dispatchEvent(new CustomEvent('gmail-connect-clicked'));
+      });
+      parent.appendChild(connectBtn);
+      onStateChange((state) => updateButtonLabel(state.gmailConnected));
+    }
+
+    function updateButtonLabel(connected) {
+      if (!connectBtn) return;
+      if (connected) {
+        connectBtn.textContent = 'Connected ✓';
+        connectBtn.classList.add('gmail-connected');
+      } else {
+        connectBtn.textContent = 'Connect Gmail';
+        connectBtn.classList.remove('gmail-connected');
+      }
+    }
+
+    // -- parseEmailCards (mirrors orchestrator.ts lines 22-42 exactly) --
+    function parseEmailCards(text) {
+      const fenceMatch = text.match(/```json-email-cards\s*([\s\S]*?)```/);
+      if (!fenceMatch) return { cards: [], cleanText: text };
+      try {
+        const parsed = JSON.parse(fenceMatch[1]);
+        if (!Array.isArray(parsed)) return { cards: [], cleanText: text };
+        const cards = parsed.filter(
+          (r) =>
+            typeof r === 'object' && r !== null &&
+            typeof r.id === 'string' &&
+            typeof r.sender === 'string' &&
+            typeof r.subject === 'string' &&
+            typeof r.snippet === 'string' &&
+            typeof r.timestamp === 'string'
+        );
+        const cleanText = text.replace(/```json-email-cards\s*[\s\S]*?```/, '').trim();
+        return { cards, cleanText };
+      } catch {
+        return { cards: [], cleanText: text };
+      }
+    }
+
+    // -- Bootstrap --
+    const app = document.getElementById('app');
+
+    const gmailSection = document.createElement('div');
+    gmailSection.className = 'side-nav-section';
+    renderGmailConnect(gmailSection);
+    app.appendChild(gmailSection);
+
+    renderEmailCards(app);
+
+    // -- Test hooks (exposed for Playwright page.evaluate) --
+    window.__testHooks = {
+      updateState,
+      appState,
+      parseEmailCards,
+    };
+  </script>
+</body>
+</html>

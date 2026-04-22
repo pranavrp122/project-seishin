@@ -18,6 +18,29 @@ export function initOrchestrator(): void {
   connectionManager.onSeiBinary = () => {}; // ignore audio in text mode
 }
 
+/** Extract structured email cards from a fenced json-email-cards block. Never throws. */
+function parseEmailCards(text: string): { cards: EmailResult[]; cleanText: string } {
+  const fenceMatch = text.match(/```json-email-cards\s*([\s\S]*?)```/);
+  if (!fenceMatch) return { cards: [], cleanText: text };
+  try {
+    const parsed = JSON.parse(fenceMatch[1]);
+    if (!Array.isArray(parsed)) return { cards: [], cleanText: text };
+    const cards: EmailResult[] = parsed.filter(
+      (r: unknown): r is EmailResult =>
+        typeof r === 'object' && r !== null &&
+        typeof (r as Record<string, unknown>).id === 'string' &&
+        typeof (r as Record<string, unknown>).sender === 'string' &&
+        typeof (r as Record<string, unknown>).subject === 'string' &&
+        typeof (r as Record<string, unknown>).snippet === 'string' &&
+        typeof (r as Record<string, unknown>).timestamp === 'string'
+    );
+    const cleanText = text.replace(/```json-email-cards\s*[\s\S]*?```/, '').trim();
+    return { cards, cleanText };
+  } catch {
+    return { cards: [], cleanText: text };
+  }
+}
+
 async function handleControlFrame(msg: SeiMessage): Promise<void> {
   switch (msg.type) {
     case 'transcript': {
@@ -89,36 +112,10 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
 
           // Parse structured email cards from fenced block if this is an email op
           if (isEmailOp) {
-            const fenceMatch = agentResult.match(/```json-email-cards\s*([\s\S]*?)```/);
-            if (fenceMatch) {
-              try {
-                const parsed = JSON.parse(fenceMatch[1]);
-                if (Array.isArray(parsed)) {
-                  const validated: EmailResult[] = parsed.filter(
-                    (r: unknown): r is EmailResult =>
-                      typeof r === 'object' && r !== null &&
-                      typeof (r as Record<string, unknown>).id === 'string' &&
-                      typeof (r as Record<string, unknown>).sender === 'string' &&
-                      typeof (r as Record<string, unknown>).subject === 'string' &&
-                      typeof (r as Record<string, unknown>).snippet === 'string' &&
-                      typeof (r as Record<string, unknown>).timestamp === 'string'
-                  );
-                  console.log('[local_op] parsed email cards:', validated.length);
-                  updateState({ emailResults: validated });
-                } else {
-                  console.warn('[local_op] json-email-cards block is not an array');
-                  updateState({ emailResults: [] });
-                }
-              } catch (parseErr) {
-                console.warn('[local_op] failed to parse json-email-cards:', parseErr);
-                updateState({ emailResults: [] });
-              }
-              // Strip the fenced block so it doesn't leak into the spoken rephrase
-              agentTextForRephrase = agentResult.replace(/```json-email-cards\s*[\s\S]*?```/, '').trim();
-            } else {
-              // No fenced block found — clear cards, agent_text still flows
-              updateState({ emailResults: [] });
-            }
+            const { cards, cleanText } = parseEmailCards(agentResult);
+            console.log('[local_op] parsed email cards:', cards.length);
+            updateState({ emailResults: cards });
+            agentTextForRephrase = cleanText;
           }
 
           await sendRaw(JSON.stringify({ type: 'local_op_results', results: [], agent_text: agentTextForRephrase }));

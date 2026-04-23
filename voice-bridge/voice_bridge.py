@@ -465,6 +465,11 @@ async def _outbound_handler(
                         dur_ms = len(pcm) / 2 / VAD_RATE * 1000
                         print(f"[{tag}] speech_end: {dur_ms:.0f}ms captured", flush=True)
 
+                        # Save incoming speech for diagnostics
+                        _n = len([f for f in __import__('os').listdir('/tmp') if f.startswith(f'vb_user_{call_id[:8]}')])
+                        with open(f"/tmp/vb_user_{call_id[:8]}_{_n}.wav", "wb") as _f:
+                            _f.write(_build_wav(pcm, VAD_RATE))
+
                         # Transcribe
                         t1 = time.perf_counter()
                         transcript = await _transcribe(pcm, asr_client)

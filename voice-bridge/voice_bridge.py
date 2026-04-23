@@ -392,12 +392,16 @@ async def _outbound_handler(
 
     async def _speak(text: str) -> None:
         nonlocal ai_speaking
-        await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
-        ai_speaking = True
-        await _tts_stream(text, client_ws, log, tts_cancel)
-        if not tts_cancel.is_set():
-            await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
-        ai_speaking = False
+        try:
+            await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
+            ai_speaking = True
+            await _tts_stream(text, client_ws, log, tts_cancel)
+            if not tts_cancel.is_set():
+                await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        finally:
+            ai_speaking = False
 
     async def _cancel_tts() -> None:
         nonlocal tts_cancel, tts_task, ai_speaking

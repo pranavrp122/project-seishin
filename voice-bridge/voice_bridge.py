@@ -568,10 +568,10 @@ async def _outbound_handler(
                         tts_task = asyncio.create_task(_speak(clean_reply))
 
                         if end_call:
-                            print(f"[{tag}] END_CALL — waiting for goodbye audio", flush=True)
-                            await tts_task
-                            await asyncio.sleep(1.0)
+                            print(f"[{tag}] END_CALL — waiting for goodbye TTS to finish streaming", flush=True)
+                            await tts_task  # waits until _speak has streamed all audio + sent speaking=end
                             await client_ws.send(json.dumps({"type": "end_call"}))
+                            print(f"[{tag}] end_call frame sent → bridge will hang up Twilio", flush=True)
                             return
 
             # ── Control frames ──

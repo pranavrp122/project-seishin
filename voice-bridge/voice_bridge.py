@@ -332,7 +332,7 @@ async def _tts_stream(
 
                     if prev:
                         log.add_audio(prev)
-                        await client_ws.send(prev)
+                        await asyncio.shield(client_ws.send(prev))
                     prev = bytes(chunk)
 
                 if not cancel.is_set() and prev:
@@ -405,8 +405,9 @@ async def _outbound_handler(
             tts_cancel.set()
             tts_task.cancel()
             try:
-                await asyncio.wait_for(asyncio.shield(tts_task), timeout=0.3)
-            except Exception:
+                # CancelledError is BaseException not Exception — catch it explicitly
+                await asyncio.wait_for(asyncio.shield(tts_task), timeout=1.5)
+            except (asyncio.CancelledError, Exception):
                 pass
         tts_cancel  = asyncio.Event()
         ai_speaking = False
@@ -424,7 +425,8 @@ async def _outbound_handler(
     print(f"[{tag}] greeting ({(time.perf_counter()-t0)*1000:.0f}ms): {greeting[:80]}", flush=True)
 
     await client_ws.send(json.dumps({"type": "reply", "text": greeting}))
-    await _speak(greeting)
+    # Run greeting TTS as a task so the receive loop can handle barge_in immediately
+    tts_task = asyncio.create_task(_speak(greeting))
 
     # ── Conversation loop ────────────────────────────────────────────────────
     speech_buf: list[bytes] = []

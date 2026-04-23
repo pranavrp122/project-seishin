@@ -312,6 +312,8 @@ async def _tts_stream(
                 hdr_buf:   bytearray   = bytearray()
                 pcm_start: int | None  = None
                 prev:      bytes | None = None
+                t_tts_req = time.perf_counter()
+                first_chunk_logged = False
 
                 async for chunk in resp.aiter_bytes():
                     if cancel.is_set():
@@ -331,6 +333,9 @@ async def _tts_stream(
                         continue
 
                     if prev:
+                        if not first_chunk_logged:
+                            print(f"  TTS first chunk: {(time.perf_counter()-t_tts_req)*1000:.0f}ms", flush=True)
+                            first_chunk_logged = True
                         log.add_audio(prev)
                         await asyncio.shield(client_ws.send(prev))
                     prev = bytes(chunk)
@@ -411,6 +416,7 @@ async def _outbound_handler(
     async def _cancel_tts() -> None:
         nonlocal tts_cancel, tts_task, ai_speaking
         if tts_task and not tts_task.done():
+            t_cancel = time.perf_counter()
             tts_cancel.set()
             tts_task.cancel()
             try:
@@ -418,6 +424,7 @@ async def _outbound_handler(
                 await asyncio.wait_for(asyncio.shield(tts_task), timeout=1.5)
             except (asyncio.CancelledError, Exception):
                 pass
+            print(f"  TTS cancel: {(time.perf_counter()-t_cancel)*1000:.0f}ms", flush=True)
         tts_cancel  = asyncio.Event()
         ai_speaking = False
 
@@ -473,14 +480,15 @@ async def _outbound_handler(
                             _f.write(_build_wav(pcm, VAD_RATE))
 
                         # Transcribe
+                        t0_turn = time.perf_counter()
                         t1 = time.perf_counter()
                         transcript = await _transcribe(pcm, asr_client)
+                        asr_ms = (time.perf_counter() - t1) * 1000
                         if not transcript:
                             continue
 
                         # Only cancel TTS once we know the user actually said something
                         await _cancel_tts()
-                        asr_ms = (time.perf_counter() - t1) * 1000
                         print(f"[{tag}] user ({asr_ms:.0f}ms ASR): {transcript}", flush=True)
 
                         log.add_turn("user", transcript)
@@ -499,6 +507,7 @@ async def _outbound_handler(
                         log.add_turn("ai", reply)
                         await client_ws.send(json.dumps({"type": "reply", "text": reply}))
 
+                        print(f"[{tag}] pipeline: {(time.perf_counter()-t0_turn)*1000:.0f}ms (ASR+cancel+LLM before TTS)", flush=True)
                         # TTS as background task so audio frames keep flowing
                         tts_task = asyncio.create_task(_speak(reply))
 

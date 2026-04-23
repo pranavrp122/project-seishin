@@ -22,13 +22,12 @@ docker run \
         --served-model-name gemma-4 \
         --host 0.0.0.0 \
         --port "$PORT" \
-        --quantization fp8 \
         --dtype auto \
         --kv-cache-dtype fp8 \
-        --gpu-memory-utilization 0.92 \
-        --max-model-len 65536 \
+        --gpu-memory-utilization 0.98 \
+        --max-model-len 131072 \
         --max-num-seqs 4 \
         --enable-auto-tool-choice \
-        --tool-call-parser gemma-4 \
+        --tool-call-parser gemma4 \
         --api-key "${VLLM_API_KEY}" \
         --trust-remote-code

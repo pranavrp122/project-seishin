@@ -5,6 +5,7 @@ import { renderStatus } from './ui/status.ts';
 import { renderLayout } from './ui/layout.ts';
 import { initOrchestrator } from './orchestrator.ts';
 import { startOpenClaw, stopOpenClaw } from '@openclaw/gateway.ts';
+import { stopVAD } from './audio/vad.ts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 declare const __SEI_AUTH_TOKEN__: string;
@@ -26,6 +27,7 @@ async function onConnected(): Promise<void> {
 }
 
 async function onDisconnected(): Promise<void> {
+  stopVAD();
   updateState({ isGenerating: false, interimTranscript: '' });
   showConnectScreen();
   if (mainContainer) mainContainer.style.display = 'none';

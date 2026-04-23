@@ -5,6 +5,8 @@ import { SeiMessage, SeiLocalOpCommandMessage, SeiEmailListMessage, SeiGmailAuth
 import { addReportLogEntry } from './ui/report-log.ts';
 import { searchFilesForUserText, invokeOpenClawAgent } from '@openclaw/gateway.ts';
 import { sendRaw } from './net/websocket.ts';
+import { initPlayback, enqueuePCM, clearPlayback } from './audio/playback.ts';
+import { startVAD } from './audio/vad.ts';
 
 let messageSentAt = 0;
 
@@ -15,7 +17,9 @@ export function setMessageSentTimestamp(t: number): void {
 
 export function initOrchestrator(): void {
   connectionManager.onSeiMessage = handleControlFrame;
-  connectionManager.onSeiBinary = () => {}; // ignore audio in text mode
+  connectionManager.onSeiBinary = (data: Uint8Array) => enqueuePCM(data);
+  initPlayback();
+  startVAD();
 }
 
 /** Extract structured email cards from a fenced json-email-cards block. Never throws. */
@@ -66,6 +70,7 @@ async function handleControlFrame(msg: SeiMessage): Promise<void> {
     case 'interrupted': {
       updateState({ isGenerating: false });
       markResponseInterrupted();
+      clearPlayback();
       messageSentAt = 0;
       break;
     }

@@ -390,7 +390,7 @@ async def _outbound_handler(
     tts_task:  asyncio.Task | None = None
     ai_speaking   = False
     greeting_done = False   # barge-in blocked until greeting TTS finishes
-    tts_start_time: float = 0.0  # when current TTS began; barge-in needs 1s minimum
+    tts_start_time: float = float("inf")  # when current TTS began; barge-in needs 1s minimum
 
     async def _speak(text: str, is_greeting: bool = False) -> None:
         nonlocal ai_speaking, greeting_done, tts_start_time

@@ -455,7 +455,6 @@ async def _outbound_handler(
                     elif event == "speech_end":
                         if not speech_buf:
                             continue
-                        await _cancel_tts()  # ensure TTS not still running
 
                         pcm = b"".join(speech_buf)
                         speech_buf.clear()
@@ -465,6 +464,9 @@ async def _outbound_handler(
                         transcript = await _transcribe(pcm, asr_client)
                         if not transcript:
                             continue
+
+                        # Only cancel TTS once we know the user actually said something
+                        await _cancel_tts()
                         asr_ms = (time.perf_counter() - t1) * 1000
                         print(f"[{tag}] user ({asr_ms:.0f}ms ASR): {transcript}", flush=True)
 

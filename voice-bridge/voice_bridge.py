@@ -46,7 +46,7 @@ LLM_MODEL      = os.environ.get("SEI_MODEL_NAME",   "gemma-4")
 LLM_MAX_TOKENS = int(os.environ.get("SEI_MAX_TOKENS", "300"))
 TTS_URL        = os.environ.get("SEI_TTS_URL",      "http://127.0.0.1:8080")
 TTS_REFERENCE  = os.environ.get("TTS_REFERENCE_ID", "archie")
-TTS_CHUNK_LEN  = int(os.environ.get("TTS_CHUNK_LENGTH", "100"))
+TTS_CHUNK_LEN  = int(os.environ.get("TTS_CHUNK_LENGTH", "50"))
 ASR_URL        = os.environ.get("SEI_ASR_URL",      "http://127.0.0.1:9876")
 
 # Common
@@ -60,7 +60,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 VAD_CHUNK    = 512
 VAD_RATE     = 16000
 VAD_THRESH   = 0.5
-VAD_SILENCE  = 32    # frames of silence → speech_end  (~1s)
+VAD_SILENCE  = 19    # frames of silence → speech_end  (~600ms)
 VAD_MIN_SPCH = 5     # min speech frames before speech_start (~160ms)
 
 # Greeting trigger injected as synthetic user turn
@@ -231,7 +231,7 @@ if LLM_API_KEY:
     _LLM_HEADERS["Authorization"] = f"Bearer {LLM_API_KEY}"
 
 
-async def _llm_collect(messages: list[dict], cancel: asyncio.Event) -> str:
+async def _llm_collect(messages: list[dict], cancel: asyncio.Event, http: httpx.AsyncClient | None = None) -> str:
     """Call vLLM, collect and return the complete response text."""
     payload = json.dumps({
         "model":       LLM_MODEL,
@@ -243,34 +243,37 @@ async def _llm_collect(messages: list[dict], cancel: asyncio.Event) -> str:
     }).encode()
 
     parts: list[str] = []
-    async with httpx.AsyncClient() as c:
-        try:
-            async with c.stream(
-                "POST", f"{LLM_URL}/v1/chat/completions",
-                content=payload,
-                headers=_LLM_HEADERS,
-                timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
-            ) as resp:
-                if resp.status_code != 200:
-                    body = await resp.aread()
-                    print(f"  LLM error {resp.status_code}: {body.decode()[:200]}", flush=True)
-                    return ""
-                async for line in resp.aiter_lines():
-                    if cancel.is_set():
-                        return "".join(parts).strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        tok = json.loads(data)["choices"][0]["delta"].get("content", "")
-                        if tok:
-                            parts.append(tok)
-                    except Exception:
-                        pass
-        except Exception as e:
-            print(f"  LLM exception: {e}", flush=True)
+    c = http or httpx.AsyncClient()
+    try:
+        async with c.stream(
+            "POST", f"{LLM_URL}/v1/chat/completions",
+            content=payload,
+            headers=_LLM_HEADERS,
+            timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
+        ) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                print(f"  LLM error {resp.status_code}: {body.decode()[:200]}", flush=True)
+                return ""
+            async for line in resp.aiter_lines():
+                if cancel.is_set():
+                    return "".join(parts).strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    tok = json.loads(data)["choices"][0]["delta"].get("content", "")
+                    if tok:
+                        parts.append(tok)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"  LLM exception: {e}", flush=True)
+    finally:
+        if http is None:
+            await c.aclose()
 
     return "".join(parts).strip()
 
@@ -280,6 +283,7 @@ async def _tts_stream(
     client_ws,
     log: CallLog,
     cancel: asyncio.Event,
+    http: httpx.AsyncClient | None = None,
 ) -> None:
     """Synthesize text with Fish Speech and stream raw PCM16 44100Hz to client."""
     import msgpack
@@ -296,58 +300,61 @@ async def _tts_stream(
         "max_new_tokens":     1024,
     })
 
-    async with httpx.AsyncClient() as c:
-        try:
-            async with c.stream(
-                "POST", f"{TTS_URL}/v1/tts",
-                content=payload,
-                headers={"Content-Type": "application/msgpack"},
-                timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
-            ) as resp:
-                if resp.status_code != 200:
-                    body = await resp.aread()
-                    print(f"  TTS error {resp.status_code}: {body.decode()[:200]}", flush=True)
+    c = http or httpx.AsyncClient()
+    try:
+        async with c.stream(
+            "POST", f"{TTS_URL}/v1/tts",
+            content=payload,
+            headers={"Content-Type": "application/msgpack"},
+            timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
+        ) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                print(f"  TTS error {resp.status_code}: {body.decode()[:200]}", flush=True)
+                return
+
+            hdr_buf:   bytearray    = bytearray()
+            pcm_start: int | None   = None
+            prev:      bytes | None = None
+            t_tts_req = time.perf_counter()
+            first_chunk_logged = False
+
+            async for chunk in resp.aiter_bytes():
+                if cancel.is_set():
                     return
 
-                hdr_buf:   bytearray   = bytearray()
-                pcm_start: int | None  = None
-                prev:      bytes | None = None
-                t_tts_req = time.perf_counter()
-                first_chunk_logged = False
-
-                async for chunk in resp.aiter_bytes():
-                    if cancel.is_set():
-                        return
-
+                if pcm_start is None:
+                    hdr_buf.extend(chunk)
+                    pcm_start = _wav_pcm_offset(hdr_buf)
                     if pcm_start is None:
-                        hdr_buf.extend(chunk)
-                        pcm_start = _wav_pcm_offset(hdr_buf)
-                        if pcm_start is None:
-                            if len(hdr_buf) > 1024:
-                                pcm_start = 44  # fallback: standard WAV header size
-                            else:
-                                continue
-                        remainder = bytes(hdr_buf[pcm_start:])
-                        if remainder:
-                            prev = remainder
-                        continue
+                        if len(hdr_buf) > 1024:
+                            pcm_start = 44
+                        else:
+                            continue
+                    remainder = bytes(hdr_buf[pcm_start:])
+                    if remainder:
+                        prev = remainder
+                    continue
 
-                    if prev:
-                        if not first_chunk_logged:
-                            print(f"  TTS first chunk: {(time.perf_counter()-t_tts_req)*1000:.0f}ms", flush=True)
-                            first_chunk_logged = True
-                        log.add_audio(prev)
-                        await asyncio.shield(client_ws.send(prev))
-                    prev = bytes(chunk)
-
-                if not cancel.is_set() and prev:
+                if prev:
+                    if not first_chunk_logged:
+                        print(f"  TTS first chunk: {(time.perf_counter()-t_tts_req)*1000:.0f}ms", flush=True)
+                        first_chunk_logged = True
                     log.add_audio(prev)
-                    await client_ws.send(prev)
+                    await asyncio.shield(client_ws.send(prev))
+                prev = bytes(chunk)
 
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            print(f"  TTS exception: {e}", flush=True)
+            if not cancel.is_set() and prev:
+                log.add_audio(prev)
+                await client_ws.send(prev)
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        print(f"  TTS exception: {e}", flush=True)
+    finally:
+        if http is None:
+            await c.aclose()
 
 
 async def _transcribe(pcm_bytes: bytes, asr_client: httpx.AsyncClient) -> str:
@@ -403,7 +410,7 @@ async def _outbound_handler(
             await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
             ai_speaking = True
             tts_start_time = time.perf_counter()
-            await _tts_stream(text, client_ws, log, tts_cancel)
+            await _tts_stream(text, client_ws, log, tts_cancel, http=tts_client)
             if not tts_cancel.is_set():
                 await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
         except websockets.exceptions.ConnectionClosed:
@@ -428,26 +435,32 @@ async def _outbound_handler(
         tts_cancel  = asyncio.Event()
         ai_speaking = False
 
-    # ── Greeting ────────────────────────────────────────────────────────────
-    t0 = time.perf_counter()
-    greeting = await _llm_collect(
-        history + [{"role": "user", "content": _GREETING_TRIGGER}],
-        tts_cancel,
-    )
-    if not greeting:
-        greeting = f"Hello, this is Miyo calling on Pranaav's behalf. Is this {contact_name}?"
-    history.append({"role": "assistant", "content": greeting})
-    log.add_turn("ai", greeting)
-    print(f"[{tag}] greeting ({(time.perf_counter()-t0)*1000:.0f}ms): {greeting[:80]}", flush=True)
+    # ── Shared HTTP clients (reused across all turns) ───────────────────────
+    async with (
+        httpx.AsyncClient() as asr_client,
+        httpx.AsyncClient() as llm_client,
+        httpx.AsyncClient() as tts_client,
+    ):
 
-    await client_ws.send(json.dumps({"type": "reply", "text": greeting}))
-    # Run greeting TTS as a task so the receive loop can handle barge_in immediately
-    tts_task = asyncio.create_task(_speak(greeting, is_greeting=True))
+        # ── Greeting ────────────────────────────────────────────────────────
+        t0 = time.perf_counter()
+        greeting = await _llm_collect(
+            history + [{"role": "user", "content": _GREETING_TRIGGER}],
+            tts_cancel,
+            http=llm_client,
+        )
+        if not greeting:
+            greeting = f"Hello, this is Miyo calling on Pranaav's behalf. Is this {contact_name}?"
+        history.append({"role": "assistant", "content": greeting})
+        log.add_turn("ai", greeting)
+        print(f"[{tag}] greeting ({(time.perf_counter()-t0)*1000:.0f}ms): {greeting[:80]}", flush=True)
 
-    # ── Conversation loop ────────────────────────────────────────────────────
-    speech_buf: list[bytes] = []
+        await client_ws.send(json.dumps({"type": "reply", "text": greeting}))
+        tts_task = asyncio.create_task(_speak(greeting, is_greeting=True))
 
-    async with httpx.AsyncClient() as asr_client:
+        # ── Conversation loop ────────────────────────────────────────────────
+        speech_buf: list[bytes] = []
+
         async for frame in client_ws:
 
             # ── Incoming audio ──
@@ -497,7 +510,7 @@ async def _outbound_handler(
                         # LLM
                         history.append({"role": "user", "content": transcript})
                         t2 = time.perf_counter()
-                        reply = await _llm_collect(history, tts_cancel)
+                        reply = await _llm_collect(history, tts_cancel, http=llm_client)
                         if not reply:
                             continue
                         llm_ms = (time.perf_counter() - t2) * 1000

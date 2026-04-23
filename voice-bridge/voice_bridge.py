@@ -28,6 +28,7 @@ import wave
 import io
 import numpy as np
 import httpx
+import soxr
 import torch
 import websockets
 from datetime import datetime, timezone
@@ -132,10 +133,10 @@ def _pcm16_to_float(raw: bytes) -> np.ndarray:
     return np.frombuffer(raw[:n * 2], dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def _build_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
+def _build_wav(pcm_bytes: bytes, sample_rate: int, channels: int = 1) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
+        wf.setnchannels(channels)
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(pcm_bytes)
@@ -152,13 +153,19 @@ def _wav_pcm_offset(buf: bytearray) -> int | None:
 # Call log
 # ---------------------------------------------------------------------------
 class CallLog:
+    USER_SR = 16000
+    BOT_SR  = 44100
+    OUT_SR  = 44100
+
     def __init__(self, call_id: str, contact_name: str = "", task: str = ""):
         self.call_id      = call_id
         self.contact_name = contact_name
         self.task         = task
         self.started      = datetime.now(timezone.utc)
         self.turns: list[dict] = []
-        self._audio: list[bytes] = []
+        # Time-stamped chunks: (offset_seconds_from_start, pcm16_bytes)
+        self._bot_chunks:  list[tuple[float, bytes]] = []
+        self._user_chunks: list[tuple[float, bytes]] = []
 
     def add_turn(self, role: str, text: str):
         self.turns.append({
@@ -167,15 +174,69 @@ class CallLog:
             "time": datetime.now(timezone.utc).isoformat(),
         })
 
+    def _now_offset(self) -> float:
+        return (datetime.now(timezone.utc) - self.started).total_seconds()
+
     def add_audio(self, chunk: bytes):
-        self._audio.append(chunk)
+        """Bot audio (Fish Speech 44.1kHz PCM16)."""
+        self._bot_chunks.append((self._now_offset(), chunk))
+
+    def add_user_audio(self, chunk: bytes):
+        """User audio from Twilio (PCM16 @ 16kHz after bridge resample)."""
+        self._user_chunks.append((self._now_offset(), chunk))
 
     def duration(self) -> float:
         return (datetime.now(timezone.utc) - self.started).total_seconds()
 
+    def _render_stereo(self) -> bytes:
+        """Paint user on left, bot on right, on a shared wall-clock timeline."""
+        if not self._user_chunks and not self._bot_chunks:
+            return b""
+
+        # Work out how much total audio we need to cover.
+        def _end(chunks, sr):
+            if not chunks:
+                return 0.0
+            off, raw = chunks[-1]
+            return off + (len(raw) // 2) / sr
+
+        total_s = max(_end(self._user_chunks, self.USER_SR),
+                      _end(self._bot_chunks,  self.BOT_SR),
+                      self.duration())
+        n_out = int(total_s * self.OUT_SR) + self.OUT_SR  # 1s pad
+
+        # User timeline at 16k, then resample whole thing once.
+        n_user_16k = int(total_s * self.USER_SR) + self.USER_SR
+        user_16k = np.zeros(n_user_16k, dtype=np.int32)
+        for offset, raw in self._user_chunks:
+            pcm = np.frombuffer(raw, dtype=np.int16).astype(np.int32)
+            start = int(offset * self.USER_SR)
+            end = min(start + len(pcm), n_user_16k)
+            user_16k[start:end] += pcm[:end - start]
+        user_16k = np.clip(user_16k, -32768, 32767).astype(np.int16)
+        user_out = soxr.resample(user_16k.astype(np.float32),
+                                 self.USER_SR, self.OUT_SR, quality="HQ")
+        user_out = np.clip(user_out, -32768, 32767).astype(np.int16)
+
+        # Bot timeline already at 44.1k.
+        bot_out = np.zeros(n_out, dtype=np.int32)
+        for offset, raw in self._bot_chunks:
+            pcm = np.frombuffer(raw, dtype=np.int16).astype(np.int32)
+            start = int(offset * self.OUT_SR)
+            end = min(start + len(pcm), n_out)
+            bot_out[start:end] += pcm[:end - start]
+        bot_out = np.clip(bot_out, -32768, 32767).astype(np.int16)
+
+        # Align lengths, interleave L=user, R=bot.
+        n = min(len(user_out), len(bot_out))
+        stereo = np.empty(n * 2, dtype=np.int16)
+        stereo[0::2] = user_out[:n]
+        stereo[1::2] = bot_out[:n]
+        return stereo.tobytes()
+
     async def save_and_send(self):
         duration  = self.duration()
-        wav_bytes = _build_wav(b"".join(self._audio), 44100)
+        wav_bytes = _build_wav(self._render_stereo(), self.OUT_SR, channels=2)
         ts        = self.started.strftime("%Y%m%d_%H%M%S")
         stem      = f"{ts}_{self.call_id[:8]}"
 
@@ -514,6 +575,7 @@ async def _outbound_handler(
 
             # ── Incoming audio ──
             if isinstance(frame, bytes):
+                log.add_user_audio(frame)
                 # Skip VAD while AI is speaking to prevent TTS echo corrupting state
                 if ai_speaking:
                     vad.reset()
@@ -651,6 +713,7 @@ async def _proxy_handler(
 
         async def _process(frame):
             if isinstance(frame, bytes):
+                log.add_user_audio(frame)
                 for event, chunk in vad.feed(frame):
                     if event == "speech_start":
                         await sei_ws.send(json.dumps({"type": "speech_start"}))

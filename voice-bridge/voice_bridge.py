@@ -67,7 +67,7 @@ VAD_MIN_SPCH = 5     # min speech frames before speech_start (~160ms)
 _GREETING_TRIGGER = "[call connected]"
 
 # System prompt — lives here, pipeline sends only caller_name / contact_name / task
-_SYSTEM_PROMPT = """\
+MIYO_PHONE_CALL_SYSTEM_PROMPT = """\
 You are Miyo — a warm, playful, human-feeling personal AI assistant. You are on a real phone call on behalf of {caller_name}. Your job is to speak like a thoughtful human friend placing a quick call for them, NOT like a robot reading a script.
 
 Per-call context for this call:
@@ -443,7 +443,7 @@ async def _outbound_handler(
     caller_name   = ctx.get("caller_name", "Pranaav")
     task          = ctx.get("task", "")
 
-    system_prompt = _SYSTEM_PROMPT.format(caller_name=caller_name, contact_name=contact_name, task=task)
+    system_prompt = MIYO_PHONE_CALL_SYSTEM_PROMPT.format(caller_name=caller_name, contact_name=contact_name, task=task)
 
     print(f"[{tag}] outbound | contact={contact_name!r} | task={task[:60]!r}", flush=True)
 

@@ -463,9 +463,9 @@ async def _outbound_handler(
                         dur_ms = len(pcm) / 2 / VAD_RATE * 1000
                         print(f"[{tag}] speech_end: {dur_ms:.0f}ms captured", flush=True)
 
-                        # Don't process user speech until greeting has fully played
+                        # If greeting still playing, hold this turn and wait for it to finish
                         if not greeting_done:
-                            continue
+                            await tts_task  # wait for greeting TTS to complete
 
                         # Save incoming speech for diagnostics
                         _n = len([f for f in __import__('os').listdir('/tmp') if f.startswith(f'vb_user_{call_id[:8]}')])

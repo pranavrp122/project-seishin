@@ -120,13 +120,39 @@ async def run_test():
         await ws.send(json.dumps(CALL_CTX))
         print(f"[3] Sent call_context (contact=TestUser)\n")
 
-        # 3. Receive greeting
-        print("[4] Waiting for greeting...")
+        # 3. Receive greeting — while streaming continuous audio like the real pipeline does
+        print("[4] Waiting for greeting (streaming silence+speech concurrently to stress-test greeting_done guard)...")
         greeting_text = None
         greeting_audio_bytes = 0
+        greeting_done_flag = asyncio.Event()
         t_greeting_start = time.perf_counter()
+        frame_size = SAMPLE_RATE * 2 * FRAME_MS // 1000
 
-        async def drain_until_speaking_end(timeout=15.0):
+        async def stream_audio_during_greeting():
+            """Simulate other pipeline: stream silence, then user speech, then silence — all while greeting plays."""
+            silence = b"\x00" * frame_size
+            # 1s of silence first (let greeting start)
+            for _ in range(50):
+                if greeting_done_flag.is_set():
+                    return
+                await ws.send(silence)
+                await asyncio.sleep(FRAME_MS / 1000)
+            # stream actual speech mid-greeting to confirm greeting_done blocks it
+            print("     [sim] injecting user speech mid-greeting...")
+            for offset in range(0, len(user_pcm), frame_size):
+                if greeting_done_flag.is_set():
+                    return
+                chunk = user_pcm[offset: offset + frame_size]
+                if len(chunk) < frame_size:
+                    chunk = chunk + b"\x00" * (frame_size - len(chunk))
+                await ws.send(chunk)
+                await asyncio.sleep(FRAME_MS / 1000)
+            # continue silence until greeting ends
+            while not greeting_done_flag.is_set():
+                await ws.send(silence)
+                await asyncio.sleep(FRAME_MS / 1000)
+
+        async def recv_greeting(timeout=25.0):
             nonlocal greeting_text, greeting_audio_bytes
             deadline = time.perf_counter() + timeout
             speaking = False
@@ -152,7 +178,11 @@ async def run_test():
                             return True
             return False
 
-        got_greeting = await drain_until_speaking_end(timeout=20)
+        stream_task = asyncio.create_task(stream_audio_during_greeting())
+        got_greeting = await recv_greeting(timeout=25)
+        greeting_done_flag.set()
+        await stream_task
+
         greeting_ms = (time.perf_counter() - t_greeting_start) * 1000
 
         if not greeting_text:

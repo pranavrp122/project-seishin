@@ -448,12 +448,6 @@ async def _outbound_handler(
                 for event, chunk in vad.feed(frame):
 
                     if event == "speech_start":
-                        # Barge-in: kill current TTS — not during greeting, and only after 1s of playback
-                        if (greeting_done
-                                and (ai_speaking or (tts_task and not tts_task.done()))
-                                and (time.perf_counter() - tts_start_time) > 1.0):
-                            await _cancel_tts()
-                            await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
                         speech_buf = [chunk] if chunk else []
 
                     elif event is None and chunk:

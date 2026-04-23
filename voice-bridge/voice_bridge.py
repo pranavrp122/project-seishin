@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Voice Bridge — WebSocket proxy between phone/client audio and sei_engine.
+"""Voice Bridge — WebSocket server for AI phone calls and desktop proxy.
 
-Flow:
-  Client sends PCM16 16kHz mono binary frames (any chunk size)
-  VAD detects speech boundaries -> sends speech_start/speech_end to sei_engine
-  sei_engine handles STT + LLM + Fish Speech TTS
-  Binary PCM16 44.1kHz frames from sei_engine -> forwarded to client + buffered for call log
-  On disconnect -> WAV saved, transcript + audio POSTed to OpenClaw
+Two modes per connection:
 
-Client sends:    binary  PCM16 16kHz mono frames
-Client sends:    JSON    {"type": "barge_in"}        interrupt AI mid-speech
-Client sends:    JSON    {"type": "transcript", "text": "..."}  pre-transcribed text (optional)
-Client receives: binary  PCM16 44.1kHz mono frames (Fish Speech output, streamed as generated)
-Client receives: JSON    {"type": "transcript",  "text": "..."}
-Client receives: JSON    {"type": "reply",       "text": "..."}
-Client receives: JSON    {"type": "speaking",    "state": "start"|"end"}
-Client receives: JSON    {"type": "error",       "message": "..."}
+  OUTBOUND (call_context frame received first):
+    Bridge sends call_context JSON → bridge speaks first (greeting) →
+    VAD → Parakeet STT → vLLM (custom system prompt) → Fish Speech TTS → audio out.
+    Full pipeline runs here, no sei_engine involved.
+
+  PROXY (no call_context, or default desktop use):
+    Existing behaviour — VAD on inbound PCM, forward speech events to
+    sei_engine, stream TTS audio back to client.
+
+Wire format (both modes):
+  In  — binary PCM16 16kHz mono, 512-sample chunks
+  In  — JSON {"type": "barge_in"}
+  Out — binary PCM16 44100Hz mono (Fish Speech subchunks)
+  Out — JSON {"type": "transcript"|"reply"|"speaking"|"error", ...}
 """
 import asyncio
 import json
@@ -32,27 +33,41 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Config (from env)
+# Config
 # ---------------------------------------------------------------------------
+# Proxy mode
 SEI_WS_URL   = os.environ.get("SEI_WS_URL",    "ws://127.0.0.1:5052")
 SEI_AUTH     = os.environ.get("SEI_AUTH_TOKEN", "")
-OPENCLAW_URL = os.environ.get("OPENCLAW_URL",   "")   # empty = local log only
-BIND_HOST    = os.environ.get("BRIDGE_HOST",    "0.0.0.0")
+
+# Outbound pipeline (direct LLM + TTS + ASR)
+LLM_URL        = os.environ.get("SEI_LLM_URL",     "http://3.91.242.124:8000")
+LLM_API_KEY    = os.environ.get("SEI_LLM_API_KEY",  "")
+LLM_MODEL      = os.environ.get("SEI_MODEL_NAME",   "gemma-4")
+LLM_MAX_TOKENS = int(os.environ.get("SEI_MAX_TOKENS", "300"))
+TTS_URL        = os.environ.get("SEI_TTS_URL",      "http://127.0.0.1:8080")
+TTS_REFERENCE  = os.environ.get("TTS_REFERENCE_ID", "archie")
+TTS_CHUNK_LEN  = int(os.environ.get("TTS_CHUNK_LENGTH", "100"))
+ASR_URL        = os.environ.get("SEI_ASR_URL",      "http://127.0.0.1:9876")
+
+# Common
+OPENCLAW_URL = os.environ.get("OPENCLAW_URL",  "")
+BIND_HOST    = os.environ.get("BRIDGE_HOST",   "0.0.0.0")
 BIND_PORT    = int(os.environ.get("BRIDGE_PORT", "7000"))
 LOG_DIR      = Path(os.environ.get("BRIDGE_LOG_DIR", Path(__file__).parent / "call_logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# VAD config (matches ears_daemon)
-# ---------------------------------------------------------------------------
-VAD_CHUNK    = 512    # Silero requires exactly 512 samples at 16kHz
+# VAD (matches ears_daemon)
+VAD_CHUNK    = 512
 VAD_RATE     = 16000
 VAD_THRESH   = 0.5
-VAD_SILENCE  = 15     # 15 x 32ms = ~480ms silence -> speech end
-VAD_MIN_SPCH = 5      # ignore bursts < 5 frames (~160ms)
+VAD_SILENCE  = 15    # frames of silence → speech_end  (~480ms)
+VAD_MIN_SPCH = 5     # min speech frames before speech_start (~160ms)
+
+# Greeting trigger injected as synthetic user turn
+_GREETING_TRIGGER = "[call connected]"
 
 # ---------------------------------------------------------------------------
-# Load Silero VAD once at startup
+# Silero VAD (loaded once at startup)
 # ---------------------------------------------------------------------------
 print("Loading Silero VAD...", flush=True)
 _vad_model, _ = torch.hub.load(
@@ -79,7 +94,7 @@ def _pcm16_to_float(raw: bytes) -> np.ndarray:
     return np.frombuffer(raw[:n * 2], dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def _build_wav(pcm_bytes: bytes, sample_rate: int = 44100) -> bytes:
+def _build_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
@@ -89,13 +104,21 @@ def _build_wav(pcm_bytes: bytes, sample_rate: int = 44100) -> bytes:
     return buf.getvalue()
 
 
+def _wav_pcm_offset(buf: bytearray) -> int | None:
+    """Return byte offset of raw PCM samples inside a WAV buffer."""
+    i = buf.find(b"data")
+    return (i + 8) if i != -1 else None
+
+
 # ---------------------------------------------------------------------------
 # Call log
 # ---------------------------------------------------------------------------
 class CallLog:
-    def __init__(self, call_id: str):
-        self.call_id = call_id
-        self.started = datetime.now(timezone.utc)
+    def __init__(self, call_id: str, contact_name: str = "", task: str = ""):
+        self.call_id      = call_id
+        self.contact_name = contact_name
+        self.task         = task
+        self.started      = datetime.now(timezone.utc)
         self.turns: list[dict] = []
         self._audio: list[bytes] = []
 
@@ -114,17 +137,20 @@ class CallLog:
 
     async def save_and_send(self):
         duration  = self.duration()
-        wav_bytes = _build_wav(b"".join(self._audio))
+        wav_bytes = _build_wav(b"".join(self._audio), 44100)
         ts        = self.started.strftime("%Y%m%d_%H%M%S")
         stem      = f"{ts}_{self.call_id[:8]}"
 
         (LOG_DIR / f"{stem}.wav").write_bytes(wav_bytes)
-        (LOG_DIR / f"{stem}.json").write_text(json.dumps({
-            "call_id":    self.call_id,
-            "started_at": self.started.isoformat(),
-            "duration":   duration,
-            "transcript": self.turns,
-        }, indent=2))
+        meta = {
+            "call_id":      self.call_id,
+            "contact_name": self.contact_name,
+            "task":         self.task,
+            "started_at":   self.started.isoformat(),
+            "duration":     duration,
+            "transcript":   self.turns,
+        }
+        (LOG_DIR / f"{stem}.json").write_text(json.dumps(meta, indent=2))
         print(f"[log] {stem}.wav  ({len(wav_bytes)//1024}KB, {duration:.0f}s)", flush=True)
 
         if OPENCLAW_URL:
@@ -134,10 +160,12 @@ class CallLog:
                         f"{OPENCLAW_URL}/api/call-log",
                         files={"audio": ("call_audio.wav", wav_bytes, "audio/wav")},
                         data={
-                            "call_id":    self.call_id,
-                            "started_at": self.started.isoformat(),
-                            "duration":   str(duration),
-                            "transcript": json.dumps(self.turns),
+                            "call_id":      self.call_id,
+                            "contact_name": self.contact_name,
+                            "task":         self.task,
+                            "started_at":   self.started.isoformat(),
+                            "duration":     str(duration),
+                            "transcript":   json.dumps(self.turns),
                         },
                     )
                 print(f"[log] OpenClaw <- {resp.status_code}", flush=True)
@@ -150,10 +178,10 @@ class CallLog:
 # ---------------------------------------------------------------------------
 class VADState:
     def __init__(self):
-        self._buf        = bytearray()
-        self._speech     = False
-        self._silence    = 0
-        self._spch_frms  = 0
+        self._buf       = bytearray()
+        self._speech    = False
+        self._silence   = 0
+        self._spch_frms = 0
 
     def reset(self):
         self._buf.clear()
@@ -162,9 +190,7 @@ class VADState:
         self._spch_frms = 0
 
     def feed(self, raw: bytes) -> list[tuple[str | None, bytes]]:
-        """Process raw bytes. Returns list of (event, chunk) pairs.
-        event is 'speech_start', 'speech_end', or None (mid-speech frame).
-        """
+        """Yield (event, chunk) pairs. event ∈ {'speech_start','speech_end', None}."""
         self._buf.extend(raw)
         frame_bytes = VAD_CHUNK * 2
         events: list[tuple[str | None, bytes]] = []
@@ -198,120 +224,424 @@ class VADState:
 
 
 # ---------------------------------------------------------------------------
-# Per-connection handler
+# Outbound pipeline helpers (direct vLLM + Fish Speech + Parakeet)
+# ---------------------------------------------------------------------------
+_LLM_HEADERS = {"Content-Type": "application/json"}
+if LLM_API_KEY:
+    _LLM_HEADERS["Authorization"] = f"Bearer {LLM_API_KEY}"
+
+
+async def _llm_collect(messages: list[dict], cancel: asyncio.Event) -> str:
+    """Call vLLM, collect and return the complete response text."""
+    payload = json.dumps({
+        "model":       LLM_MODEL,
+        "messages":    messages,
+        "max_tokens":  LLM_MAX_TOKENS,
+        "temperature": 0.7,
+        "stream":      True,
+        "stop":        ["\n\n"],
+    }).encode()
+
+    parts: list[str] = []
+    async with httpx.AsyncClient() as c:
+        try:
+            async with c.stream(
+                "POST", f"{LLM_URL}/v1/chat/completions",
+                content=payload,
+                headers=_LLM_HEADERS,
+                timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
+            ) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    print(f"  LLM error {resp.status_code}: {body.decode()[:200]}", flush=True)
+                    return ""
+                async for line in resp.aiter_lines():
+                    if cancel.is_set():
+                        return "".join(parts).strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        tok = json.loads(data)["choices"][0]["delta"].get("content", "")
+                        if tok:
+                            parts.append(tok)
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"  LLM exception: {e}", flush=True)
+
+    return "".join(parts).strip()
+
+
+async def _tts_stream(
+    text: str,
+    client_ws,
+    log: CallLog,
+    cancel: asyncio.Event,
+) -> None:
+    """Synthesize text with Fish Speech and stream raw PCM16 44100Hz to client."""
+    import msgpack
+
+    payload = msgpack.packb({
+        "text":               text,
+        "reference_id":       TTS_REFERENCE,
+        "format":             "wav",
+        "streaming":          True,
+        "chunk_length":       TTS_CHUNK_LEN,
+        "top_p":              0.8,
+        "temperature":        0.8,
+        "repetition_penalty": 1.1,
+        "max_new_tokens":     1024,
+    })
+
+    async with httpx.AsyncClient() as c:
+        try:
+            async with c.stream(
+                "POST", f"{TTS_URL}/v1/tts",
+                content=payload,
+                headers={"Content-Type": "application/msgpack"},
+                timeout=httpx.Timeout(connect=5.0, read=60.0, write=5.0, pool=5.0),
+            ) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    print(f"  TTS error {resp.status_code}: {body.decode()[:200]}", flush=True)
+                    return
+
+                hdr_buf:   bytearray   = bytearray()
+                pcm_start: int | None  = None
+                prev:      bytes | None = None
+
+                async for chunk in resp.aiter_bytes():
+                    if cancel.is_set():
+                        return
+
+                    if pcm_start is None:
+                        hdr_buf.extend(chunk)
+                        pcm_start = _wav_pcm_offset(hdr_buf)
+                        if pcm_start is None:
+                            if len(hdr_buf) > 1024:
+                                pcm_start = 44  # fallback: standard WAV header size
+                            else:
+                                continue
+                        remainder = bytes(hdr_buf[pcm_start:])
+                        if remainder:
+                            prev = remainder
+                        continue
+
+                    if prev:
+                        log.add_audio(prev)
+                        await client_ws.send(prev)
+                    prev = bytes(chunk)
+
+                if not cancel.is_set() and prev:
+                    log.add_audio(prev)
+                    await client_ws.send(prev)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"  TTS exception: {e}", flush=True)
+
+
+async def _transcribe(pcm_bytes: bytes, asr_client: httpx.AsyncClient) -> str:
+    """Send 16kHz PCM to Parakeet, return transcript string."""
+    wav = _build_wav(pcm_bytes, 16000)
+    boundary = "bnd123"
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="a.wav"\r\n'
+        f"Content-Type: audio/wav\r\n\r\n"
+    ).encode() + wav + f"\r\n--{boundary}--\r\n".encode()
+
+    try:
+        resp = await asr_client.post(
+            f"{ASR_URL}/inference",
+            content=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            timeout=15.0,
+        )
+        return json.loads(resp.content).get("text", "").strip()
+    except Exception as e:
+        print(f"  ASR error: {e}", flush=True)
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Outbound call handler
+# ---------------------------------------------------------------------------
+async def _outbound_handler(
+    client_ws,
+    call_id: str,
+    log: CallLog,
+    vad: VADState,
+    tag: str,
+    ctx: dict,
+) -> None:
+    system_prompt = ctx["instructions"]
+    contact_name  = ctx.get("contact_name", "")
+    task          = ctx.get("task", "")
+
+    print(f"[{tag}] outbound | contact={contact_name!r} | task={task[:60]!r}", flush=True)
+
+    history: list[dict] = [{"role": "system", "content": system_prompt}]
+    tts_cancel   = asyncio.Event()
+    tts_task:  asyncio.Task | None = None
+    ai_speaking = False
+
+    async def _speak(text: str) -> None:
+        nonlocal ai_speaking
+        await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
+        ai_speaking = True
+        await _tts_stream(text, client_ws, log, tts_cancel)
+        if not tts_cancel.is_set():
+            await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
+        ai_speaking = False
+
+    async def _cancel_tts() -> None:
+        nonlocal tts_cancel, tts_task, ai_speaking
+        if tts_task and not tts_task.done():
+            tts_cancel.set()
+            tts_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(tts_task), timeout=0.3)
+            except Exception:
+                pass
+        tts_cancel  = asyncio.Event()
+        ai_speaking = False
+
+    # ── Greeting ────────────────────────────────────────────────────────────
+    t0 = time.perf_counter()
+    greeting = await _llm_collect(
+        history + [{"role": "user", "content": _GREETING_TRIGGER}],
+        tts_cancel,
+    )
+    if not greeting:
+        greeting = f"Hello, this is Miyo calling on Pranaav's behalf. Is this {contact_name}?"
+    history.append({"role": "assistant", "content": greeting})
+    log.add_turn("ai", greeting)
+    print(f"[{tag}] greeting ({(time.perf_counter()-t0)*1000:.0f}ms): {greeting[:80]}", flush=True)
+
+    await client_ws.send(json.dumps({"type": "reply", "text": greeting}))
+    await _speak(greeting)
+
+    # ── Conversation loop ────────────────────────────────────────────────────
+    speech_buf: list[bytes] = []
+
+    async with httpx.AsyncClient() as asr_client:
+        async for frame in client_ws:
+
+            # ── Incoming audio ──
+            if isinstance(frame, bytes):
+                for event, chunk in vad.feed(frame):
+
+                    if event == "speech_start":
+                        # Barge-in: kill current TTS immediately
+                        if ai_speaking or (tts_task and not tts_task.done()):
+                            await _cancel_tts()
+                            await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
+                        speech_buf = [chunk] if chunk else []
+
+                    elif event is None and chunk:
+                        speech_buf.append(chunk)
+
+                    elif event == "speech_end":
+                        if not speech_buf:
+                            continue
+                        await _cancel_tts()  # ensure TTS not still running
+
+                        pcm = b"".join(speech_buf)
+                        speech_buf.clear()
+
+                        # Transcribe
+                        t1 = time.perf_counter()
+                        transcript = await _transcribe(pcm, asr_client)
+                        if not transcript:
+                            continue
+                        asr_ms = (time.perf_counter() - t1) * 1000
+                        print(f"[{tag}] user ({asr_ms:.0f}ms ASR): {transcript}", flush=True)
+
+                        log.add_turn("user", transcript)
+                        await client_ws.send(json.dumps({"type": "transcript", "text": transcript}))
+
+                        # LLM
+                        history.append({"role": "user", "content": transcript})
+                        t2 = time.perf_counter()
+                        reply = await _llm_collect(history, tts_cancel)
+                        if not reply:
+                            continue
+                        llm_ms = (time.perf_counter() - t2) * 1000
+                        print(f"[{tag}] ai ({llm_ms:.0f}ms LLM): {reply[:80]}", flush=True)
+
+                        history.append({"role": "assistant", "content": reply})
+                        log.add_turn("ai", reply)
+                        await client_ws.send(json.dumps({"type": "reply", "text": reply}))
+
+                        # TTS as background task so audio frames keep flowing
+                        tts_task = asyncio.create_task(_speak(reply))
+
+            # ── Control frames ──
+            elif isinstance(frame, str):
+                data = json.loads(frame)
+                if data.get("type") == "barge_in":
+                    await _cancel_tts()
+                    await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
+
+
+# ---------------------------------------------------------------------------
+# Proxy handler (sei_engine passthrough — existing behaviour)
+# ---------------------------------------------------------------------------
+async def _proxy_handler(
+    client_ws,
+    call_id: str,
+    log: CallLog,
+    vad: VADState,
+    tag: str,
+    first_frame,           # frame already read from client (non-call_context)
+) -> None:
+    headers = {"Authorization": f"Bearer {SEI_AUTH}"} if SEI_AUTH else {}
+
+    async with websockets.connect(SEI_WS_URL, additional_headers=headers) as sei_ws:
+        print(f"[{tag}] sei_engine connected", flush=True)
+
+        reply_buf: list[str] = []
+        speaking = False
+
+        async def pump_sei():
+            nonlocal speaking
+            async for msg in sei_ws:
+                if isinstance(msg, bytes):
+                    if not speaking:
+                        speaking = True
+                        await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
+                    log.add_audio(msg)
+                    await client_ws.send(msg)
+                elif isinstance(msg, str):
+                    data = json.loads(msg)
+                    t    = data.get("type")
+                    if t == "sentence":
+                        text = data.get("text", "")
+                        # Skip internal debug markers
+                        if not text.startswith("(intent:"):
+                            reply_buf.append(text)
+                            await client_ws.send(json.dumps({"type": "reply", "text": text}))
+                    elif t == "done":
+                        if speaking:
+                            speaking = False
+                            await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
+                        full = " ".join(reply_buf).strip()
+                        if full:
+                            log.add_turn("ai", full)
+                        reply_buf.clear()
+                    elif t == "interrupted":
+                        if speaking:
+                            speaking = False
+                            await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
+                        reply_buf.clear()
+                    elif t == "error":
+                        await client_ws.send(msg)
+
+        sei_task = asyncio.create_task(pump_sei())
+
+        async def _process(frame):
+            if isinstance(frame, bytes):
+                for event, chunk in vad.feed(frame):
+                    if event == "speech_start":
+                        await sei_ws.send(json.dumps({"type": "speech_start"}))
+                        if chunk:
+                            await sei_ws.send(chunk)
+                    elif event == "speech_end":
+                        await sei_ws.send(json.dumps({"type": "speech_end"}))
+                    elif chunk:
+                        await sei_ws.send(chunk)
+            elif isinstance(frame, str):
+                data = json.loads(frame)
+                t    = data.get("type")
+                if t == "barge_in":
+                    await sei_ws.send(json.dumps({"type": "stop"}))
+                elif t == "transcript":
+                    text = data.get("text", "").strip()
+                    if text:
+                        log.add_turn("user", text)
+                        await client_ws.send(json.dumps({"type": "transcript", "text": text}))
+                        await sei_ws.send(json.dumps({"type": "speech_start"}))
+                        await sei_ws.send(json.dumps({"type": "speech_end", "text": text}))
+
+        try:
+            if first_frame is not None:
+                await _process(first_frame)
+            async for msg in client_ws:
+                await _process(msg)
+        finally:
+            sei_task.cancel()
+            try:
+                await sei_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Main connection handler
 # ---------------------------------------------------------------------------
 async def handler(client_ws):
     call_id = str(uuid.uuid4())
-    log     = CallLog(call_id)
     vad     = VADState()
     tag     = call_id[:8]
 
     print(f"[{tag}] connected from {client_ws.remote_address}", flush=True)
 
-    headers = {"Authorization": f"Bearer {SEI_AUTH}"} if SEI_AUTH else {}
+    # Try to read the first frame with a short timeout.
+    # Outbound bridge always sends call_context immediately on connect.
+    first_frame = None
+    ctx         = None
+    try:
+        first_frame = await asyncio.wait_for(client_ws.recv(), timeout=2.0)
+        if isinstance(first_frame, str):
+            parsed = json.loads(first_frame)
+            if parsed.get("type") == "call_context":
+                ctx         = parsed
+                first_frame = None  # consumed; don't re-process
+    except asyncio.TimeoutError:
+        pass   # no first frame within 2s → proxy mode
+
+    log = CallLog(
+        call_id,
+        contact_name=ctx.get("contact_name", "") if ctx else "",
+        task=ctx.get("task", "") if ctx else "",
+    )
 
     try:
-        async with websockets.connect(SEI_WS_URL, additional_headers=headers) as sei_ws:
-            print(f"[{tag}] sei_engine connected", flush=True)
-
-            reply_buf: list[str] = []
-            speaking = False
-
-            async def pump_sei():
-                nonlocal speaking
-                async for msg in sei_ws:
-                    if isinstance(msg, bytes):
-                        if not speaking:
-                            speaking = True
-                            await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
-                        log.add_audio(msg)
-                        await client_ws.send(msg)
-
-                    elif isinstance(msg, str):
-                        data = json.loads(msg)
-                        t    = data.get("type")
-
-                        if t == "sentence":
-                            text = data.get("text", "")
-                            reply_buf.append(text)
-                            await client_ws.send(json.dumps({"type": "reply", "text": text}))
-
-                        elif t == "done":
-                            if speaking:
-                                speaking = False
-                                await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
-                            full = " ".join(reply_buf).strip()
-                            if full:
-                                log.add_turn("ai", full)
-                            reply_buf.clear()
-
-                        elif t == "interrupted":
-                            if speaking:
-                                speaking = False
-                                await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
-                            reply_buf.clear()
-
-                        elif t == "error":
-                            await client_ws.send(msg)
-
-            sei_task = asyncio.create_task(pump_sei())
-
-            try:
-                async for msg in client_ws:
-                    if isinstance(msg, bytes):
-                        for event, chunk in vad.feed(msg):
-                            if event == "speech_start":
-                                await sei_ws.send(json.dumps({"type": "speech_start"}))
-                                if chunk:
-                                    await sei_ws.send(chunk)
-                            elif event == "speech_end":
-                                await sei_ws.send(json.dumps({"type": "speech_end"}))
-                            elif chunk:
-                                await sei_ws.send(chunk)
-
-                    elif isinstance(msg, str):
-                        data = json.loads(msg)
-                        t    = data.get("type")
-
-                        if t == "barge_in":
-                            await sei_ws.send(json.dumps({"type": "stop"}))
-
-                        elif t == "transcript":
-                            # Pre-transcribed text from client-side STT (e.g. laptop whisper.cpp)
-                            text = data.get("text", "").strip()
-                            if text:
-                                log.add_turn("user", text)
-                                await client_ws.send(json.dumps({"type": "transcript", "text": text}))
-                                await sei_ws.send(json.dumps({"type": "speech_start"}))
-                                await sei_ws.send(json.dumps({"type": "speech_end", "text": text}))
-
-            finally:
-                sei_task.cancel()
-                try:
-                    await sei_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
+        if ctx:
+            await _outbound_handler(client_ws, call_id, log, vad, tag, ctx)
+        else:
+            await _proxy_handler(client_ws, call_id, log, vad, tag, first_frame)
+    except websockets.exceptions.ConnectionClosedOK:
+        print(f"[{tag}] connection closed normally", flush=True)
+    except websockets.exceptions.ConnectionClosedError as e:
+        print(f"[{tag}] connection closed with error: {e}", flush=True)
     except Exception as exc:
         print(f"[{tag}] error: {exc}", flush=True)
         try:
             await client_ws.send(json.dumps({"type": "error", "message": str(exc)}))
         except Exception:
             pass
-
     finally:
         print(f"[{tag}] saving call log...", flush=True)
         await log.save_and_send()
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Entry point
 # ---------------------------------------------------------------------------
 async def main():
     print(f"Voice Bridge on ws://{BIND_HOST}:{BIND_PORT}", flush=True)
-    print(f"  sei_engine : {SEI_WS_URL}", flush=True)
-    print(f"  openclaw   : {OPENCLAW_URL or '(local log only)'}", flush=True)
-    print(f"  log dir    : {LOG_DIR}", flush=True)
+    print(f"  outbound LLM : {LLM_URL} (model={LLM_MODEL})", flush=True)
+    print(f"  outbound TTS : {TTS_URL} (ref={TTS_REFERENCE}, chunk={TTS_CHUNK_LEN})", flush=True)
+    print(f"  outbound ASR : {ASR_URL}", flush=True)
+    print(f"  proxy target : {SEI_WS_URL}", flush=True)
+    print(f"  openclaw     : {OPENCLAW_URL or '(local log only)'}", flush=True)
+    print(f"  log dir      : {LOG_DIR}", flush=True)
     async with websockets.serve(handler, BIND_HOST, BIND_PORT):
         await asyncio.Future()
 

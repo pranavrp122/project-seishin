@@ -459,6 +459,9 @@ async def _outbound_handler(
                         pcm = b"".join(speech_buf)
                         speech_buf.clear()
 
+                        dur_ms = len(pcm) / 2 / VAD_RATE * 1000
+                        print(f"[{tag}] speech_end: {dur_ms:.0f}ms captured", flush=True)
+
                         # Transcribe
                         t1 = time.perf_counter()
                         transcript = await _transcribe(pcm, asr_client)

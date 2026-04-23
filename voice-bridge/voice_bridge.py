@@ -386,16 +386,18 @@ async def _outbound_handler(
     print(f"[{tag}] outbound | contact={contact_name!r} | task={task[:60]!r}", flush=True)
 
     history: list[dict] = [{"role": "system", "content": system_prompt}]
-    tts_cancel   = asyncio.Event()
+    tts_cancel    = asyncio.Event()
     tts_task:  asyncio.Task | None = None
-    ai_speaking  = False
+    ai_speaking   = False
     greeting_done = False   # barge-in blocked until greeting TTS finishes
+    tts_start_time: float = 0.0  # when current TTS began; barge-in needs 1s minimum
 
     async def _speak(text: str, is_greeting: bool = False) -> None:
-        nonlocal ai_speaking, greeting_done
+        nonlocal ai_speaking, greeting_done, tts_start_time
         try:
             await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
             ai_speaking = True
+            tts_start_time = time.perf_counter()
             await _tts_stream(text, client_ws, log, tts_cancel)
             if not tts_cancel.is_set():
                 await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
@@ -446,8 +448,10 @@ async def _outbound_handler(
                 for event, chunk in vad.feed(frame):
 
                     if event == "speech_start":
-                        # Barge-in: kill current TTS — but not during greeting
-                        if greeting_done and (ai_speaking or (tts_task and not tts_task.done())):
+                        # Barge-in: kill current TTS — not during greeting, and only after 1s of playback
+                        if (greeting_done
+                                and (ai_speaking or (tts_task and not tts_task.done()))
+                                and (time.perf_counter() - tts_start_time) > 1.0):
                             await _cancel_tts()
                             await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
                         speech_buf = [chunk] if chunk else []

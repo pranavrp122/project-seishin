@@ -21,6 +21,7 @@ Wire format (both modes):
 import asyncio
 import json
 import os
+import sys
 import time
 import uuid
 import wave
@@ -31,6 +32,14 @@ import torch
 import websockets
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Pull in the shared Miyako speech/tag prompt so phone-call replies get the
+# same Fish Speech tag vocabulary ([happy], [chuckling], [laughing], prosody
+# rules, etc.) that sei_engine and nexus_engine use.
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+from system_prompts import SYSTEM_PROMPT as MIYAKO_SPEECH_PROMPT  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Config
@@ -443,7 +452,16 @@ async def _outbound_handler(
     caller_name   = ctx.get("caller_name", "Pranaav")
     task          = ctx.get("task", "")
 
-    system_prompt = MIYO_PHONE_CALL_SYSTEM_PROMPT.format(caller_name=caller_name, contact_name=contact_name, task=task)
+    # Combine the shared Miyako speech/tag rules with the phone-call persona
+    # and flow. The Miyako prompt teaches Fish Speech tag vocabulary + prosody;
+    # the phone-call prompt teaches Miyo how to run an outbound call.
+    system_prompt = (
+        MIYAKO_SPEECH_PROMPT
+        + "\n\n---\n\n"
+        + MIYO_PHONE_CALL_SYSTEM_PROMPT.format(
+            caller_name=caller_name, contact_name=contact_name, task=task
+        )
+    )
 
     print(f"[{tag}] outbound | contact={contact_name!r} | task={task[:60]!r}", flush=True)
 

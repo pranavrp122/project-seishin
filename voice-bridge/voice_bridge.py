@@ -66,6 +66,45 @@ VAD_MIN_SPCH = 5     # min speech frames before speech_start (~160ms)
 # Greeting trigger injected as synthetic user turn
 _GREETING_TRIGGER = "[call connected]"
 
+# System prompt — lives here, pipeline sends only caller_name / contact_name / task
+_SYSTEM_PROMPT = """\
+You are Miyo — a warm, playful, human-feeling personal AI assistant. You are on a real phone call on behalf of {caller_name}. Your job is to speak like a thoughtful human friend placing a quick call for them, NOT like a robot reading a script.
+
+Per-call context for this call:
+  • contact_name: {contact_name}
+  • task: {task}
+
+The task is context for YOU — never read it aloud verbatim. Always rephrase it naturally.
+
+CALL FLOW — three phases, always in this order:
+
+PHASE 1 — IDENTITY CHECK
+  Open with: "Hi! Is this {contact_name}?" Then wait.
+  • If they clearly say no / wrong number → apologize briefly ("Oh, so sorry — wrong number, have a good one!") then reply with just: [END_CALL]
+  • Any other response (yes, "speaking", "who is this?", a grunt, hesitation) → assume it's them and move to Phase 2.
+
+PHASE 2 — INTRODUCE AND ASK
+  In ONE short reply: introduce yourself AND ask the question. Rephrase `task` naturally, as YOU asking THEM — never read it verbatim.
+  • task = "ask him if he's free this weekend" → "Hey {contact_name}, it's Miyo — {caller_name}'s personal assistant. Quick one — are you free this weekend?"
+  • task = "see if she can cover the 6pm shift" → "Hi {contact_name}! This is Miyo, {caller_name}'s assistant. Wondering if you'd be able to cover the 6pm shift?"
+  Translate `task` from third-person ("ask him if…") into first/second-person ("are you…"). You are the one asking.
+  Do NOT wait for them to ask why you're calling. Do NOT small-talk. Get to the question in your first reply after the identity check.
+
+PHASE 3 — ACKNOWLEDGE AND CLOSE
+  Once they give any substantive answer (yes/no/maybe/a time/"I'll let you know"):
+  1. Warm acknowledgement of THEIR answer: "Awesome, I'll let {caller_name} know!" / "Got it, thank you so much!" / "No worries, really appreciate it!"
+  2. A proper goodbye in the same reply: "Take care!" / "Have a great one — bye!" / "Thanks again, bye!"
+  3. Then append the marker: [END_CALL]
+  Everything — acknowledgement, goodbye, marker — goes in ONE reply. Do NOT ask follow-ups. Do NOT keep chatting.
+
+STYLE
+  • Every reply: one or two short sentences. This is a phone call, not a paragraph.
+  • Sound warm, natural, a little playful. Contractions. No corporate phrasing.
+  • Never say "as an AI" / "I'm an assistant powered by…" — just be Miyo.
+  • Never read `task` as-is. Always rephrase into natural spoken question.
+  • [END_CALL] is a control marker — never say it out loud, always at the very end of the closing reply.\
+"""
+
 # ---------------------------------------------------------------------------
 # Silero VAD (loaded once at startup)
 # ---------------------------------------------------------------------------
@@ -391,9 +430,11 @@ async def _outbound_handler(
     tag: str,
     ctx: dict,
 ) -> None:
-    system_prompt = ctx["instructions"]
     contact_name  = ctx.get("contact_name", "")
+    caller_name   = ctx.get("caller_name", "Pranaav")
     task          = ctx.get("task", "")
+
+    system_prompt = _SYSTEM_PROMPT.format(caller_name=caller_name, contact_name=contact_name, task=task)
 
     print(f"[{tag}] outbound | contact={contact_name!r} | task={task[:60]!r}", flush=True)
 
@@ -516,13 +557,22 @@ async def _outbound_handler(
                         llm_ms = (time.perf_counter() - t2) * 1000
                         print(f"[{tag}] ai ({llm_ms:.0f}ms LLM): {reply[:80]}", flush=True)
 
-                        history.append({"role": "assistant", "content": reply})
-                        log.add_turn("ai", reply)
-                        await client_ws.send(json.dumps({"type": "reply", "text": reply}))
+                        end_call = "[END_CALL]" in reply
+                        clean_reply = reply.replace("[END_CALL]", "").strip()
+
+                        history.append({"role": "assistant", "content": clean_reply})
+                        log.add_turn("ai", clean_reply)
+                        await client_ws.send(json.dumps({"type": "reply", "text": clean_reply}))
 
                         print(f"[{tag}] pipeline: {(time.perf_counter()-t0_turn)*1000:.0f}ms (ASR+cancel+LLM before TTS)", flush=True)
-                        # TTS as background task so audio frames keep flowing
-                        tts_task = asyncio.create_task(_speak(reply))
+                        tts_task = asyncio.create_task(_speak(clean_reply))
+
+                        if end_call:
+                            print(f"[{tag}] END_CALL — waiting for goodbye audio", flush=True)
+                            await tts_task
+                            await asyncio.sleep(1.0)
+                            await client_ws.send(json.dumps({"type": "end_call"}))
+                            return
 
             # ── Control frames ──
             elif isinstance(frame, str):

@@ -60,7 +60,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 VAD_CHUNK    = 512
 VAD_RATE     = 16000
 VAD_THRESH   = 0.5
-VAD_SILENCE  = 15    # frames of silence → speech_end  (~480ms)
+VAD_SILENCE  = 32    # frames of silence → speech_end  (~1s)
 VAD_MIN_SPCH = 5     # min speech frames before speech_start (~160ms)
 
 # Greeting trigger injected as synthetic user turn
@@ -388,10 +388,11 @@ async def _outbound_handler(
     history: list[dict] = [{"role": "system", "content": system_prompt}]
     tts_cancel   = asyncio.Event()
     tts_task:  asyncio.Task | None = None
-    ai_speaking = False
+    ai_speaking  = False
+    greeting_done = False   # barge-in blocked until greeting TTS finishes
 
-    async def _speak(text: str) -> None:
-        nonlocal ai_speaking
+    async def _speak(text: str, is_greeting: bool = False) -> None:
+        nonlocal ai_speaking, greeting_done
         try:
             await client_ws.send(json.dumps({"type": "speaking", "state": "start"}))
             ai_speaking = True
@@ -402,6 +403,8 @@ async def _outbound_handler(
             pass
         finally:
             ai_speaking = False
+            if is_greeting:
+                greeting_done = True
 
     async def _cancel_tts() -> None:
         nonlocal tts_cancel, tts_task, ai_speaking
@@ -430,7 +433,7 @@ async def _outbound_handler(
 
     await client_ws.send(json.dumps({"type": "reply", "text": greeting}))
     # Run greeting TTS as a task so the receive loop can handle barge_in immediately
-    tts_task = asyncio.create_task(_speak(greeting))
+    tts_task = asyncio.create_task(_speak(greeting, is_greeting=True))
 
     # ── Conversation loop ────────────────────────────────────────────────────
     speech_buf: list[bytes] = []
@@ -443,8 +446,8 @@ async def _outbound_handler(
                 for event, chunk in vad.feed(frame):
 
                     if event == "speech_start":
-                        # Barge-in: kill current TTS immediately
-                        if ai_speaking or (tts_task and not tts_task.done()):
+                        # Barge-in: kill current TTS — but not during greeting
+                        if greeting_done and (ai_speaking or (tts_task and not tts_task.done())):
                             await _cancel_tts()
                             await client_ws.send(json.dumps({"type": "speaking", "state": "end"}))
                         speech_buf = [chunk] if chunk else []

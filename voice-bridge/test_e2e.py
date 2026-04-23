@@ -175,13 +175,13 @@ async def run_test():
             frames_sent += 1
             await asyncio.sleep(FRAME_MS / 1000)  # real-time pacing
 
-        # Send 500ms of silence to flush VAD
+        # Send 1.2s of silence to flush VAD (VAD_SILENCE = ~1s)
         silence = b"\x00" * frame_size
-        for _ in range(25):
+        for _ in range(60):
             await ws.send(silence)
             await asyncio.sleep(FRAME_MS / 1000)
 
-        print(f"     Sent {frames_sent} speech frames + 500ms silence\n")
+        print(f"     Sent {frames_sent} speech frames + 1.2s silence\n")
 
         # 5. Wait for reply
         print("[6] Waiting for ASR transcript + AI reply + audio...")

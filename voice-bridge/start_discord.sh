@@ -12,4 +12,4 @@ elif [[ -f "$PROJECT_DIR/.env" ]]; then
     set -a; source "$PROJECT_DIR/.env"; set +a
 fi
 
-exec python "$SCRIPT_DIR/discord_bridge.py"
+exec python3 "$SCRIPT_DIR/discord_bridge.py"

@@ -514,6 +514,10 @@ async def _outbound_handler(
 
             # ── Incoming audio ──
             if isinstance(frame, bytes):
+                # Skip VAD while AI is speaking to prevent TTS echo corrupting state
+                if ai_speaking:
+                    vad.reset()
+                    continue
                 for event, chunk in vad.feed(frame):
 
                     if event == "speech_start":

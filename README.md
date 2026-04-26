@@ -7,15 +7,21 @@ Voice-driven AI companion with real-time speech recognition, LLM conversation, a
 ```
 Laptop (Client)                         GPU Server
 +-----------------------+               +---------------------------+
-| Seishin Client        |   WebSocket   | Sei Engine (port 5052)    |
-| - Mic capture         | <-----------> | - whisper.cpp ASR (9876)  |
-| - Silero VAD          |   (or ngrok)  | - Gemma 4 LLM (8000)     |
+| Seishin Client        |   WebSocket   | Nexus Engine (port 5052)  |
+| - Mic capture         | <-----------> | - Parakeet TDT ASR        |
+| - Silero VAD          |   (or ngrok)  | - Gemma 4 LLM (8000)      |
 | - Audio playback      |               | - Fish Speech TTS (8080)  |
 +-----------------------+               +---------------------------+
 ```
 
+The server runs three components as Docker containers:
+
+- **seishin-ears**: `ears_daemon.py` (Parakeet TDT ASR + Silero VAD) + `nexus_engine.py` (HTTP engine, port 5050)
+- **vllm-gemma4**: Gemma 4 26B-A4B NVFP4 via vLLM (port 8000)
+- **seishin-mouth**: Fish Speech API server (port 8080)
+
 - **Client**: Captures mic audio, runs VAD to detect speech, streams PCM to server, plays back TTS audio
-- **Server**: Transcribes speech (whisper.cpp), generates response (Gemma 4), synthesizes voice (Fish Speech), streams audio back
+- **Server**: Transcribes speech (Parakeet TDT), generates response (Gemma 4), synthesizes voice (Fish Speech), streams audio back
 
 ## Server Setup (Linux with NVIDIA GPU)
 
@@ -25,7 +31,7 @@ Requires an NVIDIA GPU with 24GB+ VRAM (tested on RTX 5090 32GB).
 
 - Python 3.12+
 - NVIDIA drivers + CUDA toolkit
-- Docker (for vLLM and Fish Speech)
+- Docker with NVIDIA Container Toolkit
 
 ### 1. Clone and set up Python environment
 
@@ -37,41 +43,47 @@ source .venv/bin/activate
 pip install websockets httpx ormsgpack
 ```
 
-### 2. Start the LLM (Gemma 4 via vLLM)
+### 2. Configure environment
 
 ```bash
-# Adjust model path and quantization for your GPU
+cp .env.example .env
+# Edit .env and set SEI_AUTH_TOKEN and any other required vars
+```
+
+### 3. Start the LLM (Gemma 4 via vLLM)
+
+```bash
 cd gemma4-test
 ./run.sh tq
 # Wait for "INFO: Application startup complete" — runs on port 8000
 ```
 
-### 3. Start Fish Speech TTS (port 8080)
+### 4. Set up and start the ears container (Parakeet ASR)
 
 ```bash
-cd fish-speech
-docker compose up -d
-# Runs on port 8080 with reference voice "archie"
+# First time only — build image and create container
+bash run_shortcuts/setup_ears.sh
+
+# Start the ears daemon (loads Parakeet TDT + Silero VAD, ~10s)
+bash run_shortcuts/run_ears.sh
 ```
 
-### 4. Start whisper.cpp ASR server (port 9876)
+### 5. Start the Nexus Engine
 
 ```bash
-# Build whisper.cpp with CUDA support first (see whisper.cpp docs)
-cd whisper.cpp
-./build/bin/whisper-server -m models/ggml-large-v3-turbo.bin --port 9876 -ng
+# In a separate terminal — restarts in ~0.1s for fast iteration
+bash run_shortcuts/run.sh
 ```
 
-### 5. Start the Sei Engine
+### 6. Start Fish Speech TTS (port 8080)
 
 ```bash
-cd project-seishin
-source .venv/bin/activate
-SEI_AUTH_TOKEN=your-secret-token python scripts/sei_engine.py
-# Listens on 127.0.0.1:5052
+# In a separate terminal
+bash run_shortcuts/run_fish_api.sh
+# Runs in seishin-mouth container on port 8080 with reference voice "archie"
 ```
 
-### 6. Expose via ngrok (for remote clients)
+### 7. Expose via ngrok (for remote clients)
 
 ```bash
 ngrok http 5052
@@ -88,10 +100,8 @@ ngrok http 5052
 | `SEI_LLM_URL` | `http://127.0.0.1:8000` | vLLM endpoint |
 | `SEI_MODEL_NAME` | `gemma-4` | Model name for vLLM |
 | `SEI_TTS_URL` | `http://127.0.0.1:8080` | Fish Speech endpoint |
-| `SEI_ASR_URL` | `http://127.0.0.1:9876` | whisper.cpp endpoint |
-| `SEI_MAX_TOKENS` | `300` | Max LLM response tokens |
-| `SEI_TEMPERATURE` | `0.7` | LLM temperature |
 | `SEI_DEV_MODE` | `0` | Set to `1` to use default dev token |
+| `TTS_REFERENCE_ID` | `archie` | Fish Speech reference voice |
 
 ## Client Setup
 
@@ -154,7 +164,7 @@ npm run tauri build
 
 ## Connecting
 
-1. Start all server services (LLM, TTS, ASR, Sei Engine)
+1. Start all server services (LLM, ears daemon, nexus engine, Fish Speech)
 2. Start the client (dev server or Tauri app)
 3. Enter the WebSocket URL:
    - Local: `ws://SERVER_IP:5052`
@@ -166,8 +176,9 @@ npm run tauri build
 
 1. Client mic captures audio, Silero VAD detects when you start/stop speaking
 2. Raw PCM16 audio streams to server in real-time over WebSocket
-3. Server runs whisper.cpp live transcription during speech (result is cached)
+3. Server runs Parakeet TDT live transcription during speech — result is cached and KV-prefilled into the LLM
 4. When speech ends, cached transcript is sent to Gemma 4 LLM instantly
-5. LLM response gets emotion tags converted for Fish Speech (e.g. `(happy)` to `[happy]`)
+5. LLM response gets emotion tags converted for Fish Speech (e.g. `(happy)` prefix)
 6. Fish Speech generates TTS audio, streamed back to client as PCM chunks
 7. Client plays audio in real-time
+8. If user starts speaking during playback, the server interrupts generation and TTS immediately

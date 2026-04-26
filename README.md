@@ -2,6 +2,8 @@
 
 Voice-driven AI companion with real-time speech recognition, LLM conversation, and emotional text-to-speech. Split architecture: GPU server handles all inference, lightweight client runs on any laptop.
 
+Adding OpenClaw features for routing, skills, and agent orchestration on top of the core voice pipeline.
+
 ## Architecture
 
 ```

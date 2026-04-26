@@ -7,7 +7,7 @@ Voice-driven AI companion with real-time speech recognition, LLM conversation, a
 ```
 Laptop (Client)                         GPU Server
 +-----------------------+               +---------------------------+
-| Seishin Client        |   WebSocket   | Nexus Engine (port 5052)  |
+| Seishin Client        |   WebSocket   | Sei Engine (port 5052)    |
 | - Mic capture         | <-----------> | - Parakeet TDT ASR        |
 | - Silero VAD          |   (or ngrok)  | - Gemma 4 LLM (8000)      |
 | - Audio playback      |               | - Fish Speech TTS (8080)  |
@@ -68,7 +68,7 @@ bash run_shortcuts/setup_ears.sh
 bash run_shortcuts/run_ears.sh
 ```
 
-### 5. Start the Nexus Engine
+### 5. Start the Sei Engine
 
 ```bash
 # In a separate terminal — restarts in ~0.1s for fast iteration
@@ -164,7 +164,7 @@ npm run tauri build
 
 ## Connecting
 
-1. Start all server services (LLM, ears daemon, nexus engine, Fish Speech)
+1. Start all server services (LLM, ears daemon, sei engine, Fish Speech)
 2. Start the client (dev server or Tauri app)
 3. Enter the WebSocket URL:
    - Local: `ws://SERVER_IP:5052`

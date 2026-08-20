@@ -24,3 +24,6 @@ gmail_token.json
 gmail_credentials.json
 client_secret_*.json
 .venv/
+
+# Planning artifacts — local only, contain machine names and network details
+.planning/

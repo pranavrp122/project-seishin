@@ -7,7 +7,7 @@ set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <server-tailscale-ip>"
-    echo "  Default: <SERVER_IP>"
+    echo "  Find yours with: tailscale ip -4"
     exit 1
 fi
 

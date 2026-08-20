@@ -1,0 +1,11 @@
+This model is licensed under the Fish Audio Research License, Copyright © 39 AI, INC. All Rights Reserved.
+
+The above attribution applies to the Fish Audio Materials vendored under `fish-speech/`.
+A copy of the Fish Audio Research License Agreement is included at `fish-speech/LICENSE`.
+
+The Fish Audio Materials have been modified as part of this project. Modifications
+include inference and API server scripts added under `fish-speech/` for streaming
+synthesis, plus configuration changes for this project's deployment.
+
+All other code in this repository is the work of the Project Seishin authors and is
+not covered by the Fish Audio Research License.

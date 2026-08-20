@@ -184,3 +184,12 @@ npm run tauri build
 6. Fish Speech generates TTS audio, streamed back to client as PCM chunks
 7. Client plays audio in real-time
 8. If user starts speaking during playback, the server interrupts generation and TTS immediately
+
+## Attribution
+
+Built with Fish Audio.
+
+Text-to-speech is provided by [Fish Speech](https://github.com/fishaudio/fish-speech), vendored
+under `fish-speech/` and licensed under the Fish Audio Research License — research and
+non-commercial use only. Commercial use requires a separate license from Fish Audio. See
+[`NOTICE`](NOTICE) and [`fish-speech/LICENSE`](fish-speech/LICENSE) for the full terms.
